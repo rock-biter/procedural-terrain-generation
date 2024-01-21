@@ -3,9 +3,8 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
 import { FlyControls } from 'three/examples/jsm/controls/FlyControls'
 import * as dat from 'lil-gui'
-import { createNoise2D } from 'simplex-noise'
-import Chunk from './chunk'
-import ChunkManager from './chunkManager'
+import Chunk from './src/chunk'
+import ChunkManager from './src/chunkManager'
 
 /**
  * Debug
@@ -15,8 +14,8 @@ const gui = new dat.GUI()
 const params = {
 	amplitude: 23,
 	frequency: {
-		x: 1,
-		z: 1,
+		x: 0.5,
+		z: 0.5,
 	},
 	xOffset: 0,
 	zOffset: 0,
@@ -27,13 +26,19 @@ const params = {
 	fog: 0x191362,
 }
 
+const uniforms = {
+	uTime: { value: 0 },
+	uRocksColor: { value: new THREE.Color('brown') },
+	uCamera: { value: new THREE.Vector3() },
+}
+
 gui.addColor(params, 'fog').onChange((val) => {
 	scene.background.set(val)
 	scene.fog.color.set(val)
 })
 
 gui
-	.add(params, 'amplitude', 0, 30, 0.1)
+	.add(params, 'amplitude', 0, 100, 0.1)
 	.onChange(() => chunkManager.onParamsChange())
 // gui.add(params, 'LOD', 0, 4, 1).onChange((val) => chunk.updateLOD(val))
 gui
@@ -87,9 +92,14 @@ const sizes = {
  * Camera
  */
 const fov = 60
-const camera = new THREE.PerspectiveCamera(fov, sizes.width / sizes.height, 0.1)
-camera.position.set(100, 100, 100)
-camera.lookAt(new THREE.Vector3(0, 2.5, 0))
+const camera = new THREE.PerspectiveCamera(
+	fov,
+	sizes.width / sizes.height,
+	0.1,
+	10000
+)
+camera.position.set(100, 40, 100)
+camera.lookAt(new THREE.Vector3(0, 30, 0))
 
 /**
  * Show the axes of coordinates system
@@ -112,60 +122,23 @@ handleResize()
  */
 const controls = new OrbitControls(camera, renderer.domElement)
 controls.enableDamping = true
+controls.screenSpacePanning = false
 // const controls = new FlyControls(camera, renderer.domElement)
-// controls.movementSpeed = 35
-// controls.rollSpeed = 0.5
+// controls.movementSpeed = 50
+// controls.rollSpeed = 0.75
 
 /**
  * Terrain chunk
  */
-const chunkSize = 100
+const chunkSize = 256
 
-const plane = new THREE.PlaneGeometry(240, 240, 240, 240)
-plane.rotateX(-Math.PI * 0.5)
-const material = new THREE.MeshStandardMaterial({
-	wireframe: true,
-	color: 'lightblue',
-})
-
-// const chunk = new THREE.Mesh(plane, material)
-
-const noise = createNoise2D()
-const chunk = new Chunk(chunkSize, noise, params, params.LOD)
-
-const chunkManager = new ChunkManager(chunkSize, camera, noise, params, scene)
-
-// function generateTerrainOf(geometry, noiseFn) {
-// 	const posAttr = geometry.getAttribute('position')
-// 	const { x: fx, z: fz } = params.frequency
-
-// 	for (let i = 0; i < posAttr.count; i++) {
-// 		const x = posAttr.getX(i)
-// 		const z = posAttr.getZ(i)
-
-// 		let h = 0
-
-// 		for (let j = 0; j < params.octaves; j++) {
-// 			const octave = j
-// 			const amplitude = params.amplitude * params.persistance ** octave
-// 			const lacunarity = params.lacunarity ** octave
-
-// 			h +=
-// 				noiseFn(x * 0.01 * fx * lacunarity, z * 0.01 * fz * lacunarity) *
-// 				amplitude
-// 		}
-
-// 		posAttr.setY(i, h)
-// 	}
-
-// 	posAttr.needsUpdate = true
-
-// 	geometry.computeVertexNormals()
-// }
-
-// generateTerrainOf(plane, noise)
-
-// scene.add(chunk)
+const chunkManager = new ChunkManager(
+	chunkSize,
+	camera,
+	params,
+	scene,
+	uniforms
+)
 
 /**
  * Lights
@@ -180,7 +153,7 @@ scene.add(ambientLight, directionalLight)
  */
 const clock = new THREE.Clock()
 
-scene.fog = new THREE.Fog(params.fog, 100, 450)
+scene.fog = new THREE.Fog(params.fog, 250, 900)
 scene.background = new THREE.Color(params.fog)
 
 /**
@@ -194,7 +167,11 @@ function tic() {
 	/**
 	 * tempo totale trascorso dall'inizio
 	 */
-	// const time = clock.getElapsedTime()
+	const time = clock.getElapsedTime()
+
+	// update uniforms values
+	uniforms.uTime.value = time
+	uniforms.uCamera.value.copy(camera.position)
 
 	chunkManager.updateChunks()
 
