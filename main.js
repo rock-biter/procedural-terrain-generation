@@ -135,7 +135,7 @@ const axesHelper = new THREE.AxesHelper(3)
  * renderer
  */
 const renderer = new THREE.WebGLRenderer({
-	antialias: window.devicePixelRatio < 2,
+	antialias: true, //window.devicePixelRatio < 2,
 	logarithmicDepthBuffer: true,
 })
 document.body.appendChild(renderer.domElement)
