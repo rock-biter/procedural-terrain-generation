@@ -5,6 +5,27 @@ import { FlyControls } from 'three/examples/jsm/controls/FlyControls'
 import * as dat from 'lil-gui'
 import Chunk from './src/chunk'
 import ChunkManager from './src/chunkManager'
+import { getHeight } from './src/chunk'
+import Plane from './src/plane'
+import airplane from '/airplane/scene.gltf?url'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
+
+const gltfLoader = new GLTFLoader()
+
+gltfLoader.load(airplane, (gltf) => {
+	gltf.scene.traverse((el) => {
+		if (el instanceof THREE.Mesh) {
+			el.scale.setScalar(0.005)
+			el.geometry.center()
+			el.geometry.rotateX(-Math.PI * 0.5)
+			el.name = 'plane'
+			plane.model = el
+			plane.add(el)
+		}
+	})
+
+	// console.log(gltf.scene)
+})
 
 /**
  * Debug
@@ -98,8 +119,8 @@ const camera = new THREE.PerspectiveCamera(
 	0.1,
 	10000
 )
-camera.position.set(100, 40, 100)
-camera.lookAt(new THREE.Vector3(0, 30, 0))
+camera.position.set(0, 10, -20)
+camera.lookAt(new THREE.Vector3(0, 5, 0))
 
 /**
  * Show the axes of coordinates system
@@ -120,25 +141,30 @@ handleResize()
 /**
  * OrbitControls
  */
-const controls = new OrbitControls(camera, renderer.domElement)
-controls.enableDamping = true
-controls.screenSpacePanning = false
+// const controls = new OrbitControls(camera, renderer.domElement)
+// controls.enableDamping = true
+// controls.screenSpacePanning = false
 // const controls = new FlyControls(camera, renderer.domElement)
 // controls.movementSpeed = 50
 // controls.rollSpeed = 0.75
+
+/**
+ * Plane
+ */
+
+const plane = new Plane()
 
 /**
  * Terrain chunk
  */
 const chunkSize = 256
 
-const chunkManager = new ChunkManager(
-	chunkSize,
-	camera,
-	params,
-	scene,
-	uniforms
-)
+const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
+
+plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 50
+scene.add(plane)
+plane.camera = camera
+plane.add(camera)
 
 /**
  * Lights
@@ -155,6 +181,7 @@ const clock = new THREE.Clock()
 
 scene.fog = new THREE.Fog(params.fog, 250, 900)
 scene.background = new THREE.Color(params.fog)
+// scene.background = new THREE.Color('white')
 
 /**
  * frame loop
@@ -169,13 +196,19 @@ function tic() {
 	 */
 	const time = clock.getElapsedTime()
 
+	plane.update(deltaTime)
+	// camera.position.copy(plane.position.clone())
+	// camera.position.z += -20
+	// camera.position.y += 10
+	// camera.lookAt(plane.position)
+
 	// update uniforms values
 	uniforms.uTime.value = time
-	uniforms.uCamera.value.copy(camera.position)
+	uniforms.uCamera.value.copy(plane.position)
 
 	chunkManager.updateChunks()
 
-	controls.update(deltaTime)
+	// controls.update(deltaTime)
 
 	renderer.render(scene, camera)
 

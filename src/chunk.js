@@ -160,37 +160,35 @@ export default class Chunk extends Mesh {
 			const x = posAttr.getX(i) + this.position.x
 			const z = posAttr.getZ(i) + this.position.z
 
-			let h = 0
+			let h = getHeight(x, z, this.noise, this.params)
 
-			for (let j = 0; j < this.params.octaves; j++) {
-				const octave = j
-				const amplitude =
-					this.params.amplitude * this.params.persistance ** octave
-				const lacunarity = this.params.lacunarity ** octave
+			// for (let j = 0; j < this.params.octaves; j++) {
+			// 	const octave = j
+			// 	const amplitude =
+			// 		this.params.amplitude * this.params.persistance ** octave
+			// 	const lacunarity = this.params.lacunarity ** octave
 
-				let increment = this.noise[j](
-					x * 0.01 * fx * lacunarity,
-					z * 0.01 * fz * lacunarity
-				)
+			// 	let increment = this.noise[j](
+			// 		x * 0.01 * fx * lacunarity,
+			// 		z * 0.01 * fz * lacunarity
+			// 	)
 
-				increment *= increment
-				h += increment * amplitude
-			}
+			// 	increment *= increment
+			// 	h += increment * amplitude
+			// }
 
-			let l = this.noise[0](x * 0.001, z * 0.001)
-			// l *= l
-			l -= 0.5
-			l *= this.params.amplitude * 3
-			// const pct = MathUtils.smoothstep(l, 0, 1)
-			// h = MathUtils.lerp(l, h, pct)
+			// let l = this.noise[0](x * 0.001, z * 0.001)
+			// // l *= l
+			// l -= 0.5
+			// l *= this.params.amplitude * 3
+			// // const pct = MathUtils.smoothstep(l, 0, 1)
+			// // h = MathUtils.lerp(l, h, pct)
 
-			h += l
+			// h += l
 
-			h += this.applyCurvature(x, z)
-
-			if (isNaN(h)) {
-				console.log('h is NaN')
-			}
+			// if (isNaN(h)) {
+			// 	console.log('h is NaN')
+			// }
 
 			// if (h <= 0) {
 			// 	h /= 3 - h / 2
@@ -215,4 +213,34 @@ export default class Chunk extends Mesh {
 		// return diff
 		return 0
 	}
+}
+
+export function getHeight(x, z, noises, params) {
+	let h = 0
+	const { x: fx, z: fz } = params.frequency
+
+	for (let j = 0; j < params.octaves; j++) {
+		const octave = j
+		const amplitude = params.amplitude * params.persistance ** octave
+		const lacunarity = params.lacunarity ** octave
+
+		let increment = noises[j](
+			x * 0.01 * fx * lacunarity,
+			z * 0.01 * fz * lacunarity
+		)
+
+		increment *= increment
+		h += increment * amplitude
+	}
+
+	let l = noises[0](x * 0.001, z * 0.001)
+	// l *= l
+	l -= 0.5
+	l *= params.amplitude * 3
+	// const pct = MathUtils.smoothstep(l, 0, 1)
+	// h = MathUtils.lerp(l, h, pct)
+
+	h += l
+
+	return h
 }

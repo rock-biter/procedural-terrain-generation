@@ -1,0 +1,11 @@
+Model Information:
+* title:	Airplane
+* source:	https://sketchfab.com/3d-models/airplane-809c6b124b384fbcb9dd8a6f30661af3
+* author:	TheTime1337 (https://sketchfab.com/TheTime1337)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Airplane" (https://sketchfab.com/3d-models/airplane-809c6b124b384fbcb9dd8a6f30661af3) by TheTime1337 (https://sketchfab.com/TheTime1337) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
