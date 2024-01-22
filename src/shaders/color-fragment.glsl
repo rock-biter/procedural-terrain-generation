@@ -12,19 +12,22 @@
 		float pct = step(wPosition.y + sin(wPosition.x * 0.3) * 0.6 + cos(wPosition.z * 0.3) * 0.6,1.7);
 
 	  diffuseColor.rgb = mix(vec3(0.,0.,0.),diffuseColor.rgb,pctLine);
-	  diffuseColor.rgb = mix(vec3(0.1,0.4,0.),diffuseColor.rgb,pct);
+	  // diffuseColor.rgb = mix(vec3(0.1,0.4,0.),diffuseColor.rgb,pct);
+	  diffuseColor.rgb = mix(uGrass,diffuseColor.rgb,pct);
 
 		// orange
 		pctLine = step(wPosition.y + sin(wPosition.x * 0.1) * 1.6 + cos(wPosition.z * 0.1) * 1.6 ,14.);
 	  float pct2 = step(wPosition.y + sin(wPosition.x * 0.1) * 1.6 + cos(wPosition.z * 0.1) * 1.6 ,14.1);
 		diffuseColor.rgb = mix(vec3(0.,0.,0.),diffuseColor.rgb,pctLine);
-	  diffuseColor.rgb = mix(vec3(0.8,0.3,0.),diffuseColor.rgb,pct2);
+	  // diffuseColor.rgb = mix(vec3(0.8,0.3,0.),diffuseColor.rgb,pct2);
+	  diffuseColor.rgb = mix(uLand,diffuseColor.rgb,pct2);
 
 		// brown
 		pctLine = step(wPosition.y + sin(wPosition.x * 0.15) * 2.5 + cos(wPosition.z * 0.15) * 2.5,22.);
 		float pctRock = step(wPosition.y + sin(wPosition.x * 0.15) * 2.5 + cos(wPosition.z * 0.15) * 2.5,22.2);
 	  diffuseColor.rgb = mix(vec3(0.0,0.0,0.0),diffuseColor.rgb,pctLine);
-	  diffuseColor.rgb = mix(vec3(0.09,0.05,0.01),diffuseColor.rgb,pctRock);
+	  // diffuseColor.rgb = mix(vec3(0.09,0.05,0.01),diffuseColor.rgb,pctRock);
+	  diffuseColor.rgb = mix(uRocks,diffuseColor.rgb,pctRock);
 
 		// snow
 	  pctLine = step(wPosition.y + sin(wPosition.x * 0.15) * 5. + cos(wPosition.z * 0.15) * 5.,40.);

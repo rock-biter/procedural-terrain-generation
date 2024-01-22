@@ -71,6 +71,7 @@ export default class Chunk extends Mesh {
 		this.LOD = LOD
 		this.params = params
 		this.uniforms = uniforms
+		this.uniforms.uCurvature = { value: CURVATURE }
 
 		sea.scale.setScalar(size)
 
@@ -83,18 +84,18 @@ export default class Chunk extends Mesh {
 		// console.log(this)
 		this.parent.remove(this)
 		this.geometry.dispose()
+		this.trees && this.trees.dispose()
 	}
 
 	onBeforeCompile() {
 		this.material.onBeforeCompile = (shader) => {
-			const { fragmentShader, vertexShader } = shader
-			console.log(fragmentShader)
+			// const { fragmentShader, vertexShader } = shader
+			// console.log(fragmentShader)
 
 			if (this.uniforms) {
 				shader.uniforms = {
 					...shader.uniforms,
 					...this.uniforms,
-					uCurvature: { value: CURVATURE },
 				}
 			}
 
@@ -155,6 +156,7 @@ export default class Chunk extends Mesh {
 	}
 
 	updateGeometry() {
+		this.treesPositionArray = []
 		const posAttr = this.geometry.getAttribute('position')
 		const heightAttr = this.createHeightAttribute()
 
@@ -166,7 +168,7 @@ export default class Chunk extends Mesh {
 
 			let h = getHeight(x, z, this.noise, this.params)
 
-			this.addTree(x, h, z)
+			// this.addTree(x, h, z)
 
 			heightAttr.setX(i, h)
 			posAttr.setY(i, Math.max(h, -1))
@@ -177,26 +179,47 @@ export default class Chunk extends Mesh {
 		// TODO calcolare a mano le normali con prodotto vettoriale
 		this.geometry.computeVertexNormals()
 
-		this.createTreesMesh()
+		// this.createTreesMesh()
+		if (!this.trees && this.LOD <= 2) this.generateTrees()
 	}
 
 	createTreesMesh() {
-		console.log(this.treesPositionArray, this.treesCount)
+		// console.log(this.treesPositionArray, this.treesCount)
 
 		const position = new BufferAttribute(
 			new Float32Array(this.treesPositionArray),
 			3
 		)
 
-		this.trees = new Trees(position)
+		this.trees = new Trees(position, this.uniforms)
 		// console.log(this.trees)
+		if (this.trees) {
+			this.remove(this.trees)
+			this.trees.dispose()
+		}
 		this.add(this.trees)
 	}
 
-	addTree(x, y, z) {
-		const n = this.noise[0](x * 0.01, z * 0.01)
+	generateTrees() {
+		const half = this.size
+		for (let i = 0; i < this.size; i += 5) {
+			for (let j = 0; j < this.size; j += 5) {
+				const x = i + this.position.x - half
+				const z = j + this.position.z - half
+				let h = getHeight(x, z, this.noise, this.params)
 
-		if (n > 0 && y > 5) {
+				this.addTree(x, h, z)
+			}
+		}
+
+		this.createTreesMesh()
+	}
+
+	addTree(x, y, z) {
+		const n =
+			this.noise[0](x * 0.005, z * 0.005) + this.noise[1](x * 0.05, z * 0.05)
+
+		if (n > -0.5 && y > 4 && y < 42 && Math.random() < n + 0.3) {
 			this.treesPositionArray.push(
 				x - this.position.x,
 				y + 1,

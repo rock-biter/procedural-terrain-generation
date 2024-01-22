@@ -31,7 +31,7 @@ gltfLoader.load(airplane, (gltf) => {
  * Debug
  */
 let gui
-// gui = new dat.GUI()
+gui = new dat.GUI()
 
 const params = {
 	amplitude: 23,
@@ -46,18 +46,38 @@ const params = {
 	persistance: 0.5,
 	LOD: 0,
 	fog: 0x191362,
+	colors: {
+		uGrass: '#6d976d',
+		uLand: '#5e551d',
+		uRocks: '#521f00',
+	},
 }
 
 const uniforms = {
 	uTime: { value: 0 },
 	uRocksColor: { value: new THREE.Color('brown') },
 	uCamera: { value: new THREE.Vector3() },
+	uLand: { value: new THREE.Color(params.colors.uLand) },
+	uGrass: { value: new THREE.Color(params.colors.uGrass) },
+	uRocks: { value: new THREE.Color(params.colors.uRocks) },
 }
 
 if (gui) {
 	gui.addColor(params, 'fog').onChange((val) => {
 		scene.background.set(val)
 		scene.fog.color.set(val)
+	})
+
+	gui.addColor(params.colors, 'uGrass').onChange((val) => {
+		uniforms.uGrass.value.set(val)
+	})
+
+	gui.addColor(params.colors, 'uLand').onChange((val) => {
+		uniforms.uLand.value.set(val)
+	})
+
+	gui.addColor(params.colors, 'uRocks').onChange((val) => {
+		uniforms.uRocks.value.set(val)
 	})
 
 	gui
@@ -144,9 +164,9 @@ handleResize()
 /**
  * OrbitControls
  */
-const controls = new OrbitControls(camera, renderer.domElement)
-controls.enableDamping = true
-controls.screenSpacePanning = false
+// const controls = new OrbitControls(camera, renderer.domElement)
+// controls.enableDamping = true
+// controls.screenSpacePanning = false
 // const controls = new FlyControls(camera, renderer.domElement)
 // controls.movementSpeed = 50
 // controls.rollSpeed = 0.75
@@ -167,7 +187,7 @@ const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
 plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 scene.add(plane)
 plane.camera = camera
-// plane.add(camera)
+plane.add(camera)
 
 /**
  * Lights
@@ -199,7 +219,7 @@ function tic() {
 	 */
 	const time = clock.getElapsedTime()
 
-	// plane.update(deltaTime)
+	plane.update(deltaTime)
 	// camera.position.copy(plane.position.clone())
 	// camera.position.z += -20
 	// camera.position.y += 10
@@ -211,7 +231,7 @@ function tic() {
 
 	chunkManager.updateChunks()
 
-	controls.update(deltaTime)
+	// controls.update(deltaTime)
 
 	renderer.render(scene, camera)
 
