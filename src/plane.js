@@ -72,5 +72,13 @@ export default class Plane extends Object3D {
 
 			this.cursor.set(x, y)
 		})
+
+		window.addEventListener('touchstart', (e) => {
+			const touch = e.touches[0]
+			const x = (touch.clientX / innerWidth) * 2 - 1
+			const y = -(touch.clientY / innerHeight) * 2 + 1
+
+			this.cursor.set(x, y)
+		})
 	}
 }

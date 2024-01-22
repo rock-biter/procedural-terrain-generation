@@ -30,7 +30,8 @@ gltfLoader.load(airplane, (gltf) => {
 /**
  * Debug
  */
-const gui = new dat.GUI()
+let gui
+// gui = new dat.GUI()
 
 const params = {
 	amplitude: 23,
@@ -53,40 +54,42 @@ const uniforms = {
 	uCamera: { value: new THREE.Vector3() },
 }
 
-gui.addColor(params, 'fog').onChange((val) => {
-	scene.background.set(val)
-	scene.fog.color.set(val)
-})
+if (gui) {
+	gui.addColor(params, 'fog').onChange((val) => {
+		scene.background.set(val)
+		scene.fog.color.set(val)
+	})
 
-gui
-	.add(params, 'amplitude', 0, 100, 0.1)
-	.onChange(() => chunkManager.onParamsChange())
-// gui.add(params, 'LOD', 0, 4, 1).onChange((val) => chunk.updateLOD(val))
-gui
-	.add(params, 'octaves', 1, 10, 1)
-	.onChange(() => chunkManager.onParamsChange())
-gui
-	.add(params, 'persistance', 0, 1, 0.05)
-	.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params, 'amplitude', 0, 100, 0.1)
+		.onChange(() => chunkManager.onParamsChange())
+	// gui.add(params, 'LOD', 0, 4, 1).onChange((val) => chunk.updateLOD(val))
+	gui
+		.add(params, 'octaves', 1, 10, 1)
+		.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params, 'persistance', 0, 1, 0.05)
+		.onChange(() => chunkManager.onParamsChange())
 
-gui
-	.add(params, 'lacunarity', 1, 5, 0.5)
-	.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params, 'lacunarity', 1, 5, 0.5)
+		.onChange(() => chunkManager.onParamsChange())
 
-gui
-	.add(params.frequency, 'x', 0.01, 2, 0.01)
-	.onChange(() => chunkManager.onParamsChange())
-	.onChange(() => chunkManager.onParamsChange())
-gui
-	.add(params.frequency, 'z', 0.01, 2, 0.01)
-	.onChange(() => chunkManager.onParamsChange())
-gui
-	.add(params, 'xOffset', -10, 10, 0.1)
-	.onChange(() => chunkManager.onParamsChange())
-	.onChange(() => chunkManager.onParamsChange())
-gui
-	.add(params, 'zOffset', -10, 10, 0.1)
-	.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params.frequency, 'x', 0.01, 2, 0.01)
+		.onChange(() => chunkManager.onParamsChange())
+		.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params.frequency, 'z', 0.01, 2, 0.01)
+		.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params, 'xOffset', -10, 10, 0.1)
+		.onChange(() => chunkManager.onParamsChange())
+		.onChange(() => chunkManager.onParamsChange())
+	gui
+		.add(params, 'zOffset', -10, 10, 0.1)
+		.onChange(() => chunkManager.onParamsChange())
+}
 
 /**
  * Scene
