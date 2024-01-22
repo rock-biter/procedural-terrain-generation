@@ -11,7 +11,7 @@ const V3 = new Vector3(0, 0, 0)
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 20)
-	speed = 30
+	speed = 40
 	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
 

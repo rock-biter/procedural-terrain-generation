@@ -122,7 +122,7 @@ const camera = new THREE.PerspectiveCamera(
 	0.1,
 	10000
 )
-camera.position.set(0, 10, -20)
+camera.position.set(0, 7, -20)
 camera.lookAt(new THREE.Vector3(0, 5, 0))
 
 /**
