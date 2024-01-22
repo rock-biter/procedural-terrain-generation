@@ -8,6 +8,6 @@
 
 
     //atmosphere
-		diffuseColor.rgb = mix(vec3(min(0.1,diffuseColor.r),min(0.015,diffuseColor.g),min(0.02,diffuseColor.b)),diffuseColor.rgb,smoothstep(700.,400.,distanceFromCamera));
+		diffuseColor.rgb = mix(vec3(min(0.1,diffuseColor.r),min(0.015,diffuseColor.g),min(0.02,diffuseColor.b)),diffuseColor.rgb,smoothstep(900.,400.,distanceFromCamera));
 
-    diffuseColor.a *= smoothstep(600.,200.,distanceFromCamera);
+    diffuseColor.a *= smoothstep(1200.,300.,distanceFromCamera);

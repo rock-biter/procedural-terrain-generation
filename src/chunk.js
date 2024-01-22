@@ -17,6 +17,7 @@ import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import Trees from './trees'
+import Clouds from './clouds'
 
 const loader = new TextureLoader()
 const normalMap = loader.load(fabricSrc)
@@ -49,6 +50,8 @@ const V2 = new Vector2(0, 0)
 export default class Chunk extends Mesh {
 	treesPositionArray = []
 	treesCount = 0
+	cloudsPositionArray = []
+	cloudsCount = 0
 
 	constructor(
 		size,
@@ -181,6 +184,7 @@ export default class Chunk extends Mesh {
 
 		// this.createTreesMesh()
 		if (!this.trees && this.LOD <= 2) this.generateTrees()
+		if (!this.clouds) this.generateClouds()
 	}
 
 	createTreesMesh() {
@@ -226,6 +230,51 @@ export default class Chunk extends Mesh {
 				z - this.position.z
 			)
 			this.treesCount++
+		}
+	}
+
+	generateClouds() {
+		const half = this.size
+		for (let i = 0; i < this.size; i += 1) {
+			for (let j = 0; j < this.size; j += 1) {
+				const x = i + this.position.x - half
+				const z = j + this.position.z - half
+
+				this.addCloud(x, z)
+			}
+		}
+
+		this.createCloudsMesh()
+	}
+
+	createCloudsMesh() {
+		const position = new BufferAttribute(
+			new Float32Array(this.cloudsPositionArray),
+			3
+		)
+
+		this.clouds = new Clouds(position, this.uniforms)
+		// console.log(this.trees)
+		if (this.clouds) {
+			this.remove(this.clouds)
+			this.clouds.dispose()
+		}
+		this.add(this.clouds)
+		this.clouds.material.normalMap = normalMap
+	}
+
+	addCloud(x, z) {
+		let n = this.noise[0](x * 0.005, z * 0.005) + this.noise[1](x * 10, z * 10)
+
+		n *= n
+
+		if (n > 3.3 && Math.random() > 0.1) {
+			this.cloudsPositionArray.push(
+				x - this.position.x,
+				100,
+				z - this.position.z
+			)
+			this.cloudsCount++
 		}
 	}
 

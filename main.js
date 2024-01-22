@@ -31,7 +31,7 @@ gltfLoader.load(airplane, (gltf) => {
  * Debug
  */
 let gui
-gui = new dat.GUI()
+// gui = new dat.GUI()
 
 const params = {
 	amplitude: 23,
@@ -143,6 +143,7 @@ const camera = new THREE.PerspectiveCamera(
 	10000
 )
 camera.position.set(0, 7, -18)
+// camera.position.set(0, 300, -18)
 camera.lookAt(new THREE.Vector3(0, 5, 0))
 
 /**

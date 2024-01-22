@@ -10,17 +10,18 @@ import {
 	SphereGeometry,
 	Vector3,
 } from 'three'
-import projectVertex from './shaders/project-instanced-vertex.glsl'
-import colorFragment from './shaders/color-instanced-fragment.glsl'
+import projectVertexClouds from './shaders/project-vertex-clouds.glsl'
+import colorFragmentClouds from './shaders/color-instanced-fragment-clouds.glsl'
+import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import common from './shaders/common.glsl'
 
-const material = new MeshStandardMaterial({ color: '' })
+const material = new MeshStandardMaterial({ transparent: true, opacity: 0.99 })
 
-export default class Trees extends InstancedMesh {
+export default class Clouds extends InstancedMesh {
 	constructor(position, uniforms) {
 		const count = position.count
 		console.log(position)
-		const geometry = new IcosahedronGeometry(1, 5)
+		const geometry = new IcosahedronGeometry(2, 10)
 
 		super(geometry, material, count)
 		this.bufferPosition = position
@@ -47,7 +48,7 @@ export default class Trees extends InstancedMesh {
 			)
 			shader.vertexShader = shader.vertexShader.replace(
 				'#include <project_vertex>',
-				projectVertex
+				projectVertexClouds
 			)
 
 			shader.fragmentShader = shader.fragmentShader.replace(
@@ -56,7 +57,12 @@ export default class Trees extends InstancedMesh {
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <color_fragment>',
-				colorFragment
+				colorFragmentClouds
+			)
+
+			shader.fragmentShader = shader.fragmentShader.replace(
+				'#include <normal_fragment_maps>',
+				normalFragmentMap
 			)
 		}
 	}
@@ -69,20 +75,16 @@ export default class Trees extends InstancedMesh {
 
 		for (let i = 0; i < this.bufferPosition.count; i++) {
 			const x = this.bufferPosition.getX(i) + MathUtils.randFloat(-1, 1)
-			const y = this.bufferPosition.getY(i)
+			const y = this.bufferPosition.getY(i) + MathUtils.randFloat(-5, 5)
 			const z = this.bufferPosition.getZ(i) + MathUtils.randFloat(-1, 1)
 
 			position.set(x, y + 0.5, z)
-			scale.setScalar(Math.random() * 1.8 + 0.3)
-			scale.y += Math.random() * 2
+			scale.setScalar(Math.random() * 4 + 0.6)
 
 			matrix.compose(position, quaternion, scale)
 
 			this.setMatrixAt(i, matrix)
-			this.setColorAt(
-				i,
-				new Color(0x557733).multiplyScalar(Math.random() * 0.8 + 0.4)
-			)
+			this.setColorAt(i, new Color(0x555555))
 		}
 	}
 }

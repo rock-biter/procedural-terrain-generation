@@ -86,7 +86,7 @@ export default class Plane extends Object3D {
 			const x = (touch.clientX / innerWidth) * 2 - 1
 			const y = -(touch.clientY / innerHeight) * 2 + 1
 
-			this.cursor.set(x / 2, y)
+			this.cursor.set(x / 1.5, y)
 		})
 	}
 }
