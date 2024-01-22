@@ -234,9 +234,22 @@ export function getHeight(x, z, noises, params) {
 	}
 
 	let l = noises[0](x * 0.001, z * 0.001)
+
 	// l *= l
 	l -= 0.5
-	l *= params.amplitude * 3
+	let n = l
+	l *= params.amplitude * 3.5
+	let pct = noises[1](x * 0.0005, z * 0.0005) - 0.5
+	pct
+	l = MathUtils.lerp(
+		l,
+		(MathUtils.smoothstep(pct, 0.5, 1) - 0.5) * params.amplitude * 2,
+		1 - MathUtils.smoothstep(n, -1, -0.3)
+	)
+
+	// console.log(n)
+	// params.amplitude * 3 +
+
 	// const pct = MathUtils.smoothstep(l, 0, 1)
 	// h = MathUtils.lerp(l, h, pct)
 

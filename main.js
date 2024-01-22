@@ -122,7 +122,7 @@ const camera = new THREE.PerspectiveCamera(
 	0.1,
 	10000
 )
-camera.position.set(0, 7, -20)
+camera.position.set(0, 7, -18)
 camera.lookAt(new THREE.Vector3(0, 5, 0))
 
 /**
@@ -164,7 +164,7 @@ const chunkSize = 256
 
 const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
 
-plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 50
+plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 scene.add(plane)
 plane.camera = camera
 plane.add(camera)
