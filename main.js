@@ -144,9 +144,9 @@ handleResize()
 /**
  * OrbitControls
  */
-// const controls = new OrbitControls(camera, renderer.domElement)
-// controls.enableDamping = true
-// controls.screenSpacePanning = false
+const controls = new OrbitControls(camera, renderer.domElement)
+controls.enableDamping = true
+controls.screenSpacePanning = false
 // const controls = new FlyControls(camera, renderer.domElement)
 // controls.movementSpeed = 50
 // controls.rollSpeed = 0.75
@@ -167,7 +167,7 @@ const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
 plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 scene.add(plane)
 plane.camera = camera
-plane.add(camera)
+// plane.add(camera)
 
 /**
  * Lights
@@ -199,7 +199,7 @@ function tic() {
 	 */
 	const time = clock.getElapsedTime()
 
-	plane.update(deltaTime)
+	// plane.update(deltaTime)
 	// camera.position.copy(plane.position.clone())
 	// camera.position.z += -20
 	// camera.position.y += 10
@@ -211,7 +211,7 @@ function tic() {
 
 	chunkManager.updateChunks()
 
-	// controls.update(deltaTime)
+	controls.update(deltaTime)
 
 	renderer.render(scene, camera)
 

@@ -16,6 +16,7 @@ import projectVertex from './shaders/project-vertex.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
+import Trees from './trees'
 
 const loader = new TextureLoader()
 const normalMap = loader.load(fabricSrc)
@@ -46,6 +47,9 @@ const CURVATURE = 3000
 const V2 = new Vector2(0, 0)
 
 export default class Chunk extends Mesh {
+	treesPositionArray = []
+	treesCount = 0
+
 	constructor(
 		size,
 		noise,
@@ -162,37 +166,7 @@ export default class Chunk extends Mesh {
 
 			let h = getHeight(x, z, this.noise, this.params)
 
-			// for (let j = 0; j < this.params.octaves; j++) {
-			// 	const octave = j
-			// 	const amplitude =
-			// 		this.params.amplitude * this.params.persistance ** octave
-			// 	const lacunarity = this.params.lacunarity ** octave
-
-			// 	let increment = this.noise[j](
-			// 		x * 0.01 * fx * lacunarity,
-			// 		z * 0.01 * fz * lacunarity
-			// 	)
-
-			// 	increment *= increment
-			// 	h += increment * amplitude
-			// }
-
-			// let l = this.noise[0](x * 0.001, z * 0.001)
-			// // l *= l
-			// l -= 0.5
-			// l *= this.params.amplitude * 3
-			// // const pct = MathUtils.smoothstep(l, 0, 1)
-			// // h = MathUtils.lerp(l, h, pct)
-
-			// h += l
-
-			// if (isNaN(h)) {
-			// 	console.log('h is NaN')
-			// }
-
-			// if (h <= 0) {
-			// 	h /= 3 - h / 2
-			// }
+			this.addTree(x, h, z)
 
 			heightAttr.setX(i, h)
 			posAttr.setY(i, Math.max(h, -1))
@@ -202,6 +176,34 @@ export default class Chunk extends Mesh {
 
 		// TODO calcolare a mano le normali con prodotto vettoriale
 		this.geometry.computeVertexNormals()
+
+		this.createTreesMesh()
+	}
+
+	createTreesMesh() {
+		console.log(this.treesPositionArray, this.treesCount)
+
+		const position = new BufferAttribute(
+			new Float32Array(this.treesPositionArray),
+			3
+		)
+
+		this.trees = new Trees(position)
+		// console.log(this.trees)
+		this.add(this.trees)
+	}
+
+	addTree(x, y, z) {
+		const n = this.noise[0](x * 0.01, z * 0.01)
+
+		if (n > 0 && y > 5) {
+			this.treesPositionArray.push(
+				x - this.position.x,
+				y + 1,
+				z - this.position.z
+			)
+			this.treesCount++
+		}
 	}
 
 	applyCurvature(x, y) {
