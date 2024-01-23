@@ -10,7 +10,7 @@ export default class ChunkManager {
 	items = []
 	lastChunkVisited = null
 	pool = []
-	maxDistance = isMobile ? 3 : 5
+	maxDistance = isMobile ? 4 : 5
 
 	constructor(chunkSize, camera, params, scene, uniforms) {
 		this.params = params
