@@ -1,0 +1,11 @@
+Model Information:
+* title:	Boat
+* source:	https://sketchfab.com/3d-models/boat-57b1ca19f1484559b22c4b8ad408559d
+* author:	Mario Libera (https://sketchfab.com/kiolib)
+
+Model License:
+* license type:	CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)
+* requirements:	Author must be credited. Commercial use is allowed.
+
+If you use this 3D model in your project be sure to copy paste this credit wherever you share it:
+This work is based on "Boat" (https://sketchfab.com/3d-models/boat-57b1ca19f1484559b22c4b8ad408559d) by Mario Libera (https://sketchfab.com/kiolib) licensed under CC-BY-4.0 (http://creativecommons.org/licenses/by/4.0/)

@@ -1,7 +1,10 @@
 import {
+	BoxGeometry,
 	BufferAttribute,
 	MathUtils,
 	Mesh,
+	MeshBasicMaterial,
+	MeshNormalMaterial,
 	MeshStandardMaterial,
 	MultiplyBlending,
 	PlaneGeometry,
@@ -13,14 +16,18 @@ import {
 } from 'three'
 import fabricSrc from './textures/normal.jpg'
 import projectVertex from './shaders/project-vertex.glsl'
+import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import Trees from './trees'
 import Clouds from './clouds'
+import boatSrc from '/boat/scene.gltf?url'
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 
 const isMobile = window.innerWidth < 768
 const loader = new TextureLoader()
+const gltfLoader = new GLTFLoader()
 const normalMap = loader.load(fabricSrc)
 normalMap.repeat.set(6, 6)
 normalMap.wrapS = RepeatWrapping
@@ -30,23 +37,31 @@ const material = new MeshStandardMaterial({
 	color: 'lightblue',
 	normalMap,
 	normalScale: new Vector2(2, -2),
+	transparent: true,
+	opacity: 0.8,
 	// flatShading: true,
 })
 
-const sea = new Mesh(
-	new PlaneGeometry(1, 1),
-	new MeshStandardMaterial({
-		color: 0x053399,
-		transparent: true,
-		opacity: 0.5,
-		// blending: MultiplyBlending,
-	})
-)
-sea.geometry.rotateX(-Math.PI * 0.5)
+// const sea = new Mesh(
+// 	new PlaneGeometry(1, 1),
+// 	new MeshStandardMaterial({
+// 		color: 0x053399,
+// 		transparent: true,
+// 		opacity: 0.5,
+// 		// blending: MultiplyBlending,
+// 	})
+// )
+// sea.geometry.rotateX(-Math.PI * 0.5)
 // sea.geometry.translate(0.5, 0, 0.5)
 
 const CURVATURE = 3000
 const V2 = new Vector2(0, 0)
+
+let BOAT = null
+gltfLoader.load(boatSrc, (gltf) => {
+	console.log('boat', gltf)
+	BOAT = gltf
+})
 
 export default class Chunk extends Mesh {
 	treesPositionArray = []
@@ -78,7 +93,7 @@ export default class Chunk extends Mesh {
 		this.uniforms = uniforms
 		this.uniforms.uCurvature = { value: CURVATURE }
 
-		sea.scale.setScalar(size)
+		// sea.scale.setScalar(size)
 
 		this.updateGeometry()
 		this.onBeforeCompile()
@@ -92,6 +107,9 @@ export default class Chunk extends Mesh {
 		this.parent.remove(this)
 		this.geometry.dispose()
 		this.trees && this.trees.dispose()
+		if (this.boats) {
+			this.boats.forEach((el) => this.remove(el))
+		}
 	}
 
 	onBeforeCompile() {
@@ -188,6 +206,81 @@ export default class Chunk extends Mesh {
 		// this.createTreesMesh()
 		if (!this.trees && this.LOD <= 2) this.generateTrees()
 		if (!this.clouds) this.generateClouds()
+		if (!this.boats) this.addBoats()
+	}
+
+	addBoats() {
+		if (!BOAT) return
+		const boats = []
+		const n = MathUtils.randInt(0, 3)
+
+		for (let i = 0; i < n; i++) {
+			let x = 0
+			let z = 0
+			let h = 0
+
+			let attempt = 0
+
+			do {
+				x = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.x
+				z = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.z
+				h = getHeight(x, z, this.noise, this.params)
+				attempt++
+			} while ((h > -2 || h < -10) && attempt < 20)
+
+			// console.log(attempt)
+			if (attempt === 20) {
+				continue
+			}
+
+			const boat = this.createBoat(x, z)
+
+			boats.push(boat)
+		}
+		// console.log(boats)
+		this.boats = boats
+	}
+
+	createBoat(x, z) {
+		const geometry = new BoxGeometry(2, 2, 2)
+		const material = new MeshNormalMaterial()
+		// const c = new Me
+		const model = BOAT.scene.children[0].children[0]
+		model.scale.setScalar(1.3)
+		// model.scale.setScalar(0.1)
+		model.rotation.x = 0
+		const m = model.clone()
+		m.rotation.y = Math.random() * Math.PI * 2
+		m.position.set(x, 0.8, z)
+
+		// console.log(m)
+
+		m.traverse((el) => {
+			if (el instanceof Mesh) {
+				el.material.onBeforeCompile = (shader) => {
+					shader.uniforms = {
+						...shader.uniforms,
+						...this.uniforms,
+					}
+
+					shader.vertexShader = shader.vertexShader.replace(
+						'#include <common>',
+						common +
+							`
+				attribute float height;
+				`
+					)
+					shader.vertexShader = shader.vertexShader.replace(
+						'#include <project_vertex>',
+						projectVertexBoat
+					)
+				}
+			}
+		})
+
+		this.add(m)
+
+		return m
 	}
 
 	createTreesMesh() {
