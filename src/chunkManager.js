@@ -114,7 +114,7 @@ export default class ChunkManager {
 
 		const chunkKey = `${i}|${j}`
 		if (chunkKey === this.lastChunkVisited) {
-			for (let g = 0; g < 10; g++) {
+			for (let g = 0; g < 6; g++) {
 				const { callback, LOD } = this.pool.pop() || {}
 				if (callback) {
 					callback()

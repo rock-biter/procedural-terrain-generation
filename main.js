@@ -46,18 +46,38 @@ const params = {
 	persistance: 0.5,
 	LOD: 0,
 	fog: 0x191362,
+	colors: {
+		uGrass: '#6d976d',
+		uLand: '#5e551d',
+		uRocks: '#521f00',
+	},
 }
 
 const uniforms = {
 	uTime: { value: 0 },
 	uRocksColor: { value: new THREE.Color('brown') },
 	uCamera: { value: new THREE.Vector3() },
+	uLand: { value: new THREE.Color(params.colors.uLand) },
+	uGrass: { value: new THREE.Color(params.colors.uGrass) },
+	uRocks: { value: new THREE.Color(params.colors.uRocks) },
 }
 
 if (gui) {
 	gui.addColor(params, 'fog').onChange((val) => {
 		scene.background.set(val)
 		scene.fog.color.set(val)
+	})
+
+	gui.addColor(params.colors, 'uGrass').onChange((val) => {
+		uniforms.uGrass.value.set(val)
+	})
+
+	gui.addColor(params.colors, 'uLand').onChange((val) => {
+		uniforms.uLand.value.set(val)
+	})
+
+	gui.addColor(params.colors, 'uRocks').onChange((val) => {
+		uniforms.uRocks.value.set(val)
 	})
 
 	gui
@@ -123,6 +143,7 @@ const camera = new THREE.PerspectiveCamera(
 	10000
 )
 camera.position.set(0, 7, -18)
+// camera.position.set(0, 300, -18)
 camera.lookAt(new THREE.Vector3(0, 5, 0))
 
 /**

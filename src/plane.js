@@ -11,6 +11,7 @@ const V3 = new Vector3(0, 0, 0)
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 20)
+	baseSpeed = 40
 	speed = 40
 	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
@@ -30,6 +31,13 @@ export default class Plane extends Object3D {
 
 	update(dt) {
 		const nextPos = this.position.clone()
+
+		this.speed = MathUtils.lerp(
+			this.speed,
+			this.baseSpeed + (this.cursor.y + 0.5) * 30,
+			dt * 3
+		)
+
 		V3.set(0, 0, 1).multiplyScalar(this.speed * dt)
 		this.translateZ(V3.length())
 		// this.rotation.z = 0
@@ -50,7 +58,7 @@ export default class Plane extends Object3D {
 		if (this.model) {
 			this.model.rotation.z = MathUtils.lerp(
 				this.model.rotation.z,
-				Math.PI * this.cursor.x * 0.2,
+				Math.PI * this.cursor.x * 0.25,
 				dt * 5
 			)
 		}
@@ -78,7 +86,7 @@ export default class Plane extends Object3D {
 			const x = (touch.clientX / innerWidth) * 2 - 1
 			const y = -(touch.clientY / innerHeight) * 2 + 1
 
-			this.cursor.set(x / 2, y)
+			this.cursor.set(x / 1.5, y)
 		})
 	}
 }
