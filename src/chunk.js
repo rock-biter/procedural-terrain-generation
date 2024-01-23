@@ -37,8 +37,8 @@ const material = new MeshStandardMaterial({
 	color: 'lightblue',
 	normalMap,
 	normalScale: new Vector2(2, -2),
-	transparent: true,
-	opacity: 0.8,
+	// transparent: true,
+	// opacity: 0.8,
 	// flatShading: true,
 })
 
