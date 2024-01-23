@@ -2,13 +2,14 @@ import { Vector2, Vector3 } from 'three'
 import Chunk from './chunk'
 import { createNoise2D } from 'simplex-noise'
 const _V = new Vector2(0, 0)
+const isMobile = window.innerWidth < 768
 
 export default class ChunkManager {
 	chunks = {}
 	items = []
 	lastChunkVisited = null
 	pool = []
-	maxDistance = 8
+	maxDistance = isMobile ? 3 : 6
 
 	constructor(chunkSize, camera, params, scene, uniforms) {
 		this.params = params

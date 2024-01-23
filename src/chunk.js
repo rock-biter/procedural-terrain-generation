@@ -19,6 +19,7 @@ import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import Trees from './trees'
 import Clouds from './clouds'
 
+const isMobile = window.innerWidth < 768
 const loader = new TextureLoader()
 const normalMap = loader.load(fabricSrc)
 normalMap.repeat.set(6, 6)
@@ -61,7 +62,8 @@ export default class Chunk extends Mesh {
 		position = new Vector3(0, 0, 0),
 		uniforms
 	) {
-		const segments = Math.max(Math.floor(size * 0.5 ** LOD), 2) / 2
+		const density = isMobile ? 4 : 1
+		const segments = Math.max(Math.floor(size * 0.5 ** LOD), density) / density
 		const geometry = new PlaneGeometry(size, size, segments, segments)
 		geometry.rotateX(-Math.PI * 0.5)
 		// geometry.translate(size / 2, 0, size / 2)
@@ -133,7 +135,9 @@ export default class Chunk extends Mesh {
 		if (LOD === this.LOD) return
 
 		this.LOD = LOD
-		const segments = Math.max(Math.floor(this.size * 0.5 ** LOD), 2) / 2
+		const density = isMobile ? 4 : 1
+		const segments =
+			Math.max(Math.floor(this.size * 0.5 ** LOD), density) / density
 		const geometry = new PlaneGeometry(this.size, this.size, segments, segments)
 		geometry.rotateX(-Math.PI * 0.5)
 		// geometry.translate(this.size / 2, 0, this.size / 2)
@@ -205,9 +209,10 @@ export default class Chunk extends Mesh {
 	}
 
 	generateTrees() {
+		const density = isMobile ? 8 : 5
 		const half = this.size
-		for (let i = 0; i < this.size; i += 5) {
-			for (let j = 0; j < this.size; j += 5) {
+		for (let i = 0; i < this.size; i += density) {
+			for (let j = 0; j < this.size; j += density) {
 				const x = i + this.position.x - half
 				const z = j + this.position.z - half
 				let h = getHeight(x, z, this.noise, this.params)
@@ -234,6 +239,8 @@ export default class Chunk extends Mesh {
 	}
 
 	generateClouds() {
+		const density = isMobile ? 4 : 2
+
 		const half = this.size
 		for (let i = 0; i < this.size; i += 1) {
 			for (let j = 0; j < this.size; j += 1) {
