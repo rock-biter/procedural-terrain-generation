@@ -6,10 +6,11 @@ const isMobile = window.innerWidth < 768
 
 export default class ChunkManager {
 	chunks = {}
+	chunkKeys = []
 	items = []
 	lastChunkVisited = null
 	pool = []
-	maxDistance = isMobile ? 3 : 6
+	maxDistance = isMobile ? 3 : 5
 
 	constructor(chunkSize, camera, params, scene, uniforms) {
 		this.params = params
@@ -37,8 +38,8 @@ export default class ChunkManager {
 		return Math.floor(_V.set(k - i, w - j).length() * 0.7)
 	}
 
-	isOutOfRange(k, w) {
-		const [i, j] = this.getCoordsByCamera()
+	isOutOfRange(k, w, [i, j]) {
+		// const [i, j] = this.getCoordsByCamera()
 		const distance = _V.set(k - i, w - j).length()
 
 		return distance > this.maxDistance
@@ -47,14 +48,16 @@ export default class ChunkManager {
 	lookForDistantChunks() {
 		const [i, j] = this.getCoordsByCamera()
 		const keys = []
+		const validKeys = []
 
-		for (const key in this.chunks) {
+		for (const key of this.chunkKeys) {
 			const chunk = this.chunks[key]
 			const [k, w] = chunk.coords
 
-			if (this.isOutOfRange(k, w)) {
+			if (this.isOutOfRange(k, w, [i, j])) {
 				keys.push(key)
 			} else {
+				validKeys.push(key)
 				const LOD = this.getLODbyCoords(k, w)
 
 				const indexOf = this.pool.findIndex((el) => el.id === key)
@@ -72,13 +75,22 @@ export default class ChunkManager {
 			}
 		}
 
-		keys.forEach((key) => {
-			const chunk = this.chunks[key]
-			if (chunk === undefined) return
-			chunk.dispose()
+		this.chunkKeys = validKeys
+		// console.log(validKeys)
 
-			delete this.chunks[key]
-		})
+		// keys.forEach((key) => {
+		// 	const chunk = this.chunks[key]
+		// 	if (chunk === undefined) return
+
+		// 	this.pool.push({
+		// 		id: key,
+		// 		LOD: 100,
+		// 		coords: [0, 0],
+		// 		callback: () => chunk.dispose(),
+		// 	})
+
+		// 	// delete this.chunks[key]
+		// })
 
 		this.pool = this.pool.filter((el) => !keys.includes(el.key))
 	}
@@ -86,7 +98,7 @@ export default class ChunkManager {
 	createChunk(i, j, LOD) {
 		LOD = LOD || this.params.LOD
 
-		if (!this.chunks[`${i}|${j}`]) {
+		if (this.chunks[`${i}|${j}`] === undefined) {
 			const position = new Vector3(i + 0.5, 0, j + 0.5)
 			position.multiplyScalar(this.chunkSize)
 			const chunk = new Chunk(
@@ -99,6 +111,7 @@ export default class ChunkManager {
 			)
 			chunk.coords = [i, j]
 			this.chunks[`${i}|${j}`] = chunk
+			this.chunkKeys.push(`${i}|${j}`)
 			this.scene.add(chunk)
 		}
 	}
@@ -114,9 +127,9 @@ export default class ChunkManager {
 
 		let count = 0
 
-		const chunkKey = `${i}|${j}`
-		if (chunkKey === this.lastChunkVisited) {
-			for (let g = 0; g < (isMobile ? 3 : 4); g++) {
+		const currentChunkKey = `${i}|${j}`
+		if (currentChunkKey === this.lastChunkVisited) {
+			for (let g = 0; g < (isMobile ? 2 : 3); g++) {
 				const { callback, LOD } = this.pool.pop() || {}
 				if (callback) {
 					callback()
@@ -124,46 +137,79 @@ export default class ChunkManager {
 
 				count++
 
-				if (LOD <= 1 && count === 2) {
+				if (LOD <= 1 && count === 1) {
 					break
 				}
 			}
 
 			return
-		} else this.lastChunkVisited = chunkKey
+		} else {
+			// console.log('new chunk')
+			this.lastChunkVisited = currentChunkKey
+		}
 
-		console.log('ne chunk')
-
-		for (let k = i - this.maxDistance; k <= i + this.maxDistance; k++) {
-			for (let w = j - this.maxDistance; w <= j + this.maxDistance; w++) {
+		for (let k = i - this.maxDistance + 1; k <= i + this.maxDistance + 1; k++) {
+			for (
+				let w = j - this.maxDistance + 1;
+				w <= j + this.maxDistance + 1;
+				w++
+			) {
 				const key = `${k}|${w}`
 				const chunk = this.chunks[key]
 
-				if (this.isOutOfRange(k, w)) continue
+				if (this.isOutOfRange(k, w, [i, j])) {
+					if (chunk) {
+						// console.log('dispose')
+						this.disposeChunk(chunk, key)
+					}
+					continue
+				}
 
 				_V.set(k - i, w - j)
 				const LOD = this.getLODbyCoords(k, w)
 
-				const inPool = this.pool.findIndex((el) => el.key === key)
-				if (inPool >= 0) {
-					this.pool.splice(inPool, 1)
-				}
+				const indexOf = this.pool.findIndex((el) => el.id === key)
+				// const inPool = this.pool.findIndex((el) => el.key === key)
+				// if (inPool >= 0) {
+				// 	this.pool.splice(inPool, 1)
+				// }
+				let el
 
-				if (!chunk) {
+				if (chunk === undefined) {
 					// this.createChunk(k, w, LOD)
-					this.pool.push({
+					el = {
 						key,
 						coords: [k, w],
 						LOD,
 						callback: () => this.createChunk(k, w, LOD),
-					})
+					}
 
 					// this.createChunk(k, w, LOD)
+				} else {
+					// const indexOf = this.pool.findIndex((el) => el.id === key)
+					el = {
+						id: key,
+						LOD: LOD,
+						coords: [k, w],
+						callback: () => chunk.updateLOD(LOD),
+					}
+				}
+
+				if (indexOf >= 0) {
+					this.pool[indexOf] = el
+				} else {
+					this.pool.push(el)
 				}
 			}
 		}
 
-		this.lookForDistantChunks()
+		// this.lookForDistantChunks()
+	}
+
+	disposeChunk(chunk, key) {
+		chunk.dispose()
+		// delete this.chunks[key]
+		this.chunks[key] = undefined
 	}
 
 	onParamsChange(LOD) {
