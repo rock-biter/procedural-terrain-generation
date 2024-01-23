@@ -74,6 +74,7 @@ export default class ChunkManager {
 
 		keys.forEach((key) => {
 			const chunk = this.chunks[key]
+			if (chunk === undefined) return
 			chunk.dispose()
 
 			delete this.chunks[key]
@@ -115,7 +116,7 @@ export default class ChunkManager {
 
 		const chunkKey = `${i}|${j}`
 		if (chunkKey === this.lastChunkVisited) {
-			for (let g = 0; g < 6; g++) {
+			for (let g = 0; g < (isMobile ? 3 : 4); g++) {
 				const { callback, LOD } = this.pool.pop() || {}
 				if (callback) {
 					callback()
@@ -130,6 +131,8 @@ export default class ChunkManager {
 
 			return
 		} else this.lastChunkVisited = chunkKey
+
+		console.log('ne chunk')
 
 		for (let k = i - this.maxDistance; k <= i + this.maxDistance; k++) {
 			for (let w = j - this.maxDistance; w <= j + this.maxDistance; w++) {

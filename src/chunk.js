@@ -187,8 +187,8 @@ export default class Chunk extends Mesh {
 		this.geometry.computeVertexNormals()
 
 		// this.createTreesMesh()
-		if (!this.trees && this.LOD <= 2) this.generateTrees()
-		if (!this.clouds) this.generateClouds()
+		// if (!this.trees && this.LOD <= 2) this.generateTrees()
+		// if (!this.clouds) this.generateClouds()
 	}
 
 	createTreesMesh() {

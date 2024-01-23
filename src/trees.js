@@ -19,7 +19,6 @@ const material = new MeshStandardMaterial({ color: '' })
 export default class Trees extends InstancedMesh {
 	constructor(position, uniforms) {
 		const count = position.count
-		console.log(position)
 		const geometry = new IcosahedronGeometry(1, 5)
 
 		super(geometry, material, count)

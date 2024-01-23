@@ -20,7 +20,6 @@ const material = new MeshStandardMaterial({ transparent: true, opacity: 0.99 })
 export default class Clouds extends InstancedMesh {
 	constructor(position, uniforms) {
 		const count = position.count
-		console.log(position)
 		const geometry = new IcosahedronGeometry(2, 10)
 
 		super(geometry, material, count)
