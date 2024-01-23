@@ -8,9 +8,62 @@ import ChunkManager from './src/chunkManager'
 import { getHeight } from './src/chunk'
 import Plane from './src/plane'
 import airplane from '/airplane/scene.gltf?url'
+import boatSrc from '/boat/scene.gltf?url'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
+import normalMapSrc from './src/textures/normal.jpg'
+import gsap from 'gsap'
 
-const gltfLoader = new GLTFLoader()
+const loadingEl = document.getElementById('loader')
+const progressEl = document.getElementById('progress')
+
+const assets = {
+	planeModel: null,
+	normalMap: null,
+	boatModel: null,
+}
+
+const loaderManager = new THREE.LoadingManager()
+loaderManager.onLoad = () => {
+	console.log('load!')
+
+	gsap.set('canvas', { autoAlpha: 0 })
+
+	gsap.to(loadingEl, {
+		autoAlpha: 0,
+		duration: 1,
+		onComplete: () => {
+			init(assets)
+
+			gsap.to('canvas', { autoAlpha: 1, duration: 3, ease: 'power3.out' })
+		},
+	})
+}
+
+loaderManager.onProgress = (a, i, total) => {
+	const progress = (100 * i) / total
+	gsap.to(progressEl, { width: `${progress}%`, duration: 1 })
+	console.log(progress)
+}
+
+loaderManager.onStart = () => {
+	gsap.to(loadingEl, { autoAlpha: 1, duration: 0 })
+}
+
+const textureLoader = new THREE.TextureLoader(loaderManager)
+const gltfLoader = new GLTFLoader(loaderManager)
+
+assets.normalMap = textureLoader.load(normalMapSrc)
+
+gltfLoader.load(boatSrc, (gltf) => {
+	console.log('boat', gltf)
+
+	const model = gltf.scene.children[0].children[0]
+	model.scale.setScalar(1.3)
+	// model.scale.setScalar(0.1)
+	model.rotation.x = 0
+
+	assets.boatModel = model
+})
 
 gltfLoader.load(airplane, (gltf) => {
 	gltf.scene.traverse((el) => {
@@ -19,8 +72,10 @@ gltfLoader.load(airplane, (gltf) => {
 			el.geometry.center()
 			el.geometry.rotateX(-Math.PI * 0.5)
 			el.name = 'plane'
-			plane.model = el
-			plane.add(el)
+			assets.planeModel = el
+
+			// plane.model = el
+			// plane.add(el)
 		}
 	})
 
@@ -176,19 +231,47 @@ handleResize()
  * Plane
  */
 
-const plane = new Plane()
+// const plane = new Plane()
 
-/**
- * Terrain chunk
- */
+// /**
+//  * Terrain chunk
+//  */
 const chunkSize = 256
 
-const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
+// const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
 
-plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
-scene.add(plane)
-plane.camera = camera
-plane.add(camera)
+// plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
+// scene.add(plane)
+// plane.camera = camera
+// plane.add(camera)
+let chunkManager, plane
+
+function init(assets) {
+	plane = new Plane(assets.planeModel, null, params)
+
+	// Terrain
+	chunkManager = new ChunkManager(
+		chunkSize,
+		plane,
+		params,
+		scene,
+		uniforms,
+		assets
+	)
+
+	/**
+	 * Plane
+	 */
+
+	plane.position.y =
+		Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
+	scene.add(plane)
+	plane.camera = camera
+	plane.add(camera)
+
+	// start rendering
+	requestAnimationFrame(tic)
+}
 
 /**
  * Lights
@@ -239,7 +322,7 @@ function tic() {
 	requestAnimationFrame(tic)
 }
 
-requestAnimationFrame(tic)
+// requestAnimationFrame(tic)
 
 window.addEventListener('resize', handleResize)
 
