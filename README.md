@@ -1,12 +1,8 @@
-# Three.js + Vite starter kit
-
-This repo is a starting point for every three.js project. 
-
-It include a basic scene with a cube, perspective camera, orbit controls and GUI.
+# Three.js + Ininite Procedural World
 
 [Learn three.js on my You Tube channel](https://www.youtube.com/@gianlucalomarco)
 
-![Screenshot 2023-09-15 alle 23 54 57](https://github.com/rock-biter/threejs-starter/assets/74297920/bfc93a26-8606-4c47-8601-f1a106d00f0d)
+![Screenshot 2024-01-23 alle 15 48 15](https://github.com/rock-biter/procedural-terrain-generation/assets/74297920/744e7ad9-3912-4369-9df0-2953f0a08fd9)
 
 
 ## Installation
