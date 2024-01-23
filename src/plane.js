@@ -16,7 +16,7 @@ export default class Plane extends Object3D {
 	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
 
-	constructor(noise, params) {
+	constructor(airplane, noise, params) {
 		// const geometry = new BoxGeometry(1, 1, 1)
 		// const material = new MeshNormalMaterial()
 
@@ -25,6 +25,8 @@ export default class Plane extends Object3D {
 
 		this.noise = noise
 		this.params = params
+		this.model = airplane
+		this.add(airplane)
 
 		this.initCursor()
 	}

@@ -12,12 +12,13 @@ export default class ChunkManager {
 	pool = []
 	maxDistance = isMobile ? 4 : 5
 
-	constructor(chunkSize, camera, params, scene, uniforms) {
+	constructor(chunkSize, camera, params, scene, uniforms, assets) {
 		this.params = params
 		this.camera = camera
 		this.chunkSize = chunkSize
 		this.scene = scene
 		this.uniforms = uniforms
+		this.assets = assets
 
 		this.noise = []
 		for (let i = 0; i < params.octaves; i++) {
@@ -107,7 +108,8 @@ export default class ChunkManager {
 				this.params,
 				LOD,
 				position,
-				this.uniforms
+				this.uniforms,
+				this.assets
 			)
 			chunk.coords = [i, j]
 			this.chunks[`${i}|${j}`] = chunk

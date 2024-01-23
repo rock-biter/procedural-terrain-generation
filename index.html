@@ -6,7 +6,17 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Infinite Procedural World</title>
 	</head>
-	<body>
+	<body style="background-color: #000000">
+		<div
+			id="loader"
+			style="opacity: 0"
+			class="absolute w-[200px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"
+		>
+			<span class="absolute left-0 w-full bottom-10 text-white text-center"
+				>Loading...</span
+			>
+			<div id="progress" class="h-2 bg-white" style="width: 100%"></div>
+		</div>
 		<script type="module" src="/main.js"></script>
 	</body>
 </html>

@@ -42,26 +42,8 @@ const material = new MeshStandardMaterial({
 	// flatShading: true,
 })
 
-// const sea = new Mesh(
-// 	new PlaneGeometry(1, 1),
-// 	new MeshStandardMaterial({
-// 		color: 0x053399,
-// 		transparent: true,
-// 		opacity: 0.5,
-// 		// blending: MultiplyBlending,
-// 	})
-// )
-// sea.geometry.rotateX(-Math.PI * 0.5)
-// sea.geometry.translate(0.5, 0, 0.5)
-
 const CURVATURE = 3000
 const V2 = new Vector2(0, 0)
-
-let BOAT = null
-gltfLoader.load(boatSrc, (gltf) => {
-	console.log('boat', gltf)
-	BOAT = gltf
-})
 
 export default class Chunk extends Mesh {
 	treesPositionArray = []
@@ -75,7 +57,8 @@ export default class Chunk extends Mesh {
 		params = {},
 		LOD = 0,
 		position = new Vector3(0, 0, 0),
-		uniforms
+		uniforms,
+		assets
 	) {
 		const density = isMobile ? 4 : 2
 		const segments = Math.max(Math.floor(size * 0.5 ** LOD), density) / density
@@ -92,6 +75,7 @@ export default class Chunk extends Mesh {
 		this.params = params
 		this.uniforms = uniforms
 		this.uniforms.uCurvature = { value: CURVATURE }
+		this.boat = assets.boatModel
 
 		// sea.scale.setScalar(size)
 
@@ -210,7 +194,7 @@ export default class Chunk extends Mesh {
 	}
 
 	addBoats() {
-		if (!BOAT) return
+		// if (!BOAT) return
 		const boats = []
 		const n = MathUtils.randInt(0, 3)
 
@@ -242,14 +226,12 @@ export default class Chunk extends Mesh {
 	}
 
 	createBoat(x, z) {
-		const geometry = new BoxGeometry(2, 2, 2)
-		const material = new MeshNormalMaterial()
-		// const c = new Me
-		const model = BOAT.scene.children[0].children[0]
-		model.scale.setScalar(1.3)
-		// model.scale.setScalar(0.1)
-		model.rotation.x = 0
-		const m = model.clone()
+		// const model = this.scene.children[0].children[0]
+		// model.scale.setScalar(1.3)
+		// // model.scale.setScalar(0.1)
+		// model.rotation.x = 0
+
+		const m = this.boat.clone()
 		m.rotation.y = Math.random() * Math.PI * 2
 		m.position.set(x, 0.8, z)
 
