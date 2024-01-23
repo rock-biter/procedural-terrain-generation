@@ -62,7 +62,7 @@ export default class Chunk extends Mesh {
 		position = new Vector3(0, 0, 0),
 		uniforms
 	) {
-		const density = isMobile ? 4 : 1
+		const density = isMobile ? 4 : 2
 		const segments = Math.max(Math.floor(size * 0.5 ** LOD), density) / density
 		const geometry = new PlaneGeometry(size, size, segments, segments)
 		geometry.rotateX(-Math.PI * 0.5)
@@ -83,6 +83,8 @@ export default class Chunk extends Mesh {
 		this.updateGeometry()
 		this.onBeforeCompile()
 		// this.add(sea.clone())
+
+		// console.log('chunk created LOD:', LOD)
 	}
 
 	dispose() {
@@ -132,10 +134,11 @@ export default class Chunk extends Mesh {
 	}
 
 	updateLOD(LOD) {
+		// console.log('LOD updated', LOD, 'vs', this.LOD)
 		if (LOD === this.LOD) return
 
 		this.LOD = LOD
-		const density = isMobile ? 4 : 1
+		const density = isMobile ? 4 : 2
 		const segments =
 			Math.max(Math.floor(this.size * 0.5 ** LOD), density) / density
 		const geometry = new PlaneGeometry(this.size, this.size, segments, segments)
@@ -167,15 +170,11 @@ export default class Chunk extends Mesh {
 		const posAttr = this.geometry.getAttribute('position')
 		const heightAttr = this.createHeightAttribute()
 
-		const { x: fx, z: fz } = this.params.frequency
-
 		for (let i = 0; i < posAttr.count; i++) {
 			const x = posAttr.getX(i) + this.position.x
 			const z = posAttr.getZ(i) + this.position.z
 
 			let h = getHeight(x, z, this.noise, this.params)
-
-			// this.addTree(x, h, z)
 
 			heightAttr.setX(i, h)
 			posAttr.setY(i, Math.max(h, -1))
@@ -187,8 +186,8 @@ export default class Chunk extends Mesh {
 		this.geometry.computeVertexNormals()
 
 		// this.createTreesMesh()
-		// if (!this.trees && this.LOD <= 2) this.generateTrees()
-		// if (!this.clouds) this.generateClouds()
+		if (!this.trees && this.LOD <= 2) this.generateTrees()
+		if (!this.clouds) this.generateClouds()
 	}
 
 	createTreesMesh() {
@@ -298,7 +297,8 @@ export default class Chunk extends Mesh {
 
 export function getHeight(x, z, noises, params) {
 	let h = 0
-	const { x: fx, z: fz } = params.frequency
+	const fx = params.frequency.x
+	const fz = params.frequency.z
 
 	for (let j = 0; j < params.octaves; j++) {
 		const octave = j
@@ -327,12 +327,6 @@ export function getHeight(x, z, noises, params) {
 		(MathUtils.smoothstep(pct, 0.5, 1) - 0.5) * params.amplitude * 2,
 		1 - MathUtils.smoothstep(n, -1, -0.3)
 	)
-
-	// console.log(n)
-	// params.amplitude * 3 +
-
-	// const pct = MathUtils.smoothstep(l, 0, 1)
-	// h = MathUtils.lerp(l, h, pct)
 
 	h += l
 
