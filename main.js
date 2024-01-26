@@ -9,17 +9,21 @@ import { getHeight } from './src/chunk'
 import Plane from './src/plane'
 import airplane from '/airplane/scene.gltf?url'
 import boatSrc from '/boat/scene.gltf?url'
+import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import normalMapSrc from './src/textures/normal.jpg'
 import gsap from 'gsap'
 
 const loadingEl = document.getElementById('loader')
 const progressEl = document.getElementById('progress')
+const playEl = document.getElementById('play')
+const cameraTarget = new THREE.Vector3(0, 7, 0)
 
 const assets = {
 	planeModel: null,
 	normalMap: null,
 	boatModel: null,
+	soundtrack: null,
 }
 
 const loaderManager = new THREE.LoadingManager()
@@ -34,7 +38,31 @@ loaderManager.onLoad = () => {
 		onComplete: () => {
 			init(assets)
 
-			gsap.to('canvas', { autoAlpha: 1, duration: 3, ease: 'power3.out' })
+			gsap.to(playEl, {
+				autoAlpha: 1,
+				duration: 0.5,
+				onComplete: () => {
+					playEl.addEventListener('click', () => {
+						assets.soundtrack.play()
+						gsap.fromTo(
+							plane,
+							{ baseSpeed: 20 },
+							{ duration: 1, baseSpeed: 40 }
+						)
+						gsap.to(playEl, { duration: 0.2, autoAlpha: 0 })
+						gsap.fromTo(
+							camera.position,
+							{ z: -1 },
+							{
+								duration: 1,
+								ease: 'expo3.out',
+								z: -18,
+							}
+						)
+					})
+					gsap.to('canvas', { autoAlpha: 1, duration: 3, ease: 'power3.out' })
+				},
+			})
 		},
 	})
 }
@@ -51,6 +79,18 @@ loaderManager.onStart = () => {
 
 const textureLoader = new THREE.TextureLoader(loaderManager)
 const gltfLoader = new GLTFLoader(loaderManager)
+const audioLoader = new THREE.AudioLoader(loaderManager)
+
+audioLoader.load(audioSrc, (buffer) => {
+	const listener = new THREE.AudioListener()
+	const sound = new THREE.Audio(listener)
+	sound.setBuffer(buffer)
+	sound.setLoop(true)
+	sound.setVolume(0.5)
+	assets.soundtrack = sound
+
+	camera.add(listener)
+})
 
 assets.normalMap = textureLoader.load(normalMapSrc)
 
@@ -197,9 +237,9 @@ const camera = new THREE.PerspectiveCamera(
 	0.1,
 	10000
 )
-camera.position.set(0, 7, -18)
+camera.position.set(0, 7, -1)
 // camera.position.set(0, 2500, -18)
-camera.lookAt(new THREE.Vector3(0, 5, 0))
+camera.lookAt(cameraTarget)
 
 /**
  * Show the axes of coordinates system
