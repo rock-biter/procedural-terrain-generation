@@ -8,6 +8,18 @@ uniform vec3 uRocks;
 varying vec3 wPosition;
 varying float distanceFromCamera;
 
+mat4 rotateZ(float alpha) {
+    float cosA = cos(alpha);
+    float sinA = sin(alpha);
+
+    return mat4(
+        cosA, -sinA, 0.0, 0.0,
+        sinA, cosA,  0.0, 0.0,
+        0.0,  0.0,   1.0, 0.0,
+        0.0,  0.0,   0.0, 1.0
+    );
+}
+
 vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
 
 float snoise(vec2 v){

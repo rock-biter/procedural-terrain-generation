@@ -57,6 +57,12 @@ loaderManager.onLoad = () => {
 								duration: 1,
 								ease: 'expo3.out',
 								z: -18,
+								// z: 20,
+								// y: -2,
+								// x: 0,
+								// onComplete: () => {
+								// 	camera.rotateY(Math.PI)
+								// },
 							}
 						)
 					})
@@ -247,8 +253,12 @@ const camera = new THREE.PerspectiveCamera(
 	10000
 )
 camera.position.set(0, 7, -1)
+// camera.position.set(0, 7, -18)
+// camera.position.set(0, 0, 15)
 // camera.position.set(0, 2500, -18)
 camera.lookAt(cameraTarget)
+// camera.lookAt(0, 0, 0)
+// camera.rotateY(Math.PI)
 
 /**
  * Show the axes of coordinates system
