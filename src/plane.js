@@ -12,8 +12,8 @@ const isMobile = window.innerWidth < 768
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 20)
-	baseSpeed = 40
-	speed = 40
+	baseSpeed = 20
+	speed = 0
 	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
 
@@ -38,7 +38,7 @@ export default class Plane extends Object3D {
 		if (!isMobile) {
 			this.speed = MathUtils.lerp(
 				this.speed,
-				this.baseSpeed + (this.cursor.y + 0.5) * 30,
+				this.baseSpeed + (this.cursor.y + 0.5) * this.baseSpeed * 0.75,
 				dt * 3
 			)
 		}
