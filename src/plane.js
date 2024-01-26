@@ -93,7 +93,7 @@ export default class Plane extends Object3D {
 				`
 				float min = 1. - vUV.y * 0.15 - 0.85;
 				float pct = 1. - step(min, vUV.x) + step(1. - min,vUV.x);
-				diffuseColor.a *= smoothstep(0.15,1.3,abs(uRotation.z) ) * pct * smoothstep(0.7,1.,vUV.y);
+				diffuseColor.a = smoothstep(0.15,1.2,abs(uRotation.z) ) * pct * smoothstep(0.7,1.,vUV.y);
 
 				// diffuseColor.a *= pct;
 				`
