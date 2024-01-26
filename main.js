@@ -129,6 +129,8 @@ let gui
 // gui = new dat.GUI()
 
 const params = {
+	directionalLight: 6,
+	ambientLight: 1.5,
 	amplitude: 23,
 	frequency: {
 		x: 0.5,
@@ -204,6 +206,13 @@ if (gui) {
 	gui
 		.add(params, 'zOffset', -10, 10, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
+
+	gui
+		.add(params, 'directionalLight', 0, 10, 0.1)
+		.onChange((val) => (directionalLight.intensity = val))
+	gui
+		.add(params, 'ambientLight', 0, 10, 0.1)
+		.onChange((val) => (ambientLight.intensity = val))
 }
 
 /**
@@ -316,8 +325,11 @@ function init(assets) {
 /**
  * Lights
  */
-const ambientLight = new THREE.AmbientLight(0xffffff, 1.5)
-const directionalLight = new THREE.DirectionalLight(0xffffff, 3.5)
+const ambientLight = new THREE.AmbientLight(0xffffff, params.ambientLight)
+const directionalLight = new THREE.DirectionalLight(
+	0xffffff,
+	params.directionalLight
+)
 directionalLight.position.set(1, 1, 1)
 scene.add(ambientLight, directionalLight)
 
