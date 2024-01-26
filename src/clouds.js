@@ -15,7 +15,7 @@ import colorFragmentClouds from './shaders/color-instanced-fragment-clouds.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import common from './shaders/common.glsl'
 
-const material = new MeshStandardMaterial({ transparent: true, opacity: 0.99 })
+const material = new MeshStandardMaterial({ transparent: true, opacity: 0.95 })
 
 export default class Clouds extends InstancedMesh {
 	constructor(position, uniforms) {

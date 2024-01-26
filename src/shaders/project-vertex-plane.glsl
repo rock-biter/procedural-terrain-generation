@@ -25,8 +25,10 @@ vec4 mvPosition = vec4( transformed, 1.0 );
 // mvPosition.y += wave * pctWave * 0.5;
 
 // mvPosition.y += -uCurvature * (1. - cos(dist / uCurvature));
-mvPosition = rotateZ(-uRotation.z * smoothstep(-15.,0.,mvPosition.z)) * mvPosition;
-mvPosition = modelMatrix * mvPosition;
-mvPosition = viewMatrix * mvPosition;
+float c = smoothstep(-40.,0.,mvPosition.z);
+float curvature = 15.;
+mvPosition = rotateZ(-uRotation.z * c) * mvPosition;
+mvPosition.x -= curvature * (1. - sin(  uRotation.z / curvature )) * (1. - c) * uRotation.z;
+mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;
 // wPosition.y = height;

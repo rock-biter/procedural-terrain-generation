@@ -39,7 +39,7 @@ export default class Plane extends Object3D {
 	}
 
 	addTrails() {
-		const l = 40
+		const l = 60
 		const plane = new PlaneGeometry(7.3, l, 1, l * 2)
 		plane.rotateX(Math.PI * 0.5)
 		plane.translate(0, -0.15, -l * 0.5 - 1.2)
@@ -93,7 +93,9 @@ export default class Plane extends Object3D {
 				`
 				float min = 1. - vUV.y * 0.15 - 0.85;
 				float pct = 1. - step(min, vUV.x) + step(1. - min,vUV.x);
-				diffuseColor.a *= smoothstep(0.2,1.3,abs(uRotation.z) * pct);
+				diffuseColor.a *= smoothstep(0.15,1.3,abs(uRotation.z) ) * pct * smoothstep(0.7,1.,vUV.y);
+
+				// diffuseColor.a *= pct;
 				`
 			)
 		}
