@@ -1,12 +1,17 @@
 import {
 	BoxGeometry,
+	DoubleSide,
 	MathUtils,
 	Mesh,
+	MeshBasicMaterial,
 	MeshNormalMaterial,
 	Object3D,
+	PlaneGeometry,
 	Vector2,
 	Vector3,
 } from 'three'
+import common from './shaders/common.glsl'
+import projectVertex from './shaders/project-vertex-plane.glsl'
 const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
 
@@ -28,8 +33,70 @@ export default class Plane extends Object3D {
 		this.params = params
 		this.model = airplane
 		this.add(airplane)
+		this.addTrails()
 
 		this.initCursor()
+	}
+
+	addTrails() {
+		const l = 40
+		const plane = new PlaneGeometry(7.3, l, 1, l * 2)
+		plane.rotateX(Math.PI * 0.5)
+		plane.translate(0, -0.15, -l * 0.5 - 1.2)
+		const material = new MeshBasicMaterial({
+			color: 0xffffff,
+			side: DoubleSide,
+			transparent: true,
+			// opacity: 0.8,
+			// wireframe: true,
+		})
+
+		this.trails = new Mesh(plane, material)
+		console.log(this.trails)
+		this.add(this.trails)
+
+		material.onBeforeCompile = (shader) => {
+			shader.uniforms = {
+				...shader.uniforms,
+				uRotation: { value: this.model.rotation },
+			}
+
+			shader.vertexShader = shader.vertexShader.replace(
+				'#include <common>',
+				common +
+					`
+				uniform vec4 uRotation;
+				varying vec2 vUV; 
+				`
+			)
+
+			shader.vertexShader = shader.vertexShader.replace(
+				'#include <project_vertex>',
+				projectVertex +
+					`
+				vUV = vec3( uv, 1 ).xy; `
+			)
+
+			shader.fragmentShader = shader.fragmentShader.replace(
+				'#include <common>',
+				common +
+					`
+				uniform vec4 uRotation;
+				varying vec2 vUV; 
+				`
+			)
+
+			console.log(shader.fragmentShader)
+
+			shader.fragmentShader = shader.fragmentShader.replace(
+				'#include <color_fragment>',
+				`
+				float min = 1. - vUV.y * 0.15 - 0.85;
+				float pct = 1. - step(min, vUV.x) + step(1. - min,vUV.x);
+				diffuseColor.a *= smoothstep(0.2,1.3,abs(uRotation.z) * pct);
+				`
+			)
+		}
 	}
 
 	update(dt) {
