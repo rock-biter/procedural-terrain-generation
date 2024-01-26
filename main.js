@@ -17,7 +17,9 @@ import gsap from 'gsap'
 const loadingEl = document.getElementById('loader')
 const progressEl = document.getElementById('progress')
 const playEl = document.getElementById('play')
+const toggleEl = document.getElementById('sound-toggle')
 const cameraTarget = new THREE.Vector3(0, 6.9, 0)
+let volume = true
 
 const assets = {
 	planeModel: null,
@@ -31,6 +33,14 @@ loaderManager.onLoad = () => {
 	console.log('load!')
 
 	gsap.set('canvas', { autoAlpha: 0 })
+
+	toggleEl.addEventListener('click', () => {
+		volume = !volume
+
+		assets.soundtrack.setVolume(volume ? 0.1 : 0)
+		gsap.to(toggleEl, { opacity: volume ? 1 : 0.4, duration: 0.2 })
+		// gsap.to(assets.soundtrack, { volume: volume ? 0.1 : 0, duration: 1 })
+	})
 
 	gsap.to(loadingEl, {
 		autoAlpha: 0,
