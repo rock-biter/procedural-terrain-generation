@@ -12,6 +12,7 @@ import {
 } from 'three'
 import common from './shaders/common.glsl'
 import projectVertex from './shaders/project-vertex-plane.glsl'
+import gsap from 'gsap'
 const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
 
@@ -21,6 +22,9 @@ export default class Plane extends Object3D {
 	speed = 0
 	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
+	spin = 0
+	spinAngle = 0
+	isSpinning = false
 
 	constructor(airplane, noise, params) {
 		// const geometry = new BoxGeometry(1, 1, 1)
@@ -132,7 +136,7 @@ export default class Plane extends Object3D {
 		if (this.model) {
 			this.model.rotation.z = MathUtils.lerp(
 				this.model.rotation.z,
-				Math.PI * this.cursor.x * 0.25,
+				Math.PI * this.cursor.x * 0.25 + this.spinAngle,
 				dt * 5
 			)
 		}
@@ -148,13 +152,6 @@ export default class Plane extends Object3D {
 	}
 
 	initCursor() {
-		window.addEventListener('mousemove', (e) => {
-			const x = (e.clientX / innerWidth) * 2 - 1
-			const y = -(e.clientY / innerHeight) * 2 + 1
-
-			this.cursor.set(x, y)
-		})
-
 		window.addEventListener('touchmove', (e) => {
 			const touch = e.touches[0]
 			const x = (touch.clientX / innerWidth) * 2 - 1
@@ -162,5 +159,32 @@ export default class Plane extends Object3D {
 
 			this.cursor.set(x / 1.5, y)
 		})
+
+		if (!isMobile) {
+			window.addEventListener('mousemove', (e) => {
+				const x = (e.clientX / innerWidth) * 2 - 1
+				const y = -(e.clientY / innerHeight) * 2 + 1
+
+				this.cursor.set(x, y)
+			})
+
+			// window.addEventListener('wheel', (e) => {
+			// 	console.log(e)
+			// 	if (this.isSpinning) return
+			// 	this.isSpinning = true
+
+			// 	this.spin = Math.sign(e.deltaY)
+
+			// 	gsap.to(this, {
+			// 		spinAngle: this.spin * Math.PI * 2,
+			// 		// ease: 'elastic',
+			// 		duration: 0.2,
+			// 		onComplete: () => {
+			// 			this.isSpinning = false
+			// 			this.spin = 0
+			// 		},
+			// 	})
+			// })
+		}
 	}
 }
