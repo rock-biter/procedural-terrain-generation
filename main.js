@@ -86,7 +86,7 @@ audioLoader.load(audioSrc, (buffer) => {
 	const sound = new THREE.Audio(listener)
 	sound.setBuffer(buffer)
 	sound.setLoop(true)
-	sound.setVolume(0.2)
+	sound.setVolume(0.1)
 	assets.soundtrack = sound
 
 	camera.add(listener)
