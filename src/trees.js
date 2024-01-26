@@ -17,12 +17,14 @@ import common from './shaders/common.glsl'
 const material = new MeshStandardMaterial({ color: '' })
 
 export default class Trees extends InstancedMesh {
-	constructor(position, uniforms) {
+	constructor(position, uniforms, assets) {
 		const count = position.count
 		const geometry = new IcosahedronGeometry(1, 5)
 
 		super(geometry, material, count)
 		this.bufferPosition = position
+		this.assets = assets
+		material.normalMap = assets.normalMap
 
 		this.init()
 		this.uniforms = uniforms

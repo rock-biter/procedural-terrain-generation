@@ -76,6 +76,7 @@ export default class Chunk extends Mesh {
 		this.uniforms = uniforms
 		this.uniforms.uCurvature = { value: CURVATURE }
 		this.boat = assets.boatModel
+		this.assets = assets
 
 		// sea.scale.setScalar(size)
 
@@ -273,7 +274,7 @@ export default class Chunk extends Mesh {
 			3
 		)
 
-		this.trees = new Trees(position, this.uniforms)
+		this.trees = new Trees(position, this.uniforms, this.assets)
 		// console.log(this.trees)
 		if (this.trees) {
 			this.remove(this.trees)

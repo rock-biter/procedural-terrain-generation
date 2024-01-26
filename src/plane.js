@@ -8,6 +8,7 @@ import {
 	Vector3,
 } from 'three'
 const V3 = new Vector3(0, 0, 0)
+const isMobile = window.innerWidth < 768
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 20)
@@ -34,11 +35,13 @@ export default class Plane extends Object3D {
 	update(dt) {
 		const nextPos = this.position.clone()
 
-		this.speed = MathUtils.lerp(
-			this.speed,
-			this.baseSpeed + (this.cursor.y + 0.5) * 30,
-			dt * 3
-		)
+		if (!isMobile) {
+			this.speed = MathUtils.lerp(
+				this.speed,
+				this.baseSpeed + (this.cursor.y + 0.5) * 30,
+				dt * 3
+			)
+		}
 
 		V3.set(0, 0, 1).multiplyScalar(this.speed * dt)
 		this.translateZ(V3.length())
