@@ -17,7 +17,7 @@ import gsap from 'gsap'
 const loadingEl = document.getElementById('loader')
 const progressEl = document.getElementById('progress')
 const playEl = document.getElementById('play')
-const cameraTarget = new THREE.Vector3(0, 7, 0)
+const cameraTarget = new THREE.Vector3(0, 6.9, 0)
 
 const assets = {
 	planeModel: null,
@@ -86,7 +86,7 @@ audioLoader.load(audioSrc, (buffer) => {
 	const sound = new THREE.Audio(listener)
 	sound.setBuffer(buffer)
 	sound.setLoop(true)
-	sound.setVolume(0.5)
+	sound.setVolume(0.2)
 	assets.soundtrack = sound
 
 	camera.add(listener)
