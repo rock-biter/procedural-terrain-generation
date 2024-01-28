@@ -20,6 +20,7 @@ const playEl = document.getElementById('play')
 const toggleEl = document.getElementById('sound-toggle')
 const cameraTarget = new THREE.Vector3(0, 6.9, 0)
 let volume = true
+const isMobile = window.innerWidth < 768
 
 const assets = {
 	planeModel: null,
@@ -66,7 +67,7 @@ loaderManager.onLoad = () => {
 							{
 								duration: 1,
 								ease: 'expo3.out',
-								z: -18,
+								z: isMobile ? -16 : -18,
 								// z: 20,
 								// y: -2,
 								// x: 0,
@@ -255,7 +256,7 @@ const sizes = {
 /**
  * Camera
  */
-const fov = 60
+const fov = isMobile ? 80 : 60
 const camera = new THREE.PerspectiveCamera(
 	fov,
 	sizes.width / sizes.height,
@@ -263,6 +264,7 @@ const camera = new THREE.PerspectiveCamera(
 	10000
 )
 camera.position.set(0, 7, -1)
+camera.zoom = isMobile ? 0.8 : 1
 // camera.position.set(0, 7, -18)
 // camera.position.set(0, 0, 15)
 // camera.position.set(0, 2500, -18)
