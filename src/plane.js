@@ -102,15 +102,12 @@ export default class Plane extends Object3D {
 	}
 
 	update(dt) {
-		const nextPos = this.position.clone()
+		// const nextPos = this.position.clone()
+		const speedVar = isMobile
+			? 0
+			: (this.cursor.y + 0.5) * this.baseSpeed * 0.75
 
-		if (!isMobile) {
-			this.speed = MathUtils.lerp(
-				this.speed,
-				this.baseSpeed + (this.cursor.y + 0.5) * this.baseSpeed * 0.75,
-				dt * 3
-			)
-		}
+		this.speed = MathUtils.lerp(this.speed, this.baseSpeed + speedVar, dt * 3)
 
 		V3.set(0, 0, 1).multiplyScalar(this.speed * dt)
 		this.translateZ(V3.length())
