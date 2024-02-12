@@ -274,12 +274,14 @@ export default class Chunk extends Mesh {
 			3
 		)
 
-		this.trees = new Trees(position, this.uniforms, this.assets)
 		// console.log(this.trees)
 		if (this.trees) {
 			this.remove(this.trees)
 			this.trees.dispose()
 		}
+
+		this.trees = new Trees(position, this.uniforms, this.assets)
+
 		this.add(this.trees)
 	}
 
@@ -335,12 +337,14 @@ export default class Chunk extends Mesh {
 			3
 		)
 
-		this.clouds = new Clouds(position, this.uniforms)
-		// console.log(this.trees)
 		if (this.clouds) {
 			this.remove(this.clouds)
 			this.clouds.dispose()
 		}
+
+		this.clouds = new Clouds(position, this.uniforms)
+		// console.log(this.trees)
+
 		this.add(this.clouds)
 		this.clouds.material.normalMap = normalMap
 	}
