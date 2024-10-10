@@ -17,7 +17,7 @@ const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
 
 export default class Plane extends Object3D {
-	velocity = new Vector3(0, 0, 20)
+	velocity = new Vector3(0, 0, 35)
 	baseSpeed = 35
 	speed = 0
 	acceleration = new Vector3(1, 0, 0)
