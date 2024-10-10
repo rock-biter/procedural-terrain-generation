@@ -169,7 +169,7 @@ export default class Plane extends Object3D {
 		if (this.model) {
 			this.model.rotation.z = MathUtils.lerp(
 				this.model.rotation.z,
-				Math.PI * this.cursor.x * 0.25,
+				Math.PI * this.cursor.x * 0.25 * (1 - this.acceleration * 0.5),
 				dt * 5
 			)
 		}
@@ -183,7 +183,7 @@ export default class Plane extends Object3D {
 			// this.updateSpeedEffect(this.acceleration)
 			this.updateSpeed(this.acceleration)
 
-			this.finalPosition.z = this.initialPosition.z - 5 * this.acceleration
+			this.finalPosition.z = this.initialPosition.z - 7 * this.acceleration
 
 			this.finalPosition.x = -this.cursor.x * 5
 			this.camera.position.lerp(this.finalPosition, dt * 5)
@@ -191,7 +191,7 @@ export default class Plane extends Object3D {
 			this.finalPosition.z = MathUtils.lerp(
 				this.finalPosition.z,
 				this.initialPosition.z,
-				dt * 10
+				dt * 15
 			)
 
 			const desFov = MathUtils.lerp(
@@ -201,7 +201,7 @@ export default class Plane extends Object3D {
 			)
 
 			let fov = MathUtils.lerp(this.camera.fov, desFov, dt * 5)
-			fov = MathUtils.lerp(fov, this.initialFov, dt * 0.3)
+			fov = MathUtils.lerp(fov, this.initialFov, dt * 0.6)
 
 			this.camera.fov = fov
 			this.camera.updateProjectionMatrix()
@@ -210,7 +210,7 @@ export default class Plane extends Object3D {
 
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
 		this.uniforms.uAcceleration.value = this.acceleration
-		this.acceleration = MathUtils.lerp(this.acceleration, 0, dt * 0.3)
+		this.acceleration = MathUtils.lerp(this.acceleration, 0, dt * 0.6)
 	}
 
 	addCamera(camera) {
