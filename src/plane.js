@@ -201,7 +201,7 @@ export default class Plane extends Object3D {
 			)
 
 			let fov = MathUtils.lerp(this.camera.fov, desFov, dt * 5)
-			fov = MathUtils.lerp(fov, this.initialFov, dt * 0.6)
+			fov = MathUtils.lerp(fov, this.initialFov, dt * 0.3)
 
 			this.camera.fov = fov
 			this.camera.updateProjectionMatrix()
