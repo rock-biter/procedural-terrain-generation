@@ -59,8 +59,8 @@ loaderManager.onLoad = () => {
 						}
 						gsap.fromTo(
 							plane,
-							{ baseSpeed: 20 },
-							{ duration: 1, baseSpeed: 40, speed: 40 }
+							{ baseSpeed: 35 },
+							{ duration: 1, baseSpeed: 55, speed: 55 }
 						)
 						gsap.to(playEl, { duration: 0.2, autoAlpha: 0 })
 						gsap.fromTo(

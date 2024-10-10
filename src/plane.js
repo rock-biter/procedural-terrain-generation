@@ -18,7 +18,7 @@ const isMobile = window.innerWidth < 768
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 20)
-	baseSpeed = 20
+	baseSpeed = 35
 	speed = 0
 	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
