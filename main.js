@@ -54,11 +54,13 @@ loaderManager.onLoad = () => {
 				duration: 0.5,
 				onComplete: () => {
 					playEl.addEventListener('click', () => {
-						assets.soundtrack.play()
+						if (!gui) {
+							assets.soundtrack.play()
+						}
 						gsap.fromTo(
 							plane,
 							{ baseSpeed: 20 },
-							{ duration: 1, baseSpeed: 40 }
+							{ duration: 1, baseSpeed: 40, speed: 40 }
 						)
 						gsap.to(playEl, { duration: 0.2, autoAlpha: 0 })
 						gsap.fromTo(
@@ -71,9 +73,9 @@ loaderManager.onLoad = () => {
 								// z: 20,
 								// y: -2,
 								// x: 0,
-								// onComplete: () => {
-								// 	camera.rotateY(Math.PI)
-								// },
+								onComplete: () => {
+									plane.addEffect()
+								},
 							}
 						)
 					})
@@ -146,6 +148,7 @@ let gui
 // gui = new dat.GUI()
 
 const params = {
+	speedEffect: 0,
 	directionalLight: 6,
 	ambientLight: 1.5,
 	amplitude: 23,
@@ -177,6 +180,10 @@ const uniforms = {
 }
 
 if (gui) {
+	gui.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
+		plane.updateSpeedEffect(val)
+	})
+
 	gui.addColor(params, 'fog').onChange((val) => {
 		scene.background.set(val)
 		scene.fog.color.set(val)
@@ -318,7 +325,7 @@ const chunkSize = 256
 let chunkManager, plane
 
 function init(assets) {
-	plane = new Plane(assets.planeModel, null, params)
+	plane = new Plane(assets.planeModel, null, params, camera)
 
 	// Terrain
 	chunkManager = new ChunkManager(
@@ -337,8 +344,9 @@ function init(assets) {
 	plane.position.y =
 		Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 	scene.add(plane)
-	plane.camera = camera
-	plane.add(camera)
+	// plane.addCamera(camera)
+	// plane.camera = camera
+	// plane.add(camera)
 
 	// start rendering
 	requestAnimationFrame(tic)
@@ -377,7 +385,7 @@ function tic() {
 	 */
 	const time = clock.getElapsedTime()
 
-	plane.update(deltaTime)
+	plane.update(Math.min(deltaTime, 0.016))
 	// camera.position.copy(plane.position.clone())
 	// camera.position.z += -20
 	// camera.position.y += 10
