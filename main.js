@@ -31,7 +31,7 @@ const assets = {
 
 const loaderManager = new THREE.LoadingManager()
 loaderManager.onLoad = () => {
-	console.log('load!')
+	// console.log('load!')
 
 	gsap.set('canvas', { autoAlpha: 0 })
 
@@ -89,7 +89,7 @@ loaderManager.onLoad = () => {
 loaderManager.onProgress = (a, i, total) => {
 	const progress = (100 * i) / total
 	gsap.to(progressEl, { width: `${progress}%`, duration: 1 })
-	console.log(progress)
+	// console.log(progress)
 }
 
 loaderManager.onStart = () => {
@@ -114,7 +114,7 @@ audioLoader.load(audioSrc, (buffer) => {
 assets.normalMap = textureLoader.load(normalMapSrc)
 
 gltfLoader.load(boatSrc, (gltf) => {
-	console.log('boat', gltf)
+	// console.log('boat', gltf)
 
 	const model = gltf.scene.children[0].children[0]
 	model.scale.setScalar(1.3)

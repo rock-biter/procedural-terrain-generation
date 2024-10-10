@@ -64,7 +64,7 @@ export default class Plane extends Object3D {
 		})
 
 		this.trails = new Mesh(plane, material)
-		console.log(this.trails)
+		// console.log(this.trails)
 		this.add(this.trails)
 
 		material.onBeforeCompile = (shader) => {
@@ -100,7 +100,7 @@ export default class Plane extends Object3D {
 				`
 			)
 
-			console.log(shader.fragmentShader)
+			// console.log(shader.fragmentShader)
 
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <color_fragment>',
