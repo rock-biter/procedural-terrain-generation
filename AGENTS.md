@@ -20,6 +20,10 @@ This repository contains **Infinite Procedural World**, a browser-based Three.js
 
 Read the owning source file and the relevant guide before editing. When a change crosses boundaries, read each affected guide rather than relying on this summary.
 
+## Documentation Sync
+
+Every task that modifies workspace files must use the [`documentation-sync` skill](.github/skills/documentation-sync/SKILL.md) after implementation and before final validation. A task is not complete until the agent has reviewed the documentation impact, updated every affected guide, and reported which documentation changed or why no documentation update was necessary.
+
 ## Essential Commands
 
 Use Node.js `^20.19.0` or `>=22.12.0` and pnpm `9.15.9`.
@@ -54,7 +58,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - Keep DOM IDs synchronized between `index.html` and `main.js`, and keep audio playback behind a user interaction.
 - Preserve the CC BY 4.0 attribution files for the airplane and boat. Do not assume the project MIT license covers third-party assets.
 - Do not silently resolve unrelated known gaps while completing a focused task. Document intentional architectural changes in the same change.
-- Update the relevant guide when commands, ownership, runtime behavior, shader contracts, assets, or validation requirements change.
+- Follow the documentation-sync workflow when commands, ownership, runtime behavior, shader contracts, assets, validation requirements, or any other documented contract change.
 
 If documentation disagrees with current source or package metadata, treat the implementation as the immediate source of truth and correct the documentation as part of the task.
 
