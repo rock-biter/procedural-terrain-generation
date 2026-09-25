@@ -60,7 +60,7 @@ loaderManager.onLoad = () => {
 						gsap.fromTo(
 							plane,
 							{ baseSpeed: 35 },
-							{ duration: 1, baseSpeed: 55, speed: 55 }
+							{ duration: 1, baseSpeed: 55, speed: 55 },
 						)
 						gsap.to(playEl, { duration: 0.2, autoAlpha: 0 })
 						gsap.fromTo(
@@ -76,7 +76,7 @@ loaderManager.onLoad = () => {
 								onComplete: () => {
 									plane.addEffect()
 								},
-							}
+							},
 						)
 					})
 					gsap.to('canvas', { autoAlpha: 1, duration: 3, ease: 'power3.out' })
@@ -268,7 +268,7 @@ const camera = new THREE.PerspectiveCamera(
 	fov,
 	sizes.width / sizes.height,
 	0.1,
-	10000
+	10000,
 )
 camera.position.set(0, 7, -1)
 camera.zoom = isMobile ? 0.8 : 1
@@ -334,7 +334,7 @@ function init(assets) {
 		params,
 		scene,
 		uniforms,
-		assets
+		assets,
 	)
 
 	/**
@@ -358,15 +358,16 @@ function init(assets) {
 const ambientLight = new THREE.AmbientLight(0xffffff, params.ambientLight)
 const directionalLight = new THREE.DirectionalLight(
 	0xffffff,
-	params.directionalLight
+	params.directionalLight,
 )
 directionalLight.position.set(1, 1, 1)
 scene.add(ambientLight, directionalLight)
 
 /**
- * Three js Clock
+ * Three js Timer
  */
-const clock = new THREE.Clock()
+const timer = new THREE.Timer()
+timer.connect(document)
 
 scene.fog = new THREE.Fog(params.fog, 250, 900)
 scene.background = new THREE.Color(params.fog)
@@ -375,15 +376,17 @@ scene.background = new THREE.Color(params.fog)
 /**
  * frame loop
  */
-function tic() {
+function tic(timestamp) {
+	timer.update(timestamp)
+
 	/**
 	 * tempo trascorso dal frame precedente
 	 */
-	const deltaTime = clock.getDelta()
+	const deltaTime = timer.getDelta()
 	/**
 	 * tempo totale trascorso dall'inizio
 	 */
-	const time = clock.getElapsedTime()
+	const time = timer.getElapsed()
 
 	plane.update(Math.min(deltaTime, 0.016))
 	// camera.position.copy(plane.position.clone())
