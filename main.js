@@ -31,7 +31,7 @@ const assets = {
 
 const loaderManager = new THREE.LoadingManager()
 loaderManager.onLoad = () => {
-	console.log('load!')
+	// console.log('load!')
 
 	gsap.set('canvas', { autoAlpha: 0 })
 
@@ -54,11 +54,13 @@ loaderManager.onLoad = () => {
 				duration: 0.5,
 				onComplete: () => {
 					playEl.addEventListener('click', () => {
-						assets.soundtrack.play()
+						if (!gui) {
+							assets.soundtrack.play()
+						}
 						gsap.fromTo(
 							plane,
-							{ baseSpeed: 20 },
-							{ duration: 1, baseSpeed: 40 }
+							{ baseSpeed: 35 },
+							{ duration: 1, baseSpeed: 55, speed: 55 },
 						)
 						gsap.to(playEl, { duration: 0.2, autoAlpha: 0 })
 						gsap.fromTo(
@@ -71,10 +73,10 @@ loaderManager.onLoad = () => {
 								// z: 20,
 								// y: -2,
 								// x: 0,
-								// onComplete: () => {
-								// 	camera.rotateY(Math.PI)
-								// },
-							}
+								onComplete: () => {
+									plane.addEffect()
+								},
+							},
 						)
 					})
 					gsap.to('canvas', { autoAlpha: 1, duration: 3, ease: 'power3.out' })
@@ -87,7 +89,7 @@ loaderManager.onLoad = () => {
 loaderManager.onProgress = (a, i, total) => {
 	const progress = (100 * i) / total
 	gsap.to(progressEl, { width: `${progress}%`, duration: 1 })
-	console.log(progress)
+	// console.log(progress)
 }
 
 loaderManager.onStart = () => {
@@ -112,7 +114,7 @@ audioLoader.load(audioSrc, (buffer) => {
 assets.normalMap = textureLoader.load(normalMapSrc)
 
 gltfLoader.load(boatSrc, (gltf) => {
-	console.log('boat', gltf)
+	// console.log('boat', gltf)
 
 	const model = gltf.scene.children[0].children[0]
 	model.scale.setScalar(1.3)
@@ -146,6 +148,7 @@ let gui
 // gui = new dat.GUI()
 
 const params = {
+	speedEffect: 0,
 	directionalLight: 6,
 	ambientLight: 1.5,
 	amplitude: 23,
@@ -177,6 +180,10 @@ const uniforms = {
 }
 
 if (gui) {
+	gui.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
+		plane.updateSpeedEffect(val)
+	})
+
 	gui.addColor(params, 'fog').onChange((val) => {
 		scene.background.set(val)
 		scene.fog.color.set(val)
@@ -261,7 +268,7 @@ const camera = new THREE.PerspectiveCamera(
 	fov,
 	sizes.width / sizes.height,
 	0.1,
-	10000
+	10000,
 )
 camera.position.set(0, 7, -1)
 camera.zoom = isMobile ? 0.8 : 1
@@ -318,7 +325,7 @@ const chunkSize = 256
 let chunkManager, plane
 
 function init(assets) {
-	plane = new Plane(assets.planeModel, null, params)
+	plane = new Plane(assets.planeModel, null, params, camera)
 
 	// Terrain
 	chunkManager = new ChunkManager(
@@ -327,7 +334,7 @@ function init(assets) {
 		params,
 		scene,
 		uniforms,
-		assets
+		assets,
 	)
 
 	/**
@@ -337,8 +344,9 @@ function init(assets) {
 	plane.position.y =
 		Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 	scene.add(plane)
-	plane.camera = camera
-	plane.add(camera)
+	// plane.addCamera(camera)
+	// plane.camera = camera
+	// plane.add(camera)
 
 	// start rendering
 	requestAnimationFrame(tic)
@@ -350,15 +358,16 @@ function init(assets) {
 const ambientLight = new THREE.AmbientLight(0xffffff, params.ambientLight)
 const directionalLight = new THREE.DirectionalLight(
 	0xffffff,
-	params.directionalLight
+	params.directionalLight,
 )
 directionalLight.position.set(1, 1, 1)
 scene.add(ambientLight, directionalLight)
 
 /**
- * Three js Clock
+ * Three js Timer
  */
-const clock = new THREE.Clock()
+const timer = new THREE.Timer()
+timer.connect(document)
 
 scene.fog = new THREE.Fog(params.fog, 250, 900)
 scene.background = new THREE.Color(params.fog)
@@ -367,17 +376,19 @@ scene.background = new THREE.Color(params.fog)
 /**
  * frame loop
  */
-function tic() {
+function tic(timestamp) {
+	timer.update(timestamp)
+
 	/**
 	 * tempo trascorso dal frame precedente
 	 */
-	const deltaTime = clock.getDelta()
+	const deltaTime = timer.getDelta()
 	/**
 	 * tempo totale trascorso dall'inizio
 	 */
-	const time = clock.getElapsedTime()
+	const time = timer.getElapsed()
 
-	plane.update(deltaTime)
+	plane.update(Math.min(deltaTime, 0.016))
 	// camera.position.copy(plane.position.clone())
 	// camera.position.z += -20
 	// camera.position.y += 10
