@@ -13,11 +13,16 @@ import {
 import common from './shaders/common.glsl'
 import projectVertex from './shaders/project-vertex-plane.glsl'
 import {
+	constrainDescentToMinimum,
 	FLIGHT_LIMITS,
 	getFlightCorridor,
 	getSafetyClimbSpeed,
 	getSpeedForEffect,
+	getTerrainAdjustedSpeed,
+	getTerrainBrakeImpulse,
+	getTerrainSlowdown,
 	getVerticalInput,
+	smoothMinimumAltitude,
 } from './flightPolicy'
 import gsap from 'gsap'
 const V3 = new Vector3(0, 0, 0)
@@ -34,6 +39,9 @@ export default class Plane extends Object3D {
 	actualVerticalSpeed = 0
 	terrainSampler = null
 	flightCorridor = null
+	smoothedMinimumAltitude = null
+	terrainSlowdown = 0
+	terrainBrakeEffect = 0
 	initialFov
 	finalFov
 	initialPosition
@@ -156,7 +164,18 @@ export default class Plane extends Object3D {
 	}
 
 	updateSpeed(progress) {
-		this.speed = getSpeedForEffect(this.baseSpeed, progress)
+		const effectSpeed = getSpeedForEffect(this.baseSpeed, progress)
+		this.speed = getTerrainAdjustedSpeed({
+			speed: effectSpeed,
+			baseSpeed: this.baseSpeed,
+			terrainSlowdown: Math.max(this.terrainSlowdown, this.terrainBrakeEffect),
+		})
+	}
+
+	getVisualSpeedEffect() {
+		return this.terrainBrakeEffect > 0
+			? Math.min(this.acceleration, -this.terrainBrakeEffect)
+			: this.acceleration
 	}
 
 	getEffectFov(effect) {
@@ -185,6 +204,61 @@ export default class Plane extends Object3D {
 			baseSpeed: this.baseSpeed,
 			sampleHeight: this.terrainSampler,
 		})
+		const targetMinimumAltitude = this.flightCorridor.minimumAltitude
+		const currentMinimumAltitude = this.smoothedMinimumAltitude
+		const minimumAltitudeJump = Number.isFinite(currentMinimumAltitude)
+			? Math.max(targetMinimumAltitude - currentMinimumAltitude, 0)
+			: 0
+		const terrainBrakeImpulse = getTerrainBrakeImpulse({
+			speed: this.speed,
+			baseSpeed: this.baseSpeed,
+			currentMinimumAltitude,
+			minimumAltitude: targetMinimumAltitude,
+			altitude: this.position.y,
+		})
+		const hasTerrainCollisionRisk = targetMinimumAltitude > this.position.y
+		this.terrainBrakeEffect = hasTerrainCollisionRisk
+			? Math.max(
+					terrainBrakeImpulse,
+					MathUtils.damp(
+						this.terrainBrakeEffect,
+						0,
+						FLIGHT_LIMITS.terrainBrakeReleaseResponse,
+						dt,
+					),
+				)
+			: 0
+		if (this.terrainBrakeEffect < 0.005) this.terrainBrakeEffect = 0
+		this.flightCorridor.minimumAltitudeJump = minimumAltitudeJump
+		this.flightCorridor.hasTerrainCollisionRisk = hasTerrainCollisionRisk
+		this.flightCorridor.terrainBrakeImpulse = terrainBrakeImpulse
+		this.flightCorridor.terrainBrakeEffect = this.terrainBrakeEffect
+		const targetTerrainSlowdown = getTerrainSlowdown({
+			speed: this.speed,
+			baseSpeed: this.baseSpeed,
+			currentTerrainHeight: this.flightCorridor.currentTerrainHeight,
+			terrainCeiling: this.flightCorridor.terrainCeiling,
+			altitude: this.position.y,
+			minimumAltitude: targetMinimumAltitude,
+		})
+		this.terrainSlowdown = hasTerrainCollisionRisk
+			? MathUtils.damp(
+					this.terrainSlowdown,
+					targetTerrainSlowdown,
+					FLIGHT_LIMITS.terrainSlowdownResponse,
+					dt,
+				)
+			: 0
+		this.flightCorridor.targetTerrainSlowdown = targetTerrainSlowdown
+		this.flightCorridor.terrainSlowdown = this.terrainSlowdown
+		this.smoothedMinimumAltitude = smoothMinimumAltitude({
+			currentAltitude: this.smoothedMinimumAltitude,
+			targetAltitude: targetMinimumAltitude,
+			collisionAltitude: this.flightCorridor.collisionAltitude,
+			deltaTime: dt,
+		})
+		this.flightCorridor.targetMinimumAltitude = targetMinimumAltitude
+		this.flightCorridor.minimumAltitude = this.smoothedMinimumAltitude
 
 		const verticalInput = getVerticalInput(this.pointerYRatio)
 		const desiredVerticalSpeed =
@@ -198,9 +272,15 @@ export default class Plane extends Object3D {
 
 		const previousAltitude = this.position.y
 		let nextAltitude = previousAltitude + this.verticalVelocity * dt
+		const constrainedDescent = constrainDescentToMinimum({
+			previousAltitude,
+			nextAltitude,
+			minimumAltitude: this.flightCorridor.minimumAltitude,
+			verticalVelocity: this.verticalVelocity,
+		})
+		nextAltitude = constrainedDescent.nextAltitude
+		this.verticalVelocity = constrainedDescent.verticalVelocity
 		const safetyClimbSpeed = getSafetyClimbSpeed({
-			speed: this.speed,
-			baseSpeed: this.baseSpeed,
 			currentTerrainHeight: this.flightCorridor.currentTerrainHeight,
 			terrainCeiling: this.flightCorridor.terrainCeiling,
 		})
@@ -251,6 +331,7 @@ export default class Plane extends Object3D {
 
 		this.rotation.y += Math.PI * -this.cursor.x * dt * 0.2
 		this.updateAltitude(dt)
+		const visualSpeedEffect = this.getVisualSpeedEffect()
 		// V3.set(0, 1, 0)
 		// 	.multiplyScalar(this.cursor.y * 0.2)
 		// 	.applyQuaternion(this.quaternion)
@@ -288,11 +369,11 @@ export default class Plane extends Object3D {
 
 			this.finalPosition.z =
 				this.initialPosition.z -
-				FLIGHT_LIMITS.cameraEffectDistance * this.acceleration
+				FLIGHT_LIMITS.cameraEffectDistance * visualSpeedEffect
 			this.finalPosition.x = -this.cursor.x * 5
 			this.camera.position.lerp(this.finalPosition, dt * 5)
 
-			const desFov = this.getEffectFov(this.acceleration)
+			const desFov = this.getEffectFov(visualSpeedEffect)
 
 			let fov = MathUtils.lerp(this.camera.fov, desFov, dt * 5)
 
@@ -302,7 +383,7 @@ export default class Plane extends Object3D {
 		// this.position
 
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
-		this.uniforms.uAcceleration.value = Math.max(this.acceleration, 0)
+		this.uniforms.uAcceleration.value = Math.max(visualSpeedEffect, 0)
 		this.acceleration = MathUtils.lerp(this.acceleration, 0, dt * 0.6)
 	}
 
@@ -322,6 +403,8 @@ export default class Plane extends Object3D {
 			},
 			speed: this.speed,
 			speedEffect: this.acceleration,
+			visualSpeedEffect: this.getVisualSpeedEffect(),
+			terrainBrakeEffect: this.terrainBrakeEffect,
 			pointerYRatio: this.pointerYRatio,
 			verticalInput: getVerticalInput(this.pointerYRatio),
 			verticalVelocity: this.verticalVelocity,

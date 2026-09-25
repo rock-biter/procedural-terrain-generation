@@ -57,14 +57,18 @@ There are no keyboard controls. Do not document or expose a control until it is 
 - `Plane` moves forward along its local positive Z axis.
 - `main.js` clamps the movement delta passed to `Plane.update()` to `0.016` seconds.
 - The camera is parented to `Plane`, so world traversal follows the player automatically.
-- The plane samples terrain along its heading over at least `80` world units or `1.5` seconds of travel. Terrain clearance grows from `10` to `14` units with speed.
-- When the predicted terrain floor rises above the current flight path, automatic climb speed changes smoothly from `6` to `28` units per second based on speed and upcoming relief. Current terrain still provides the hard collision floor.
+- The plane samples terrain at its current position and three points along its heading. At cruise speed those points are `20.625`, `41.25`, and `61.875` units ahead; they expand smoothly to `41.25`, `82.5`, and `123.75` units at maximum boost.
+- The highest sampled terrain point plus a fixed `10`-unit clearance sets the target minimum altitude. That target rises promptly and falls more slowly; current terrain still provides the hard collision floor.
+- When the smoothed terrain floor rises above the current flight path, automatic climb speed changes from `6` to `28` units per second based only on upcoming topographic relief.
+- Above cruise speed, sampled relief over `10` units smoothly reduces only the excess speed. At `30` units of relief the reduction is `10%` when the plane is already high enough, grows to `25%` when the upcoming minimum altitude is `20` units above the plane, and reaches `45%` for a severe `40`-unit altitude deficit. Cruise speed and manual braking remain unchanged.
+- Above cruise speed, a target minimum that rises more than `8` units above the smoothed minimum also triggers a temporary automatic brake pulse. It reaches `0.65` for a `30`-unit jump, reducing a full boost from `165` to `93.5`; the wheel brake remains stronger at `1`. While active, camera Z and FOV move in the braking direction and the acceleration trail is suppressed, then the pulse releases smoothly.
+- When a downward command would cross the smoothed minimum altitude, its negative vertical velocity is cancelled. The plane holds the floor without repeatedly descending into and climbing out of it; if the floor is rising, automatic climb remains gradual.
 - Flight altitude is capped at Y `95`, below the dormant cloud placement around Y `100`.
 - After `addEffect()`, boost and braking change speed, camera Z, and FOV in opposite directions; values ease back toward the base state over time. Braking does not activate the acceleration-driven trail contribution.
 - `Plane.addEffect()` currently uses Z `-18` as its follow/effect baseline on every viewport, even after the mobile play transition ends at `-16`.
 - The airplane mesh roll and shader-driven trails visualize turning and acceleration.
 
-`window.__INFINITE_WORLD__.getFlightStats()` exposes read-only position, speed, pointer ratio, vertical input, vertical velocity, camera state, and terrain-corridor values for browser checks.
+`window.__INFINITE_WORLD__.getFlightStats()` exposes read-only position, speed, manual and visual speed effects, terrain-brake effect, pointer ratio, vertical input, vertical velocity, camera state, and terrain-corridor values for browser checks. Corridor diagnostics include all four sampled heights, their speed-scaled distances, target and smoothed minimum altitudes, minimum-altitude jump, brake impulse, and target and smoothed terrain slowdowns.
 
 Changes to movement should be checked together with chunk tracking because `ChunkManager` follows `plane.position`.
 

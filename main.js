@@ -7,6 +7,7 @@ import Chunk from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import { getHeight } from './src/chunkGeometry'
 import Plane from './src/plane'
+import TerrainSampleDebug from './src/terrainSampleDebug'
 import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
@@ -20,13 +21,15 @@ const toggleEl = document.getElementById('sound-toggle')
 const cameraTarget = new THREE.Vector3(0, 6.9, 0)
 let volume = true
 const isMobile = window.innerWidth < 768
-const worldSeed =
-	new URLSearchParams(window.location.search).get('seed') ??
-	`${Date.now()}-${Math.random()}`
+const urlParams = new URLSearchParams(window.location.search)
+const worldSeed = urlParams.get('seed') ?? `${Date.now()}-${Math.random()}`
 const worldFeatures = Object.freeze({
 	trees: false,
 	clouds: false,
 	boats: false,
+})
+const debugFeatures = Object.freeze({
+	terrainSamples: urlParams.get('debug') === '1',
 })
 
 const assets = {
@@ -333,7 +336,7 @@ const chunkSize = 256
 // scene.add(plane)
 // plane.camera = camera
 // plane.add(camera)
-let chunkManager, plane
+let chunkManager, plane, terrainSampleDebug
 
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
@@ -363,6 +366,10 @@ function init(assets) {
 	plane.position.y =
 		Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 	scene.add(plane)
+	if (debugFeatures.terrainSamples) {
+		terrainSampleDebug = new TerrainSampleDebug(uniforms)
+		scene.add(terrainSampleDebug)
+	}
 	// plane.addCamera(camera)
 	// plane.camera = camera
 	// plane.add(camera)
@@ -408,6 +415,7 @@ function tic(timestamp) {
 	const time = timer.getElapsed()
 
 	plane.update(Math.min(deltaTime, 0.016))
+	terrainSampleDebug?.update(plane.flightCorridor?.samples)
 	// camera.position.copy(plane.position.clone())
 	// camera.position.z += -20
 	// camera.position.y += 10
