@@ -8,15 +8,16 @@ This repository contains **Infinite Procedural World**, a browser-based Three.js
 
 ## Read The Relevant Guide
 
-| Task                                                                     | Guide                                          |
-| ------------------------------------------------------------------------ | ---------------------------------------------- |
-| Install, commands, dependencies, source conventions, or debugging        | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)   |
-| Bootstrap, frame loop, module ownership, or cross-system changes         | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Noise, height generation, chunks, LOD, pooling, trees, clouds, or boats  | [`docs/TERRAIN.md`](docs/TERRAIN.md)           |
-| Three.js materials, uniforms, GLSL, instancing, curvature, or fog        | [`docs/RENDERING.md`](docs/RENDERING.md)       |
-| Loader, play flow, controls, camera, audio, DOM, or responsive behavior  | [`docs/EXPERIENCE.md`](docs/EXPERIENCE.md)     |
-| Models, textures, audio files, loading transforms, or licensing          | [`docs/ASSETS.md`](docs/ASSETS.md)             |
-| Build expectations, browser checks, manual QA, or future test automation | [`docs/QUALITY.md`](docs/QUALITY.md)           |
+| Task                                                                                | Guide                                          |
+| ----------------------------------------------------------------------------------- | ---------------------------------------------- |
+| Install, commands, dependencies, source conventions, or debugging                   | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)   |
+| Bootstrap, frame loop, module ownership, or cross-system changes                    | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Noise, height generation, chunks, LOD, pooling, trees, clouds, or boats             | [`docs/TERRAIN.md`](docs/TERRAIN.md)           |
+| Three.js materials, uniforms, GLSL, instancing, curvature, or fog                   | [`docs/RENDERING.md`](docs/RENDERING.md)       |
+| Loader, play flow, controls, camera, audio, DOM, or responsive behavior             | [`docs/EXPERIENCE.md`](docs/EXPERIENCE.md)     |
+| Models, textures, audio files, loading transforms, or licensing                     | [`docs/ASSETS.md`](docs/ASSETS.md)             |
+| Build expectations, browser checks, manual QA, or future test automation            | [`docs/QUALITY.md`](docs/QUALITY.md)           |
+| Technical debt, performance analysis, implementation sequencing, or future features | [`docs/ROADMAP.md`](docs/ROADMAP.md)           |
 
 Read the owning source file and the relevant guide before editing. When a change crosses boundaries, read each affected guide rather than relying on this summary.
 

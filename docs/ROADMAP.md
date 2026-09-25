@@ -1,0 +1,394 @@
+# Technical Roadmap And Work Register
+
+## Purpose
+
+This is the living register for technical debt, performance work, architectural decisions, and future features. It records why work is needed before prescribing an implementation.
+
+The first analysis focuses on terrain generation and streaming because they dominate current startup and traversal cost. Current behavior remains documented in [Terrain](TERRAIN.md), [Architecture](ARCHITECTURE.md), and [Rendering](RENDERING.md). Validation rules remain in [Quality](QUALITY.md).
+
+Last baseline review: **2026-09-25**.
+
+## How To Use This Document
+
+- Give every problem and future feature a stable ID.
+- Keep verified facts separate from estimates and hypotheses.
+- Add measurements before and after performance work.
+- Define acceptance criteria before changing architecture.
+- Update status and decisions in the same task as the implementation.
+- Do not mark an item complete until its documentation and validation are complete.
+
+### Status
+
+| Status        | Meaning                                                   |
+| ------------- | --------------------------------------------------------- |
+| `Observed`    | Verified in the current source, but not yet scheduled.    |
+| `Ready`       | Scope, dependencies, and acceptance criteria are defined. |
+| `In progress` | Implementation is active.                                 |
+| `Blocked`     | A decision, dependency, or measurement is missing.        |
+| `Done`        | Implementation and validation are complete.               |
+
+### Priority
+
+| Priority | Meaning                                                                           |
+| -------- | --------------------------------------------------------------------------------- |
+| `P0`     | Correctness, unbounded growth, or a dominant frame-time risk.                     |
+| `P1`     | Material performance or maintainability problem needed for the next architecture. |
+| `P2`     | Important improvement that can follow stabilization and measurement.              |
+| `P3`     | Cleanup or deferred quality work with limited immediate runtime impact.           |
+
+## Evidence Levels
+
+- **Confirmed:** directly visible in source or library behavior.
+- **Static estimate:** derived exactly from current constants and loops, but not timed in a browser.
+- **Hypothesis:** plausible runtime impact that requires profiling.
+
+Time estimates from unmeasured hardware are intentionally excluded. Static operation counts identify where to measure; they do not predict milliseconds.
+
+## Current Terrain Hot Path
+
+```text
+main.js: tic()
+  -> Plane.update()
+  -> ChunkManager.updateChunks()
+       -> sort pending callbacks every frame
+       -> on a chunk boundary, scan candidate coordinates
+       -> dispose some out-of-range chunks synchronously
+       -> enqueue createChunk() or updateLOD()
+       -> on later frames, execute 1-3 callbacks
+            -> new Chunk()
+                 -> PlaneGeometry allocation
+                 -> getHeight() for every terrain vertex
+                 -> computeVertexNormals()
+                 -> generateTrees() for LOD <= 2
+                 -> generateClouds() for every LOD
+                 -> addBoats()
+            -> or Chunk.updateLOD()
+                 -> dispose and rebuild terrain geometry
+                 -> resample heights and normals
+  -> renderer.render()
+```
+
+All generation callbacks execute on the main thread. The queue limits callback count, not execution time, so one callback can still consume an entire frame or more.
+
+## Quantitative Static Baseline
+
+### Assumptions
+
+- Chunk size: `256`.
+- Default octaves: `3`.
+- `getHeight()` performs exactly five simplex-noise evaluations at the default octave count: one per octave plus two landmass samples.
+- Desktop uses `maxDistance = 5`, terrain density divisor `2`, and tree step `5`.
+- Mobile uses `maxDistance = 4`, terrain density divisor `4`, and tree step `8`.
+- Counts model the current asymmetric scan bounds and exclude duplicate or stale queued work.
+
+### Desired Window At Startup
+
+| Metric                               |                                           Desktop |                               Mobile |
+| ------------------------------------ | ------------------------------------------------: | -----------------------------------: |
+| Coordinates accepted by current scan |                                                79 |                                   47 |
+| LOD distribution                     | 9 at LOD 0, 16 at LOD 1, 36 at LOD 2, 18 at LOD 3 | 9 at LOD 0, 16 at LOD 1, 22 at LOD 2 |
+| Terrain vertices                     |                                           261,775 |                               61,807 |
+| Terrain triangles                    |                                           508,928 |                              117,760 |
+| Terrain noise evaluations            |                                         1,308,875 |                              309,035 |
+| Tree-generating chunks               |                                                61 |                                   47 |
+| Tree candidates                      |                                           164,944 |                               48,128 |
+| Tree-related noise evaluations       |                                         1,154,608 |                              336,896 |
+| Cloud candidates                     |                                         5,177,344 |                            3,080,192 |
+| Cloud noise evaluations              |                                        10,354,688 |                            6,160,384 |
+
+Before boat placement, the initial desired window implies about **12.82 million** noise evaluations on desktop and **6.81 million** on mobile. These calls are distributed by the work queue, but each individual chunk is still generated synchronously.
+
+### Terrain Cost Per Chunk
+
+| LOD | Desktop segments / vertices / triangles | Mobile segments / vertices / triangles |
+| --- | --------------------------------------: | -------------------------------------: |
+| 0   |                   128 / 16,641 / 32,768 |                     64 / 4,225 / 8,192 |
+| 1   |                      64 / 4,225 / 8,192 |                     32 / 1,089 / 2,048 |
+| 2   |                      32 / 1,089 / 2,048 |                         16 / 289 / 512 |
+| 3   |                          16 / 289 / 512 |                           8 / 81 / 128 |
+
+`computeVertexNormals()` then walks the rebuilt indexed geometry. LOD changes avoid regenerating existing decorations, but they still allocate a new terrain geometry, resample every vertex, and recompute normals.
+
+### Decoration Geometry
+
+Three.js r186 builds `IcosahedronGeometry` as a non-indexed polyhedron with:
+
+```text
+triangles = 20 * (detail + 1)^2
+vertices = triangles * 3
+```
+
+| Type  | Detail | Base triangles | Base vertices | Position + normal + UV bytes |
+| ----- | -----: | -------------: | ------------: | ---------------------------: |
+| Tree  |      5 |            720 |         2,160 |                       69,120 |
+| Cloud |     10 |          2,420 |         7,260 |                      232,320 |
+
+Each chunk creates new copies of these identical base geometries. Instance transforms and colors add more buffers, and GPU vertex work multiplies base geometry by the number of visible instances. Actual instance counts must be measured because placement depends on noise and `Math.random()`.
+
+## Known Problem Register
+
+| ID          | Priority | Status   | Problem                                                                         | Evidence                                                                                                                                       |
+| ----------- | -------- | -------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OBS-001`   | P0       | Observed | No repeatable performance baseline or streaming telemetry.                      | No application instrumentation or recorded baseline exists for frame time, queue, chunk, generation, or the built-in `renderer.info` counters. |
+| `STRM-001`  | P0       | Observed | The pending-work queue is not keyed consistently and cannot cancel stale work.  | Creation items use `key`; lookup and LOD items use `id`; old callbacks survive range changes.                                                  |
+| `STRM-002`  | P0       | Observed | Desired-set reconciliation does not inspect all live chunks.                    | The asymmetric local scan cannot reach some chunks left behind; `lookForDistantChunks()` is disabled.                                          |
+| `PERF-001`  | P0       | Observed | Cloud placement scans all 65,536 integer positions in every chunk at every LOD. | `generateClouds()` ignores its `density` variable and performs two noise calls per candidate.                                                  |
+| `LIFE-001`  | P0       | Observed | Per-chunk GPU resource ownership and disposal are incomplete.                   | `Chunk.dispose()` omits clouds and does not dispose unique tree/cloud geometries.                                                              |
+| `PERF-002`  | P1       | Observed | Streaming is limited by callback count rather than a frame-time budget.         | A single `createChunk()` performs terrain and decoration generation synchronously.                                                             |
+| `PERF-003`  | P1       | Observed | Every LOD transition reallocates and fully recomputes terrain geometry.         | `updateLOD()` replaces geometry, resamples all heights, and recomputes normals.                                                                |
+| `PERF-004`  | P1       | Observed | Identical tree and cloud base geometries are recreated per chunk.               | Constructors allocate new `IcosahedronGeometry` instances while materials are shared.                                                          |
+| `STATE-001` | P1       | Observed | Chunk registries retain historical keys and can accumulate duplicates.          | Disposal assigns `undefined` instead of deleting; `chunkKeys` is not pruned by the active path.                                                |
+| `CORR-001`  | P1       | Observed | Tree and cloud candidates are offset by a full chunk instead of half a chunk.   | Generation subtracts `size`; terrain local bounds are centered on `size / 2`.                                                                  |
+| `CORR-002`  | P1       | Observed | Boat world coordinates are assigned as local coordinates on a chunk child.      | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                               |
+| `STATE-002` | P1       | Observed | Runtime terrain-parameter updates are unsafe and incomplete.                    | Disposed entries can enqueue undefined callbacks; octave noise functions are not resized; decorations keep old placement.                      |
+| `DET-001`   | P1       | Observed | Terrain and decoration are nondeterministic.                                    | Simplex noise has no seeded PRNG and placement uses `Math.random()`.                                                                           |
+| `TEST-001`  | P1       | Observed | Streaming and generation rules have no automated regression coverage.           | There is no test suite for coordinates, desired sets, queue cancellation, height continuity, or disposal.                                      |
+| `STRM-003`  | P2       | Observed | Priority uses distance only and has no hysteresis.                              | Work is not biased by movement direction, camera visibility, or recent LOD state.                                                              |
+| `REND-001`  | P2       | Observed | Shared material hooks and shared glTF resources have implicit ownership.        | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                      |
+| `FRAME-001` | P2       | Observed | Delta clamping slows traversal during stalls and can hide streaming pressure.   | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                      |
+| `LOAD-001`  | P3       | Observed | The normal map is loaded through two independent paths.                         | `main.js` uses the loading manager; `chunk.js` creates a separate texture loader.                                                              |
+| `MAINT-001` | P3       | Observed | Dead paths and misleading names obscure lifecycle behavior.                     | `pool` is a work queue, `camera` is the plane, `updateChunks()` is async without awaits, and dormant code remains.                             |
+
+## Detailed Findings
+
+### `STRM-001`: Duplicate And Stale Work
+
+Creation records have a `key`, but deduplication searches `el.id`. Crossing a chunk boundary before the previous queue drains can enqueue the same creation more than once. Pending work is not removed when its coordinate leaves the desired set.
+
+Consequences:
+
+- Queue length can exceed the desired-window size.
+- An old creation callback can create a chunk that is no longer needed.
+- An old LOD callback closes over a disposed `Chunk` and can rebuild detached geometry.
+- Sorting and `findIndex()` become progressively more expensive as stale work grows.
+
+Required direction: replace callback identity by a single keyed work record with a generation token or desired-set revision. Results and callbacks must verify that their key, revision, and target LOD are still current before committing.
+
+### `STRM-002`: Incomplete Reconciliation And Disposal Spikes
+
+The scan runs from `-maxDistance + 1` through `+maxDistance + 1`, then filters by Euclidean distance. The positive extra row is rejected, while the negative edge is never scanned. More importantly, disposal only considers coordinates visited by this local scan, not every live chunk.
+
+Consequences:
+
+- The current target contains 79 desktop or 47 mobile coordinates instead of the symmetric 81 or 49 lattice points.
+- Some trailing chunks can leave the scan bounds without ever reaching `disposeChunk()`.
+- Other out-of-range chunks are disposed synchronously together on a boundary frame.
+- Scene membership, registry membership, and desired membership can diverge.
+
+Required direction: compute a pure symmetric desired set, diff it against a `Map` of live/in-flight chunks, and schedule explicit create, update, and retire operations.
+
+### `PERF-001`: Cloud Sampling Dominates Static CPU Work
+
+Every chunk performs `256 * 256` cloud candidates, including distant LOD 3 chunks. Each candidate evaluates two simplex-noise functions before the random acceptance test. The mobile/desktop density constant is unused, so mobile receives no reduction.
+
+Candidate strategies:
+
+- Sample a coarse seeded grid and scale cloud instances.
+- Generate clouds only in near LODs.
+- Use a deterministic sparse distribution such as jittered cells or Poisson-disc candidates.
+- Move clouds to a world-level ring or tile cache independent of terrain chunks.
+- Reuse lower-frequency values when neighboring candidates share a cell.
+
+The first implementation should reduce candidate count before moving the same waste into a worker.
+
+### `LIFE-001`: Resource Ownership Is Undefined
+
+In Three.js r186, `Object3D.dispose()` dispatches a disposal event but explicitly does not dispose geometry, materials, or textures because they may be shared.
+
+Current ownership facts:
+
+- Terrain geometry is unique and explicitly disposed.
+- Tree and cloud geometry is unique per chunk but is not explicitly disposed.
+- The tree instanced object receives `dispose()`; the cloud instanced object does not during chunk removal.
+- Tree and cloud materials are shared module-level resources and must not be disposed per chunk.
+- Boat clones share geometry and material references with the template by default. Blindly disposing those resources per clone would break remaining boats and the template.
+- Stale work can retain detached chunks and their children after scene removal.
+
+Required direction: write an ownership table in code design, separate shared immutable resources from per-chunk buffers, and dispose only resources with a single owner. Boat resources either remain shared and immutable or must be cloned explicitly with reference-counted disposal.
+
+### `PERF-002` And `PERF-003`: Main-Thread Spikes
+
+The scheduler processes one near callback or up to three farther callbacks, but a callback is not a stable unit of cost. A near LOD 0 creation performs 16,641 height samples, normal generation, tree candidates, cloud candidates, buffer creation, and instance initialization before returning.
+
+LOD transitions avoid recreating existing decorations but still allocate a new `PlaneGeometry`, evaluate heights, update attributes, and compute normals. There is no height cache, reusable geometry buffer, worker boundary, or cancellation point inside that work.
+
+Required direction: instrument each stage separately, then adopt a millisecond budget and split generation into cancellable stages. Worker generation is valuable only after generation is expressed as pure data work with stale-result rejection.
+
+### `CORR-001` And `CORR-002`: Ownership Coordinates
+
+Tree and cloud loops generate local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`. Their world samples are internally consistent, but most instances are owned by a neighboring spatial region. This complicates culling, streaming edges, and disposal.
+
+Boats sample valid world coordinates, then store those world values as the local transform of an object parented to the positioned chunk. The chunk transform is therefore applied a second time.
+
+These correctness fixes must precede visual-density tuning so benchmarks measure content in the intended region.
+
+## Strategy Options
+
+| Strategy                                       | Solves                                            | Benefits                                                      | Risks and tradeoffs                                                                          | Recommendation                                |
+| ---------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Stabilize current tile system                  | Queue, registry, disposal, coordinate correctness | Lowest migration risk; creates a trustworthy baseline         | Does not remove main-thread generation cost                                                  | Do first                                      |
+| Keyed, cancellable, time-budgeted scheduler    | Duplicate/stale work and frame spikes             | Bounded state, observable priorities, supports workers later  | Requires explicit chunk states and cancellation semantics                                    | Foundation for further work                   |
+| Reduce and stage decoration generation         | Dominant cloud scan and startup work              | Largest immediate CPU reduction; can preserve visual style    | Distribution must be redesigned and visually compared                                        | Do before worker migration                    |
+| Share immutable geometry and cache height data | Allocation, GC, repeated sampling                 | Lower memory churn and faster LOD changes                     | Cache invalidation and ownership become explicit concerns                                    | Add after lifecycle repair                    |
+| Worker pool with transferable typed arrays     | Main-thread terrain and decoration generation     | Protects rendering and input from CPU work                    | Stale results, seeding, transfer costs, errors, and worker lifecycle add complexity          | Add after pure deterministic generation       |
+| Direction/frustum priority plus LOD hysteresis | Work usefulness and LOD churn                     | Generates visible/ahead content first                         | Can expose holes if desired-set policy is wrong                                              | Add after keyed scheduler                     |
+| Fixed rings or geometry clipmap                | Repeated chunk creation and deletion              | Reuses a bounded mesh set; strong fit for an infinite flyover | Major shader, placement, culling, and CPU-height-query redesign                              | Evaluate after feature requirements are known |
+| GPU procedural displacement                    | CPU vertex generation                             | Can eliminate most terrain vertex sampling on CPU             | Plane height, decorations, boats, normals, determinism, and tests still need a CPU/data path | Do not choose first                           |
+
+### Architecture Direction
+
+The recommended near-term path is to stabilize the current tile architecture, measure it, and reduce wasted generation. Do not begin with workers or GPU displacement: both can hide lifecycle bugs and make stale-work behavior harder to reason about.
+
+After stabilization, compare two strategic paths:
+
+1. **Improved tiles:** keyed scheduler, worker-generated typed arrays, deterministic tile cache, shared decoration resources, LOD hysteresis.
+2. **Clipmap/ring terrain:** a fixed set of reusable meshes centered around the plane, with world-space sampling and separate sparse systems for decorations.
+
+Future gameplay requirements will determine the choice. Persistent world edits, exact object interaction, and deterministic revisiting favor explicit tiles. A mostly visual continuous flyover with limited terrain mutation favors clipmaps.
+
+## Phased Remediation Plan
+
+### Phase 0: Measure And Make Reproducible
+
+Target issues: `OBS-001`, `DET-001`, `TEST-001`.
+
+Tasks:
+
+- Define target desktop and mobile devices, resolution, pixel ratio, and frame-time budgets.
+- Add a deterministic seed for terrain and placement.
+- Define a repeatable route that crosses enough chunk boundaries in multiple directions.
+- Record frame p50/p95/p99, long tasks, create/update/dispose stage durations, queue length, desired/live/in-flight counts, and `renderer.info.memory`.
+- Add pure tests for chunk coordinates, symmetric desired sets, LOD selection, and height continuity.
+
+Acceptance criteria:
+
+- The same seed and route produce comparable content and operation counts.
+- A baseline report captures startup, five-minute traversal, and post-traversal memory.
+- Instrumentation can be disabled and does not materially alter the measured path.
+
+### Phase 1: Repair Streaming And Ownership
+
+Target issues: `STRM-001`, `STRM-002`, `LIFE-001`, `STATE-001`, `CORR-001`, `CORR-002`, `STATE-002`.
+
+Tasks:
+
+- Replace object-plus-array registries with explicit `Map`-based desired, pending, live, and retiring states.
+- Replace callbacks with keyed operations carrying desired LOD and a revision token.
+- Cancel operations and reject results that are no longer desired.
+- Diff all live chunks against a pure symmetric desired set.
+- Delete retired registry entries and bound any cache intentionally.
+- Define shared versus unique geometry, material, texture, and model ownership.
+- Correct decoration and boat coordinate spaces.
+- Make parameter changes rebuild noise and dependent content coherently or remove unsupported live controls.
+
+Acceptance criteria:
+
+- The queue contains at most one operation per chunk key.
+- After long traversal, live and pending counts remain bounded by documented limits.
+- No callback or worker result mutates a retired chunk.
+- The chosen symmetric radius produces 81 desktop and 49 mobile coordinates, unless a different shape is explicitly adopted.
+- Repeated create/retire cycles reach a stable renderer-memory plateau.
+- Trees, clouds, and boats remain inside their documented ownership region.
+
+### Phase 2: Remove Dominant Waste
+
+Target issues: `PERF-001`, `PERF-002`, `PERF-003`, `PERF-004`.
+
+Tasks:
+
+- Replace per-unit cloud scanning with a sparse deterministic strategy.
+- Generate decorations only at LODs where they can contribute visually.
+- Share immutable tree and cloud base geometries.
+- Lower geometry detail based on measured image quality.
+- Split chunk generation into terrain, normals, and decoration stages.
+- Schedule work by elapsed milliseconds, priority, and cancellation state.
+- Evaluate a bounded height-data cache for adjacent LODs and revisited chunks.
+
+Acceptance criteria:
+
+- Cloud candidates fall by at least 90 percent from 65,536 per chunk, subject to visual approval.
+- Only one base geometry per decoration type exists unless variants are justified.
+- No scheduled main-thread stage exceeds the agreed frame budget on target devices.
+- Visual comparison covers terrain seams, biome bands, trees, clouds, boats, and distance fades.
+
+### Phase 3: Move Pure Generation Off The Main Thread
+
+Dependencies: Phases 0-2 and deterministic pure generation functions.
+
+Tasks:
+
+- Introduce a bounded worker pool rather than one worker per chunk.
+- Generate height and placement typed arrays in workers.
+- Transfer buffers instead of cloning large arrays.
+- Carry key, LOD, seed, and revision in every request and response.
+- Reject stale responses before allocating Three.js objects.
+- Keep GPU object creation and renderer interaction on the main thread.
+
+Acceptance criteria:
+
+- Worker count and in-flight memory are bounded.
+- Stale results are demonstrably ignored.
+- Main-thread p95 frame time improves against the Phase 0 baseline.
+- First-visible-terrain time does not regress beyond an agreed threshold.
+
+### Phase 4: Decide The Long-Term Terrain Architecture
+
+Dependencies: future feature list and measurements from optimized tiles.
+
+Create an architecture decision record comparing improved tiles with fixed rings/clipmaps. Include:
+
+- World persistence and editability.
+- Required CPU height queries and collision precision.
+- Decoration persistence and interaction.
+- LOD seams and visual range.
+- Memory limits and target hardware.
+- Worker and GPU portability.
+- Migration cost and test strategy.
+
+Do not begin a clipmap or GPU-displacement rewrite before this decision.
+
+## Secondary Known Debt
+
+These issues are real but have not received the same depth of performance analysis:
+
+| ID          | Priority | Area                | Current issue                                                                                      |
+| ----------- | -------- | ------------------- | -------------------------------------------------------------------------------------------------- |
+| `APP-001`   | P2       | Lifecycle           | No teardown for animation frames, listeners, audio, renderer, or scene resources.                  |
+| `EXP-001`   | P2       | Responsive behavior | Mobile policy is fixed at startup width; crossing the breakpoint does not rebuild runtime policy.  |
+| `EXP-002`   | P2       | Camera              | Mobile play transition ends at Z `-16`, but the later effect baseline is Z `-18`.                  |
+| `A11Y-001`  | P2       | Interface           | Play and sound controls are not semantic buttons and lack keyboard behavior and accessible labels. |
+| `LOAD-002`  | P2       | Reliability         | Startup-critical assets have no visible error or retry state.                                      |
+| `ASSET-001` | P1       | Licensing           | Soundtrack and texture provenance are not recorded in dedicated license metadata.                  |
+| `QUAL-001`  | P1       | Quality             | There is no linting, type checking, CI, browser automation, or visual regression baseline.         |
+
+See the owning guides for current behavior and constraints. Promote an item into a detailed phase when it becomes part of an implementation milestone.
+
+## Decisions Needed Before Implementation
+
+1. Which desktop, laptop, and mobile devices define the support baseline?
+2. Is the target 60 FPS, 30 FPS on mobile, or an adaptive quality policy?
+3. Must revisiting coordinates reproduce identical terrain and decorations?
+4. Will future features modify terrain or persist objects at world coordinates?
+5. How dense must trees and clouds remain to preserve the intended art direction?
+6. Is short-term compatibility with the current world appearance more important than a clipmap migration?
+7. How much startup latency is acceptable before the play action appears?
+
+## Future Feature Intake
+
+No future feature requirements have been recorded yet. Add each one with this template:
+
+```markdown
+### `FEAT-XXX`: Short Title
+
+- **Status:** Observed | Ready | In progress | Blocked | Done
+- **User value:** Why this feature exists.
+- **Behavior:** What the user can observe or do.
+- **Dependencies:** Issue IDs, assets, or decisions required first.
+- **Affected systems:** Terrain, rendering, controls, assets, audio, UI, or tooling.
+- **Performance budget:** Frame time, memory, loading, or network constraints.
+- **Options:** Candidate implementations and tradeoffs.
+- **Acceptance criteria:** Observable and measurable completion conditions.
+- **Documentation:** Guides that must be updated.
+```
+
+Feature work must reference the technical issues it depends on. This prevents a feature from being designed around lifecycle or performance behavior already scheduled for replacement.
