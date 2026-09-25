@@ -46,7 +46,7 @@ The tree, cloud, and boat shader paths are currently dormant because all three `
 - `distanceFromCamera`: distance used for curvature, scaling, atmospheric darkening, and fading.
 - Shared `rotateZ()` and simplex-noise helpers.
 
-The terrain geometry also provides a custom scalar `height` attribute. Its value is the raw procedural height, including underwater values that differ from the CPU-clamped visible vertex position.
+The terrain geometry also provides a custom scalar `height` attribute. Its value is the raw procedural height, including underwater values that differ from the CPU-clamped visible vertex position. Position, normal, UV, height, and index arrays are generated in a worker, transferred, and wrapped in `BufferGeometry` on the main thread before rendering.
 
 The plane trail injects `uRotation`, `uAcceleration`, and `vUV` inline because they are specific to that material path.
 

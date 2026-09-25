@@ -36,7 +36,8 @@ Do not edit or commit generated files under `dist/`.
 - `vite-plugin-glsl` makes GLSL files importable by JavaScript.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
-- Node's built-in test runner covers pure chunk-policy behavior under `test/`.
+- Node's built-in test runner covers pure chunk-policy and deterministic terrain-buffer behavior under `test/`.
+- Vite bundles `src/chunkGeometry.worker.js` as a module worker; no separate worker build command is required.
 - The repository currently has no formatter, linter, browser test suite, or CI workflow.
 
 See [Quality](QUALITY.md) for the browser and rendering validation that remains outside the pure Node tests.
@@ -48,6 +49,7 @@ Follow the patterns in the code being changed rather than introducing a parallel
 - Use ES modules and preserve the existing default-export class boundaries.
 - Use tabs in JavaScript files and omit semicolons.
 - Keep Three.js object ownership explicit. The bootstrap belongs in `main.js`; terrain lifecycle belongs in `ChunkManager` and `Chunk`; flight behavior belongs in `Plane`.
+- Keep worker messages structured-cloneable. Transfer generated typed-array buffers, and create or mutate renderer-owned objects only on the main thread.
 - Reuse vectors and matrices in frame-sensitive code where the surrounding module already does so. Avoid allocations inside the render loop without measuring their cost.
 - Uniform names use a `u` prefix, such as `uTime` and `uCamera`.
 - Keep shader source in `src/shaders/`; do not embed large GLSL strings in JavaScript.

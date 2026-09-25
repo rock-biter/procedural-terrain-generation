@@ -42,9 +42,11 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 ## Source Map
 
 - [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, the render loop, and resize behavior.
-- [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, queued work, LOD selection, and scene membership.
+- [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
 - [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, symmetric desired-set selection, and distance-based LOD policy.
-- [`src/chunk.js`](src/chunk.js) owns height sampling, terrain geometry, and per-chunk scenery.
+- [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling and transferable terrain buffers shared by tests and workers.
+- [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
+- [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and per-chunk scenery.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
 - [`src/trees.js`](src/trees.js) and [`src/clouds.js`](src/clouds.js) own instanced scenery meshes.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
@@ -67,7 +69,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

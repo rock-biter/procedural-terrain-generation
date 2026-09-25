@@ -5,7 +5,7 @@ import { FlyControls } from 'three/examples/jsm/controls/FlyControls'
 import * as dat from 'lil-gui'
 import Chunk from './src/chunk'
 import ChunkManager from './src/chunkManager'
-import { getHeight } from './src/chunk'
+import { getHeight } from './src/chunkGeometry'
 import Plane from './src/plane'
 import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
@@ -20,6 +20,9 @@ const toggleEl = document.getElementById('sound-toggle')
 const cameraTarget = new THREE.Vector3(0, 6.9, 0)
 let volume = true
 const isMobile = window.innerWidth < 768
+const worldSeed =
+	new URLSearchParams(window.location.search).get('seed') ??
+	`${Date.now()}-${Math.random()}`
 const worldFeatures = Object.freeze({
 	trees: false,
 	clouds: false,
@@ -348,6 +351,7 @@ function init(assets) {
 		uniforms,
 		assets,
 		worldFeatures,
+		worldSeed,
 	)
 
 	/**

@@ -33,7 +33,9 @@ A successful Vite build proves that modules and assets can be bundled. It does n
 
 Run narrower checks first when a task introduces them, but do not skip the production build for source, shader, dependency, or configuration changes.
 
-The chunk-policy suite covers symmetric desktop/mobile desired sets, negative centers, and the current distance-based LOD rule. Browser lifecycle checks can read `window.__INFINITE_WORLD__.getChunkStats()`; after the queue drains, `live` must equal `desired`, `pending` must return to zero, and `created - disposed` must equal `live`.
+The test suite covers symmetric desktop/mobile desired sets, negative centers, the current LOD rule, deterministic terrain buffers, topology counts, sea clamping, and adjacent chunk-edge heights.
+
+Browser lifecycle checks can read `window.__INFINITE_WORLD__.getChunkStats()`. After the queue drains, `live` must equal `desired`, `pending`, `queued`, and `inFlight` must return to zero, `created - disposed` must equal `live`, `generated` must be at least `created`, and `failed` must remain zero. Desktop should report up to two workers; mobile reports one.
 
 ## Manual Experience Smoke Test
 
@@ -49,6 +51,8 @@ Use a fresh page load and check:
 8. Fog, distance fades, curvature, water movement, and biome bands remain visually coherent.
 9. Resize preserves canvas framing and control layout.
 10. The experience remains usable at a viewport below `768px`, including the very narrow play-action layout.
+
+For worker changes, use a fixed URL seed, confirm a separate worker network request, and compare terrain scale, water, bands, seams, and the nonblank canvas against the same seed before the change.
 
 ## Terrain And Rendering Observations
 

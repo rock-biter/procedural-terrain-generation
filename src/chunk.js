@@ -7,7 +7,6 @@ import {
 	MeshNormalMaterial,
 	MeshStandardMaterial,
 	MultiplyBlending,
-	PlaneGeometry,
 	RepeatWrapping,
 	Scene,
 	TextureLoader,
@@ -22,6 +21,7 @@ import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import Trees from './trees'
 import Clouds from './clouds'
+import { getHeight } from './chunkGeometry'
 
 const isMobile = window.innerWidth < 768
 const loader = new TextureLoader()
@@ -62,14 +62,10 @@ export default class Chunk extends Mesh {
 		uniforms,
 		assets,
 		features = DEFAULT_FEATURES,
+		geometry,
 	) {
-		const density = isMobile ? 4 : 2
-		const segments = Math.max(Math.floor(size * 0.5 ** LOD), density) / density
-		const geometry = new PlaneGeometry(size, size, segments, segments)
-		geometry.rotateX(-Math.PI * 0.5)
-		// geometry.translate(size / 2, 0, size / 2)
-
 		super(geometry, material)
+		if (!geometry) throw new Error('Chunk geometry is required')
 
 		this.position.copy(position)
 		this.noise = noise
@@ -84,7 +80,7 @@ export default class Chunk extends Mesh {
 
 		// sea.scale.setScalar(size)
 
-		this.updateGeometry()
+		this.updateScenery()
 		this.onBeforeCompile()
 		// this.add(sea.clone())
 
@@ -132,7 +128,6 @@ export default class Chunk extends Mesh {
 				'#include <color_fragment>',
 				colorFragment,
 			)
-
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <normal_fragment_maps>',
 				normalFragmentMap,
@@ -140,59 +135,17 @@ export default class Chunk extends Mesh {
 		}
 	}
 
-	updateLOD(LOD) {
-		// console.log('LOD updated', LOD, 'vs', this.LOD)
-		if (LOD === this.LOD) return
+	replaceGeometry(geometry, LOD) {
+		if (!geometry) return
 
-		this.LOD = LOD
-		const density = isMobile ? 4 : 2
-		const segments =
-			Math.max(Math.floor(this.size * 0.5 ** LOD), density) / density
-		const geometry = new PlaneGeometry(this.size, this.size, segments, segments)
-		geometry.rotateX(-Math.PI * 0.5)
-		// geometry.translate(this.size / 2, 0, this.size / 2)
-		// this.needsUpdate = true
 		this.geometry.dispose()
 		this.geometry = geometry
-		this.updateGeometry()
-		// this.geometry.needsUpdate = true
+		this.LOD = LOD
+		this.updateScenery()
 	}
 
-	createHeightAttribute() {
-		const posAttr = this.geometry.getAttribute('position')
-		const heightAttr = this.geometry.getAttribute('height')
-
-		if (!heightAttr) {
-			this.geometry.setAttribute(
-				'height',
-				new BufferAttribute(new Float32Array(posAttr.count), 1),
-			)
-		}
-
-		return this.geometry.getAttribute('height')
-	}
-
-	updateGeometry() {
+	updateScenery() {
 		this.treesPositionArray = []
-		const posAttr = this.geometry.getAttribute('position')
-		const heightAttr = this.createHeightAttribute()
-
-		for (let i = 0; i < posAttr.count; i++) {
-			const x = posAttr.getX(i) + this.position.x
-			const z = posAttr.getZ(i) + this.position.z
-
-			let h = getHeight(x, z, this.noise, this.params)
-
-			heightAttr.setX(i, h)
-			posAttr.setY(i, Math.max(h, -1))
-		}
-
-		posAttr.needsUpdate = true
-
-		// TODO calcolare a mano le normali con prodotto vettoriale
-		this.geometry.computeVertexNormals()
-
-		// this.createTreesMesh()
 		if (this.features.trees && !this.trees && this.LOD <= 2) {
 			this.generateTrees()
 		}
@@ -379,42 +332,4 @@ export default class Chunk extends Mesh {
 		// return diff
 		return 0
 	}
-}
-
-export function getHeight(x, z, noises, params) {
-	let h = 0
-	const fx = params.frequency.x
-	const fz = params.frequency.z
-
-	for (let j = 0; j < params.octaves; j++) {
-		const octave = j
-		const amplitude = params.amplitude * params.persistance ** octave
-		const lacunarity = params.lacunarity ** octave
-
-		let increment = noises[j](
-			x * 0.01 * fx * lacunarity,
-			z * 0.01 * fz * lacunarity,
-		)
-
-		increment *= increment
-		h += increment * amplitude
-	}
-
-	let l = noises[0](x * 0.001, z * 0.001)
-
-	// l *= l
-	l -= 0.5
-	let n = l
-	l *= params.amplitude * 3.5
-	let pct = noises[1](x * 0.0005, z * 0.0005) - 0.5
-	pct
-	l = MathUtils.lerp(
-		l,
-		(MathUtils.smoothstep(pct, 0.5, 1) - 0.5) * params.amplitude * 2,
-		1 - MathUtils.smoothstep(n, -1, -0.3),
-	)
-
-	h += l
-
-	return h
 }

@@ -10,6 +10,8 @@ Last baseline review: **2026-09-26**.
 
 Current implementation scope: `worldFeatures` disables trees, clouds, and boats so streaming work can be repaired and measured against terrain alone. Their implementations and historical cost analysis remain in this document for later reintroduction.
 
+Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
+
 ## How To Use This Document
 
 - Give every problem and future feature a stable ID.
@@ -55,21 +57,20 @@ main.js: tic()
      -> on a chunk boundary, build a symmetric desired Map
      -> dispose every live chunk outside the desired set
      -> cancel obsolete work and enqueue one keyed job per coordinate
-     -> on later frames, sort pending jobs and execute 1-3
-            -> new Chunk()
-                 -> PlaneGeometry allocation
+     -> on later frames, sort pending jobs and dispatch into a bounded pool
+            -> chunkGeometry.worker.js
+                 -> seeded PlaneGeometry allocation
                  -> getHeight() for every terrain vertex
                  -> computeVertexNormals()
-                 -> [disabled] generateTrees() for LOD <= 2
-                 -> [disabled] generateClouds() for every LOD
-                 -> [disabled] addBoats()
-            -> or Chunk.updateLOD()
-                 -> dispose and rebuild terrain geometry
-                 -> resample heights and normals
+                 -> transfer position/normal/UV/height/index buffers
+            -> main thread validates key + revision
+                 -> wrap buffers in BufferGeometry
+                 -> create Chunk or replace its geometry
+                 -> [disabled] trees / clouds / boats
   -> renderer.render()
 ```
 
-All generation jobs execute on the main thread. The queue limits job count, not execution time, so one job can still consume an entire frame or more.
+Height sampling and normal computation execute off the main thread. Main-thread commits are still limited by job count rather than elapsed time, and their GPU-upload cost has not been profiled.
 
 ## Quantitative Static Baseline
 
@@ -97,7 +98,7 @@ All generation jobs execute on the main thread. The queue limits job count, not 
 | Cloud candidates               |                                         5,308,416 |                            3,211,264 |
 | Cloud noise evaluations        |                                        10,616,832 |                            6,422,528 |
 
-The terrain-only runtime performs about **1.31 million** initial noise evaluations on desktop and **312 thousand** on mobile. With every dormant scenery path enabled, the same window would return to about **13.08 million** desktop and **7.09 million** mobile evaluations before boat placement. These calls are distributed by the work queue, but each individual chunk is still generated synchronously.
+The terrain-only startup performs about **1.31 million** noise evaluations on desktop and **312 thousand** on mobile, now distributed across up to two desktop workers or one mobile worker. With every dormant scenery path enabled, the same window would contain about **13.08 million** desktop and **7.09 million** mobile evaluations before boat placement; scenery remains main-thread work until redesigned.
 
 ### Terrain Cost Per Chunk
 
@@ -108,7 +109,7 @@ The terrain-only runtime performs about **1.31 million** initial noise evaluatio
 | 2   |                      32 / 1,089 / 2,048 |                         16 / 289 / 512 |
 | 3   |                          16 / 289 / 512 |                           8 / 81 / 128 |
 
-`computeVertexNormals()` then walks the rebuilt indexed geometry. LOD changes avoid regenerating existing decorations, but they still allocate a new terrain geometry, resample every vertex, and recompute normals.
+`computeVertexNormals()` then walks the rebuilt indexed geometry inside the worker. LOD changes still allocate, resample, transfer, and replace complete geometry; the work is asynchronous but not cached.
 
 ### Decoration Geometry
 
@@ -135,15 +136,15 @@ Each chunk creates new copies of these identical base geometries. Instance trans
 | `STRM-002`  | P0       | Done        | Desired-set reconciliation must inspect all live chunks.                                | A pure symmetric desired set is diffed against every live and pending key on each chunk transition.                                              |
 | `PERF-001`  | P0       | Observed    | Dormant cloud placement scans all 65,536 integer positions in every chunk at every LOD. | The current feature flag prevents execution; `generateClouds()` still ignores its `density` variable and performs two noise calls per candidate. |
 | `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | `Chunk.dispose()` omits clouds and does not dispose unique tree/cloud geometries.                                                                |
-| `PERF-002`  | P1       | Observed    | Streaming is limited by job count rather than a frame-time budget.                      | A single `createChunk()` performs terrain generation synchronously and also generates scenery when those features are enabled.                   |
-| `PERF-003`  | P1       | Observed    | Every LOD transition reallocates and fully recomputes terrain geometry.                 | `updateLOD()` replaces geometry, resamples all heights, and recomputes normals.                                                                  |
+| `PERF-002`  | P1       | In progress | Main-thread commits are limited by job count rather than a frame-time budget.           | Workers handle sampling/normals; buffer wrapping, GPU upload, scene mutation, and future scenery still commit synchronously.                     |
+| `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Workers now perform the computation, but each transition still creates and transfers a complete replacement buffer set.                          |
 | `PERF-004`  | P1       | Observed    | Identical tree and cloud base geometries are recreated per chunk.                       | Constructors allocate new `IcosahedronGeometry` instances while materials are shared.                                                            |
 | `STATE-001` | P1       | Done        | Chunk registries must delete historical keys and remain bounded.                        | Live and pending state use keyed `Map` instances; disposal deletes entries. Browser traversal kept `created - disposed = live`.                  |
 | `CORR-001`  | P1       | Observed    | Tree and cloud candidates are offset by a full chunk instead of half a chunk.           | Generation subtracts `size`; terrain local bounds are centered on `size / 2`.                                                                    |
 | `CORR-002`  | P1       | Observed    | Boat world coordinates are assigned as local coordinates on a chunk child.              | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                                 |
-| `STATE-002` | P1       | Observed    | Runtime terrain-parameter updates remain incomplete.                                    | Keyed jobs no longer target disposed entries, but octave noise functions are not resized and dormant decorations retain old placement.           |
-| `DET-001`   | P1       | Observed    | Terrain and decoration are nondeterministic.                                            | Simplex noise has no seeded PRNG and placement uses `Math.random()`.                                                                             |
-| `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests cover symmetric desired sets, negative centers, and LOD; queue cancellation, height continuity, and disposal remain browser-only.     |
+| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter changes revision jobs and rebuild seeded noises, but dormant decorations would retain old placement.                                   |
+| `DET-001`   | P1       | In progress | Terrain is deterministic but dormant decoration placement is not.                       | `?seed=` drives matching main/worker simplex fields; scenery still uses `Math.random()`.                                                         |
+| `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity; cancellation and disposal remain browser-only.     |
 | `STRM-003`  | P2       | Observed    | Priority uses distance only and has no hysteresis.                                      | Work is not biased by movement direction, camera visibility, or recent LOD state.                                                                |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
 | `FRAME-001` | P2       | Observed    | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
@@ -161,7 +162,7 @@ Verified behavior:
 - Each coordinate has at most one pending job.
 - Jobs resolve the current chunk from the live `Map` instead of closing over a stale instance.
 - A 20-second desktop traversal reached revision `8` with `live = 81`, `pending = 0`, and `created - disposed = 81` at every sample.
-- Future worker responses must carry and validate the same key and revision contract.
+- Worker requests and responses carry key and revision; the manager validates both before allocating renderer-owned geometry.
 
 ### `STRM-002`: Complete Desired-Set Reconciliation
 
@@ -204,11 +205,11 @@ Required direction: write an ownership table in code design, separate shared imm
 
 ### `PERF-002` And `PERF-003`: Main-Thread Spikes
 
-The scheduler processes one near callback or up to three farther callbacks, but a callback is not a stable unit of cost. A near LOD 0 creation performs 16,641 height samples, normal generation, tree candidates, cloud candidates, buffer creation, and instance initialization before returning.
+The scheduler dispatches one near job or up to three farther jobs, bounded further by one mobile or up to two desktop workers. A near LOD 0 worker job performs 16,641 height samples and normal generation; the main thread still wraps buffers and triggers GPU upload.
 
-LOD transitions avoid recreating existing decorations but still allocate a new `PlaneGeometry`, evaluate heights, update attributes, and compute normals. There is no height cache, reusable geometry buffer, worker boundary, or cancellation point inside that work.
+LOD transitions avoid recreating existing decorations but still allocate a new `PlaneGeometry`, evaluate heights, compute normals, transfer buffers, and replace the old geometry. There is no height cache or reusable geometry buffer. Running work is not interrupted; obsolete responses are discarded by key and revision.
 
-Required direction: instrument each stage separately, then adopt a millisecond budget and split generation into cancellable stages. Worker generation is valuable only after generation is expressed as pure data work with stale-result rejection.
+Required direction: instrument worker duration, transfer delay, main-thread wrapping, GPU upload, and scene commit separately, then adopt a millisecond budget for the remaining main-thread stages.
 
 ### `CORR-001` And `CORR-002`: Ownership Coordinates
 
@@ -220,20 +221,20 @@ These correctness fixes must precede visual-density tuning so benchmarks measure
 
 ## Strategy Options
 
-| Strategy                                       | Solves                                            | Benefits                                                      | Risks and tradeoffs                                                                          | Recommendation                                |
-| ---------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| Stabilize current tile system                  | Queue, registry, disposal, coordinate correctness | Lowest migration risk; creates a trustworthy baseline         | Does not remove main-thread generation cost                                                  | Do first                                      |
-| Keyed, cancellable, time-budgeted scheduler    | Duplicate/stale work and frame spikes             | Bounded state, observable priorities, supports workers later  | Requires explicit chunk states and cancellation semantics                                    | Foundation for further work                   |
-| Reduce and stage decoration generation         | Dominant cloud scan and startup work              | Largest immediate CPU reduction; can preserve visual style    | Distribution must be redesigned and visually compared                                        | Do before worker migration                    |
-| Share immutable geometry and cache height data | Allocation, GC, repeated sampling                 | Lower memory churn and faster LOD changes                     | Cache invalidation and ownership become explicit concerns                                    | Add after lifecycle repair                    |
-| Worker pool with transferable typed arrays     | Main-thread terrain and decoration generation     | Protects rendering and input from CPU work                    | Stale results, seeding, transfer costs, errors, and worker lifecycle add complexity          | Add after pure deterministic generation       |
-| Direction/frustum priority plus LOD hysteresis | Work usefulness and LOD churn                     | Generates visible/ahead content first                         | Can expose holes if desired-set policy is wrong                                              | Add after keyed scheduler                     |
-| Fixed rings or geometry clipmap                | Repeated chunk creation and deletion              | Reuses a bounded mesh set; strong fit for an infinite flyover | Major shader, placement, culling, and CPU-height-query redesign                              | Evaluate after feature requirements are known |
-| GPU procedural displacement                    | CPU vertex generation                             | Can eliminate most terrain vertex sampling on CPU             | Plane height, decorations, boats, normals, determinism, and tests still need a CPU/data path | Do not choose first                           |
+| Strategy                                       | Solves                                             | Benefits                                                      | Risks and tradeoffs                                                                          | Recommendation                                |
+| ---------------------------------------------- | -------------------------------------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------- | --------------------------------------------- |
+| Stabilize current tile system                  | Queue, registry, disposal, coordinate correctness  | Lowest migration risk; creates a trustworthy baseline         | Does not remove main-thread generation cost                                                  | Do first                                      |
+| Keyed, cancellable, time-budgeted scheduler    | Duplicate/stale work and frame spikes              | Bounded state, observable priorities, supports workers later  | Requires explicit chunk states and cancellation semantics                                    | Foundation for further work                   |
+| Reduce and stage decoration generation         | Dominant cloud scan and startup work               | Largest immediate CPU reduction; can preserve visual style    | Distribution must be redesigned and visually compared                                        | Do before worker migration                    |
+| Share immutable geometry and cache height data | Allocation, GC, repeated sampling                  | Lower memory churn and faster LOD changes                     | Cache invalidation and ownership become explicit concerns                                    | Add after lifecycle repair                    |
+| Worker pool with transferable typed arrays     | Main-thread terrain sampling and normal generation | Bounded off-thread CPU work with stale-result rejection       | Transfer, GPU upload, errors, and worker lifecycle still require measurement                 | Implemented for terrain; measure next         |
+| Direction/frustum priority plus LOD hysteresis | Work usefulness and LOD churn                      | Generates visible/ahead content first                         | Can expose holes if desired-set policy is wrong                                              | Add after keyed scheduler                     |
+| Fixed rings or geometry clipmap                | Repeated chunk creation and deletion               | Reuses a bounded mesh set; strong fit for an infinite flyover | Major shader, placement, culling, and CPU-height-query redesign                              | Evaluate after feature requirements are known |
+| GPU procedural displacement                    | CPU vertex generation                              | Can eliminate most terrain vertex sampling on CPU             | Plane height, decorations, boats, normals, determinism, and tests still need a CPU/data path | Do not choose first                           |
 
 ### Architecture Direction
 
-The recommended near-term path is to stabilize the current tile architecture, measure it, and reduce wasted generation. Do not begin with workers or GPU displacement: both can hide lifecycle bugs and make stale-work behavior harder to reason about.
+The tile lifecycle is stabilized and the terrain worker slice is active. The next step is to measure it before expanding workers to decorations, adding caches, or changing terrain architecture.
 
 After stabilization, compare two strategic paths:
 
@@ -310,6 +311,8 @@ Acceptance criteria:
 ### Phase 3: Move Pure Generation Off The Main Thread
 
 Dependencies: Phases 0-2 and deterministic pure generation functions.
+
+Current status: terrain topology, heights, normals, and transferable buffers are implemented with one mobile or up to two desktop workers. Decoration placement and performance acceptance remain open.
 
 Tasks:
 

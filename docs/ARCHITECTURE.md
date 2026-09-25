@@ -6,16 +6,18 @@ This document maps runtime ownership and data flow. Read it before moving behavi
 
 ## Runtime Map
 
-| Area                  | Owner                                                                  | Responsibility                                                                               |
-| --------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| HTML shell            | [`index.html`](../index.html)                                          | Loader, play action, sound toggle, and module entry point.                                   |
-| Application bootstrap | [`main.js`](../main.js)                                                | Asset loading, shared parameters and uniforms, scene setup, frame loop, and resize handling. |
-| World streaming       | [`src/chunkManager.js`](../src/chunkManager.js)                        | Reconciles desired/live chunks, queues keyed work, and owns scene membership.                |
-| Streaming policy      | [`src/chunkPolicy.js`](../src/chunkPolicy.js)                          | Computes chunk keys, symmetric desired sets, and distance-based LOD without browser state.   |
-| Terrain unit          | [`src/chunk.js`](../src/chunk.js)                                      | Builds one terrain mesh, computes heights, injects terrain shaders, and places decorations.  |
-| Player movement       | [`src/plane.js`](../src/plane.js)                                      | Owns flight input, speed changes, camera attachment, and trail rendering.                    |
-| Instanced scenery     | [`src/trees.js`](../src/trees.js), [`src/clouds.js`](../src/clouds.js) | Build instanced meshes and patch their materials when their feature flags are enabled.       |
-| Shader source         | [`src/shaders/`](../src/shaders/)                                      | Supplies GLSL replacements for Three.js shader chunks.                                       |
+| Area                  | Owner                                                                                                                  | Responsibility                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| HTML shell            | [`index.html`](../index.html)                                                                                          | Loader, play action, sound toggle, and module entry point.                                               |
+| Application bootstrap | [`main.js`](../main.js)                                                                                                | Asset loading, shared parameters and uniforms, scene setup, frame loop, and resize handling.             |
+| World streaming       | [`src/chunkManager.js`](../src/chunkManager.js)                                                                        | Reconciles chunks, dispatches keyed worker jobs, validates results, and owns scene membership.           |
+| Streaming policy      | [`src/chunkPolicy.js`](../src/chunkPolicy.js)                                                                          | Computes chunk keys, symmetric desired sets, and distance-based LOD without browser state.               |
+| Terrain generation    | [`src/chunkGeometry.js`](../src/chunkGeometry.js)                                                                      | Defines seeded height sampling and creates transferable position, normal, UV, height, and index buffers. |
+| Worker execution      | [`src/chunkGeometry.worker.js`](../src/chunkGeometry.worker.js), [`src/chunkWorkerPool.js`](../src/chunkWorkerPool.js) | Reuses a bounded module-worker pool and transfers generated buffers to the main thread.                  |
+| Terrain unit          | [`src/chunk.js`](../src/chunk.js)                                                                                      | Owns one rendered mesh, replaces/disposes geometry, injects shaders, and places decorations.             |
+| Player movement       | [`src/plane.js`](../src/plane.js)                                                                                      | Owns flight input, speed changes, camera attachment, and trail rendering.                                |
+| Instanced scenery     | [`src/trees.js`](../src/trees.js), [`src/clouds.js`](../src/clouds.js)                                                 | Build instanced meshes and patch their materials when their feature flags are enabled.                   |
+| Shader source         | [`src/shaders/`](../src/shaders/)                                                                                      | Supplies GLSL replacements for Three.js shader chunks.                                                   |
 
 ## Startup Sequence
 
@@ -46,15 +48,17 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 ## Shared State And Ownership
 
 - `params` in `main.js` is the mutable source for terrain generation, colors, fog, light intensity, and the disabled debug GUI.
+- `worldSeed` comes from `?seed=<value>` or a random per-load fallback. The same value seeds main-thread height queries and every worker.
 - `worldFeatures` in `main.js` is the frozen runtime switch for trees, clouds, and boats. All three are currently `false` so chunk work is terrain-only.
 - `uniforms` in `main.js` is shared with chunks, instanced scenery, and boat materials. `Chunk` adds `uCurvature` to that object.
 - The perspective camera becomes a child of `Plane` through `Plane.addCamera()`.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
 - Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the tree normal map and boat model are loaded only when their corresponding feature is enabled.
-- `ChunkManager` owns `Map` registries for desired chunks, live chunks, and one pending job per chunk key. A monotonically increasing revision invalidates obsolete work.
+- `ChunkManager` owns `Map` registries for desired, live, pending, and in-flight chunks. A monotonically increasing revision invalidates obsolete work before any worker result becomes a Three.js object.
+- The worker pool uses up to two workers on desktop and one on mobile. Workers cache their seeded simplex functions and transfer typed-array buffers instead of cloning them.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry and local decorations.
 
-`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only `desired`, `live`, `pending`, `created`, `disposed`, and `revision` counters for browser validation. It does not expose mutable manager state.
+`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, and seed diagnostics. It does not expose mutable manager state.
 
 Do not create a second render loop, terrain-parameter store, or chunk registry without an architectural reason documented here.
 
@@ -68,9 +72,11 @@ main.js: LoadingManager -> init(assets)
         |                    |
         |                    +-> Plane -> camera, controls, trails
         |                    |
-        |                    +-> ChunkManager -> Chunk instances
-        |                                         |
-        |                                         +-> Trees / Clouds / Boats
+        |                    +-> ChunkManager -> worker pool
+        |                           |                |
+        |                           |                +-> transferable geometry buffers
+        |                           v
+        |                       Chunk instances -> optional scenery
         v
 tic() -> shared uniforms -> material shader hooks -> WebGLRenderer
 ```
@@ -92,7 +98,7 @@ Terrain CPU calculations and terrain GLSL both consume related world data. When 
 - Debug GUI code is present but disabled and is mixed into `main.js`.
 - `main.js` imports disabled control implementations and debug dependencies.
 - Shared module-level materials rely on mutable `onBeforeCompile` callbacks.
-- There is no deterministic world seed or persisted session state.
+- The URL seed is deterministic but is not persisted when omitted; there is no broader session state.
 
 Treat these as descriptions of the current system, not permission to broaden unrelated tasks.
 

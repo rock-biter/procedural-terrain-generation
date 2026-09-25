@@ -17,15 +17,17 @@ Keep CPU sampling, chunk placement, instance placement, and shader world coordin
 
 ## Height Generation
 
-`getHeight(x, z, noises, params)` is the shared CPU height function.
+`getHeight(x, z, noises, params)` in [`src/chunkGeometry.js`](../src/chunkGeometry.js) is the shared CPU height function.
 
 1. For every configured octave, sample simplex noise using `frequency`, `lacunarity`, and world coordinates.
 2. Square each sample and scale it by `amplitude * persistance ** octave`.
 3. Add a lower-frequency landmass term blended through Three.js `smoothstep` and `lerp` helpers.
 
-`ChunkManager` creates one `simplex-noise` function per octave. It does not pass a seeded random function, so a reload can produce a different world. The installed `alea` package is not used by the current source.
+`ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random per-load seed. Each worker caches its noise functions until the seed or octave count changes.
 
-For every terrain vertex, `Chunk.updateGeometry()` stores the raw height in the custom `height` attribute and clamps the visible CPU vertex Y position to at least `-1`. Shaders use the raw attribute for effects and coloring, so do not remove it when changing geometry generation.
+For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. It also computes normals using the same Three.js plane topology as the former main-thread path. Shaders use the raw attribute for effects and coloring, so do not remove it.
+
+The worker transfers position, normal, UV, height, and index buffers. The main thread wraps them in `BufferGeometry`; it does not resample heights or recompute normals.
 
 ## Chunk Lifecycle
 
@@ -36,14 +38,15 @@ For every terrain vertex, `Chunk.updateGeometry()` stores the raw height in the 
 - Entering a new chunk increments the desired-set revision and diffs every live chunk against the new set.
 - Out-of-range chunks are immediately disposed and deleted from the live `Map`; pending jobs outside the set are deleted as well.
 - Missing chunks and changed LODs become keyed jobs in a pending `Map`, so each coordinate has at most one queued operation.
-- Jobs carry the desired-set revision and are rejected if their key, revision, or target LOD is no longer current.
+- Jobs carry key, desired-set revision, LOD, seed, and a snapshot of terrain parameters. Workers echo key and revision; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
 - While the tracked position remains in the same chunk, the manager processes up to three jobs per frame on desktop or two on mobile. Near LOD 0/1 work remains limited to one job in that frame.
 - Pending jobs are sorted by distance so nearer work runs first.
+- Generation is bounded by a pool of up to two workers on desktop and one on mobile. Only one request per chunk key may be in flight.
 - A new `Chunk` is added directly to the scene and registered in the live `Map`.
 
-`ChunkManager.getStats()` reports desired, live, pending, cumulative created/disposed, and revision values. The browser exposes a read-only accessor at `window.__INFINITE_WORLD__.getChunkStats()`.
+`ChunkManager.getStats()` additionally reports queued/in-flight work, generated/stale/failed results, worker count, and seed. The browser exposes it through `window.__INFINITE_WORLD__.getChunkStats()`.
 
-Queue behavior spreads expensive geometry work across frames. It still limits operation count rather than elapsed milliseconds; avoid replacing it with synchronous bulk creation without profiling startup and traversal frame times.
+The worker pool removes height sampling and normal computation from the rendering thread. Main-thread geometry wrapping, GPU upload, scene insertion, disposal, and dormant scenery generation remain synchronous and require profiling.
 
 ## Level Of Detail
 
@@ -54,13 +57,13 @@ LOD = floor(distanceInChunks * 0.7)
 segments = max(floor(size * 0.5 ** LOD), density) / density
 ```
 
-The density divisor is `2` on desktop and `4` on mobile. `Chunk.updateLOD()` disposes the previous geometry, creates a new plane, recreates its custom height attribute, samples every vertex again, and recomputes normals.
+The density divisor is `2` on desktop and `4` on mobile. An LOD job generates a complete replacement buffer set in a worker. `Chunk.replaceGeometry()` then disposes the previous geometry and installs the result on the main thread.
 
-An unchanged LOD returns early. Any new LOD rule must preserve this guard and must keep neighboring chunk edges compatible enough to avoid obvious cracks.
+The manager does not enqueue an LOD job when the target matches the live chunk. Any new LOD rule must preserve this guard and keep neighboring chunk edges compatible enough to avoid obvious cracks.
 
 ## Per-Chunk Scenery
 
-`main.js` currently passes `worldFeatures` with `trees`, `clouds`, and `boats` all set to `false`. `Chunk.updateGeometry()` therefore stops after terrain height and normal generation. The scenery implementations remain available behind those flags for later isolated work.
+`main.js` currently passes `worldFeatures` with `trees`, `clouds`, and `boats` all set to `false`. Workers generate terrain only, and `Chunk.updateScenery()` performs no work. The scenery implementations remain available behind those flags for later isolated work.
 
 ### Trees
 
@@ -104,7 +107,7 @@ Tree, cloud, and boat placement includes `Math.random()`, so re-enabling decorat
 
 ## Open Questions
 
-- Should terrain and decoration use a user-visible deterministic seed?
+- Should a generated terrain seed be persisted or shown to the user when no URL seed is supplied?
 - What frame-time budget should govern queue throughput and chunk radius?
 - Should chunk resources be pooled rather than recreated after disposal?
 - Should clouds and decorations have independent LOD policies?
