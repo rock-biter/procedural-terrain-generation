@@ -1,0 +1,69 @@
+# Project Guidelines
+
+## Project Overview
+
+This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders terrain, water, trees, clouds, boats, trails, fog, and audio through a mix of CPU generation and patched Three.js shaders.
+
+[`README.md`](README.md) is the short human-facing introduction. This file is the entry point for coding agents and routes detailed work to the owning guide.
+
+## Read The Relevant Guide
+
+| Task                                                                     | Guide                                          |
+| ------------------------------------------------------------------------ | ---------------------------------------------- |
+| Install, commands, dependencies, source conventions, or debugging        | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)   |
+| Bootstrap, frame loop, module ownership, or cross-system changes         | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
+| Noise, height generation, chunks, LOD, pooling, trees, clouds, or boats  | [`docs/TERRAIN.md`](docs/TERRAIN.md)           |
+| Three.js materials, uniforms, GLSL, instancing, curvature, or fog        | [`docs/RENDERING.md`](docs/RENDERING.md)       |
+| Loader, play flow, controls, camera, audio, DOM, or responsive behavior  | [`docs/EXPERIENCE.md`](docs/EXPERIENCE.md)     |
+| Models, textures, audio files, loading transforms, or licensing          | [`docs/ASSETS.md`](docs/ASSETS.md)             |
+| Build expectations, browser checks, manual QA, or future test automation | [`docs/QUALITY.md`](docs/QUALITY.md)           |
+
+Read the owning source file and the relevant guide before editing. When a change crosses boundaries, read each affected guide rather than relying on this summary.
+
+## Essential Commands
+
+Use Node.js `^20.19.0` or `>=22.12.0` and pnpm `9.15.9`.
+
+```bash
+pnpm install
+pnpm dev
+pnpm build
+pnpm preview
+```
+
+Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. Do not introduce another lockfile or edit generated `dist/` output.
+
+## Source Map
+
+- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, the render loop, and resize behavior.
+- [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, queued work, LOD selection, and scene membership.
+- [`src/chunk.js`](src/chunk.js) owns height sampling, terrain geometry, and per-chunk scenery.
+- [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
+- [`src/trees.js`](src/trees.js) and [`src/clouds.js`](src/clouds.js) own instanced scenery meshes.
+- [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
+- [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
+- [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets; model license files must remain with their assets.
+
+## Project Rules
+
+- Preserve the existing ES-module and class-based ownership boundaries unless the task explicitly changes the architecture.
+- Keep terrain calculations in world coordinates so neighboring chunks agree at their edges.
+- Treat CPU geometry and GLSL as one contract. The custom `height` attribute, shared uniforms, Three.js include names, and update order must stay synchronized.
+- Remember that `ChunkManager` currently tracks the `Plane` even though its constructor field and coordinate helper use camera terminology.
+- Reuse values in frame-sensitive code and avoid adding synchronous bulk work to the animation loop without profiling.
+- Keep DOM IDs synchronized between `index.html` and `main.js`, and keep audio playback behind a user interaction.
+- Preserve the CC BY 4.0 attribution files for the airplane and boat. Do not assume the project MIT license covers third-party assets.
+- Do not silently resolve unrelated known gaps while completing a focused task. Document intentional architectural changes in the same change.
+- Update the relevant guide when commands, ownership, runtime behavior, shader contracts, assets, or validation requirements change.
+
+If documentation disagrees with current source or package metadata, treat the implementation as the immediate source of truth and correct the documentation as part of the task.
+
+## Validation Baseline
+
+The repository currently has no automated tests, linting, type checking, formatter, or CI. For every source, shader, configuration, dependency, or asset change:
+
+1. Run `pnpm build`.
+2. Load the app and check browser console and network failures.
+3. Perform the change-specific desktop and mobile checks in [`docs/QUALITY.md`](docs/QUALITY.md).
+
+A successful build does not prove that WebGL shaders compile or that the canvas renders correctly. Report any check that could not be performed.
