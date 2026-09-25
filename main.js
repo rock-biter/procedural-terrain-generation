@@ -337,6 +337,7 @@ let chunkManager, plane
 
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
+	getFlightStats: () => plane?.getStats() ?? null,
 })
 
 function init(assets) {
@@ -353,6 +354,7 @@ function init(assets) {
 		worldFeatures,
 		worldSeed,
 	)
+	plane.setTerrainSampler((x, z) => getHeight(x, z, chunkManager.noise, params))
 
 	/**
 	 * Plane

@@ -12,6 +12,13 @@ import {
 } from 'three'
 import common from './shaders/common.glsl'
 import projectVertex from './shaders/project-vertex-plane.glsl'
+import {
+	FLIGHT_LIMITS,
+	getFlightCorridor,
+	getSafetyClimbSpeed,
+	getSpeedForEffect,
+	getVerticalInput,
+} from './flightPolicy'
 import gsap from 'gsap'
 const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
@@ -20,8 +27,13 @@ export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 35)
 	baseSpeed = 35
 	speed = 0
-	acceleration = new Vector3(1, 0, 0)
 	cursor = new Vector2(0, 0)
+	pointerYRatio =
+		(FLIGHT_LIMITS.verticalHoldTop + FLIGHT_LIMITS.verticalHoldBottom) / 2
+	verticalVelocity = 0
+	actualVerticalSpeed = 0
+	terrainSampler = null
+	flightCorridor = null
 	initialFov
 	finalFov
 	initialPosition
@@ -80,14 +92,14 @@ export default class Plane extends Object3D {
 					`
 				uniform vec4 uRotation;
 				varying vec2 vUV; 
-				`
+				`,
 			)
 
 			shader.vertexShader = shader.vertexShader.replace(
 				'#include <project_vertex>',
 				projectVertex +
 					`
-				vUV = vec3( uv, 1 ).xy; `
+				vUV = vec3( uv, 1 ).xy; `,
 			)
 
 			shader.fragmentShader = shader.fragmentShader.replace(
@@ -97,7 +109,7 @@ export default class Plane extends Object3D {
 				uniform vec4 uRotation;
 				uniform float uAcceleration;
 				varying vec2 vUV; 
-				`
+				`,
 			)
 
 			// console.log(shader.fragmentShader)
@@ -110,7 +122,7 @@ export default class Plane extends Object3D {
 				diffuseColor.a = smoothstep(0.15,1.2,max(abs(uRotation.z),(uAcceleration - 0.4) * 1.5) ) * pct * smoothstep(0.7,1.,vUV.y);
 
 				// diffuseColor.a *= pct;
-				`
+				`,
 			)
 		}
 	}
@@ -120,13 +132,14 @@ export default class Plane extends Object3D {
 
 		this.updateSpeed(progress)
 
-		const newFov = MathUtils.lerp(this.initialFov, this.finalFov, progress)
+		const newFov = this.getEffectFov(progress)
 		// const length = this.RATIO / Math.tan(MathUtils.degToRad(newFov / 2))
 
 		// this.camera.position.normalize().multiplyScalar(length)
 		this.camera.fov = newFov
 		// this.camera.position.z = this.initialPosition.z - 5 * progress
-		this.finalPosition.z = this.initialPosition.z - 5 * progress
+		this.finalPosition.z =
+			this.initialPosition.z - FLIGHT_LIMITS.cameraEffectDistance * progress
 		// this.camera.position.y = this.initialPosition.y - 3 * progress
 
 		// this.camera.lookAt(new Vector3(0, 6.9, 0).add(this.position))
@@ -137,13 +150,92 @@ export default class Plane extends Object3D {
 		this.initialPosition = new Vector3(0, 7, -18)
 		this.finalPosition = new Vector3(0, 7, -18)
 		this.initialFov = this.camera.fov
-		this.finalFov = this.camera.fov + 30
+		this.finalFov = this.camera.fov + FLIGHT_LIMITS.boostFovOffset
 		this.intialTan = Math.tan(MathUtils.degToRad(this.initialFov / 2))
 		this.RATIO = this.initialPosition.length() * this.intialTan
 	}
 
 	updateSpeed(progress) {
-		this.speed = this.baseSpeed * (1 + progress * 2)
+		this.speed = getSpeedForEffect(this.baseSpeed, progress)
+	}
+
+	getEffectFov(effect) {
+		const offset =
+			effect >= 0
+				? FLIGHT_LIMITS.boostFovOffset * effect
+				: FLIGHT_LIMITS.brakeFovOffset * effect
+
+		return this.initialFov + offset
+	}
+
+	setTerrainSampler(sampleHeight) {
+		this.terrainSampler = sampleHeight
+	}
+
+	updateAltitude(dt) {
+		if (!this.terrainSampler) return
+
+		V3.set(0, 0, 1).applyQuaternion(this.quaternion)
+		this.flightCorridor = getFlightCorridor({
+			x: this.position.x,
+			z: this.position.z,
+			forwardX: V3.x,
+			forwardZ: V3.z,
+			speed: this.speed,
+			baseSpeed: this.baseSpeed,
+			sampleHeight: this.terrainSampler,
+		})
+
+		const verticalInput = getVerticalInput(this.pointerYRatio)
+		const desiredVerticalSpeed =
+			verticalInput * FLIGHT_LIMITS.maximumVerticalSpeed
+		this.verticalVelocity = MathUtils.damp(
+			this.verticalVelocity,
+			desiredVerticalSpeed,
+			FLIGHT_LIMITS.verticalResponse,
+			dt,
+		)
+
+		const previousAltitude = this.position.y
+		let nextAltitude = previousAltitude + this.verticalVelocity * dt
+		const safetyClimbSpeed = getSafetyClimbSpeed({
+			speed: this.speed,
+			baseSpeed: this.baseSpeed,
+			currentTerrainHeight: this.flightCorridor.currentTerrainHeight,
+			terrainCeiling: this.flightCorridor.terrainCeiling,
+		})
+		this.flightCorridor.safetyClimbSpeed = safetyClimbSpeed
+		if (nextAltitude < this.flightCorridor.minimumAltitude) {
+			const safetyAltitude = Math.max(
+				previousAltitude,
+				MathUtils.damp(
+					nextAltitude,
+					this.flightCorridor.minimumAltitude,
+					FLIGHT_LIMITS.safetyClimbResponse,
+					dt,
+				),
+			)
+			nextAltitude = Math.min(
+				safetyAltitude,
+				previousAltitude + safetyClimbSpeed * dt,
+			)
+		}
+
+		this.position.y = MathUtils.clamp(
+			nextAltitude,
+			this.flightCorridor.collisionAltitude,
+			this.flightCorridor.maximumAltitude,
+		)
+		this.actualVerticalSpeed = (this.position.y - previousAltitude) / dt
+
+		if (
+			(this.position.y === this.flightCorridor.maximumAltitude &&
+				this.verticalVelocity > 0) ||
+			(this.position.y === this.flightCorridor.collisionAltitude &&
+				this.verticalVelocity < 0)
+		) {
+			this.verticalVelocity = 0
+		}
 	}
 
 	update(dt) {
@@ -158,6 +250,7 @@ export default class Plane extends Object3D {
 		// nextPos.addScaledVector(V3, dt)
 
 		this.rotation.y += Math.PI * -this.cursor.x * dt * 0.2
+		this.updateAltitude(dt)
 		// V3.set(0, 1, 0)
 		// 	.multiplyScalar(this.cursor.y * 0.2)
 		// 	.applyQuaternion(this.quaternion)
@@ -170,7 +263,17 @@ export default class Plane extends Object3D {
 			this.model.rotation.z = MathUtils.lerp(
 				this.model.rotation.z,
 				Math.PI * this.cursor.x * 0.25 * (1 - this.acceleration * 0.5),
-				dt * 5
+				dt * 5,
+			)
+			const pitch = MathUtils.clamp(
+				this.actualVerticalSpeed / FLIGHT_LIMITS.maximumVerticalSpeed,
+				-1,
+				1,
+			)
+			this.model.rotation.x = MathUtils.lerp(
+				this.model.rotation.x,
+				-Math.PI * pitch * 0.08,
+				dt * 5,
 			)
 		}
 
@@ -183,25 +286,15 @@ export default class Plane extends Object3D {
 			// this.updateSpeedEffect(this.acceleration)
 			this.updateSpeed(this.acceleration)
 
-			this.finalPosition.z = this.initialPosition.z - 7 * this.acceleration
-
+			this.finalPosition.z =
+				this.initialPosition.z -
+				FLIGHT_LIMITS.cameraEffectDistance * this.acceleration
 			this.finalPosition.x = -this.cursor.x * 5
 			this.camera.position.lerp(this.finalPosition, dt * 5)
 
-			this.finalPosition.z = MathUtils.lerp(
-				this.finalPosition.z,
-				this.initialPosition.z,
-				dt * 15
-			)
-
-			const desFov = MathUtils.lerp(
-				this.initialFov,
-				this.finalFov,
-				this.acceleration
-			)
+			const desFov = this.getEffectFov(this.acceleration)
 
 			let fov = MathUtils.lerp(this.camera.fov, desFov, dt * 5)
-			fov = MathUtils.lerp(fov, this.initialFov, dt * 0.3)
 
 			this.camera.fov = fov
 			this.camera.updateProjectionMatrix()
@@ -209,7 +302,7 @@ export default class Plane extends Object3D {
 		// this.position
 
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
-		this.uniforms.uAcceleration.value = this.acceleration
+		this.uniforms.uAcceleration.value = Math.max(this.acceleration, 0)
 		this.acceleration = MathUtils.lerp(this.acceleration, 0, dt * 0.6)
 	}
 
@@ -220,16 +313,46 @@ export default class Plane extends Object3D {
 		this.add(camera)
 	}
 
+	getStats() {
+		return {
+			position: {
+				x: this.position.x,
+				y: this.position.y,
+				z: this.position.z,
+			},
+			speed: this.speed,
+			speedEffect: this.acceleration,
+			pointerYRatio: this.pointerYRatio,
+			verticalInput: getVerticalInput(this.pointerYRatio),
+			verticalVelocity: this.verticalVelocity,
+			camera: this.camera
+				? {
+						x: this.camera.position.x,
+						y: this.camera.position.y,
+						z: this.camera.position.z,
+						fov: this.camera.fov,
+					}
+				: null,
+			corridor: this.flightCorridor ? { ...this.flightCorridor } : null,
+		}
+	}
+
 	initCursor() {
 		window.addEventListener('mousemove', (e) => {
 			const x = (e.clientX / innerWidth) * 2 - 1
-			const y = -(e.clientY / innerHeight) * 2 + 1
+			this.pointerYRatio = e.clientY / innerHeight
+			const y = 1 - this.pointerYRatio * 2
 
 			this.cursor.set(x, y)
 		})
 
-		window.addEventListener('wheel', () => {
-			gsap.to(this, { acceleration: 1, duration: 0.2 })
+		window.addEventListener('wheel', (e) => {
+			if (e.deltaY === 0) return
+			gsap.to(this, {
+				acceleration: e.deltaY > 0 ? 1 : -1,
+				duration: 0.2,
+				overwrite: 'auto',
+			})
 			// this.acceleration = MathUtils.clamp(0, 1, this.acceleration)
 
 			// console.log(this.acceleration)
@@ -238,7 +361,8 @@ export default class Plane extends Object3D {
 		window.addEventListener('touchmove', (e) => {
 			const touch = e.touches[0]
 			const x = (touch.clientX / innerWidth) * 2 - 1
-			const y = -(touch.clientY / innerHeight) * 2 + 1
+			this.pointerYRatio = touch.clientY / innerHeight
+			const y = 1 - this.pointerYRatio * 2
 
 			this.cursor.set(x / 1.5, y)
 		})

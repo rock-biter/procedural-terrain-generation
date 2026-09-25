@@ -2,7 +2,7 @@
 
 ## Purpose
 
-This document covers user-visible startup, flight input, camera behavior, audio, and responsive UI. The coupled sources are [`index.html`](../index.html), [`main.js`](../main.js), and [`src/plane.js`](../src/plane.js).
+This document covers user-visible startup, flight input, camera behavior, audio, and responsive UI. The coupled sources are [`index.html`](../index.html), [`main.js`](../main.js), [`src/plane.js`](../src/plane.js), and the pure rules in [`src/flightPolicy.js`](../src/flightPolicy.js).
 
 ## DOM Contract
 
@@ -44,11 +44,11 @@ Keep audio playback behind a user gesture to comply with browser autoplay polici
 
 `Plane.initCursor()` installs global input listeners:
 
-- `mousemove` maps pointer position into normalized `[-1, 1]` cursor coordinates.
+- `mousemove` maps horizontal pointer position into normalized `[-1, 1]` coordinates and records vertical position as a top-origin screen ratio.
 - Horizontal cursor position turns the plane around Y and rolls the airplane model.
-- Vertical cursor position is recorded but is not currently used for movement.
-- `wheel` animates acceleration to `1`, producing a temporary speed and camera effect.
-- `touchmove` maps the first touch to cursor coordinates and reduces horizontal input by dividing it by `1.5`.
+- Vertical positions above `45%` of the screen command a climb. Positions from `45%` through `65%` command zero vertical speed so the plane settles at its reached altitude. Positions below `65%` command a descent. Input strength increases linearly toward the top or bottom edge.
+- Scrolling down animates the speed effect toward `1`, boosting speed up to three times cruise speed. Scrolling up animates it toward `-1`, braking to no less than `95%` of cruise speed.
+- `touchmove` applies the same vertical bands to the first touch and reduces horizontal input by dividing it by `1.5`.
 
 There are no keyboard controls. Do not document or expose a control until it is implemented and manually verified.
 
@@ -57,9 +57,14 @@ There are no keyboard controls. Do not document or expose a control until it is 
 - `Plane` moves forward along its local positive Z axis.
 - `main.js` clamps the movement delta passed to `Plane.update()` to `0.016` seconds.
 - The camera is parented to `Plane`, so world traversal follows the player automatically.
-- After `addEffect()`, acceleration changes speed, camera X/Z position, and FOV; values ease back toward the base state over time.
+- The plane samples terrain along its heading over at least `80` world units or `1.5` seconds of travel. Terrain clearance grows from `10` to `14` units with speed.
+- When the predicted terrain floor rises above the current flight path, automatic climb speed changes smoothly from `6` to `28` units per second based on speed and upcoming relief. Current terrain still provides the hard collision floor.
+- Flight altitude is capped at Y `95`, below the dormant cloud placement around Y `100`.
+- After `addEffect()`, boost and braking change speed, camera Z, and FOV in opposite directions; values ease back toward the base state over time. Braking does not activate the acceleration-driven trail contribution.
 - `Plane.addEffect()` currently uses Z `-18` as its follow/effect baseline on every viewport, even after the mobile play transition ends at `-16`.
 - The airplane mesh roll and shader-driven trails visualize turning and acceleration.
+
+`window.__INFINITE_WORLD__.getFlightStats()` exposes read-only position, speed, pointer ratio, vertical input, vertical velocity, camera state, and terrain-corridor values for browser checks.
 
 Changes to movement should be checked together with chunk tracking because `ChunkManager` follows `plane.position`.
 
@@ -92,8 +97,8 @@ The play action includes an additional Tailwind layout adjustment below `240px`.
 1. Start from a fresh reload and observe loader progress.
 2. Confirm the scene appears before interaction without console or network errors.
 3. Activate play and verify audio, forward movement, camera transition, and trails.
-4. Move the pointer or touch input and verify turning and model roll.
-5. Use wheel input and verify temporary acceleration and FOV response.
+4. Move the pointer or touch input and verify turning, model roll, climb above `45%`, altitude hold from `45%` through `65%`, and descent below `65%`.
+5. Scroll down and up to verify temporary boost and gentler braking with opposite camera/FOV responses.
 6. Toggle sound in both states.
 7. Resize the viewport and repeat at desktop and narrow/mobile sizes.
 8. Check that loader, play action, sound control, and canvas do not overlap or clip.
@@ -104,4 +109,3 @@ The play action includes an additional Tailwind layout adjustment below `240px`.
 - Global input listeners have no teardown path.
 - Asset failures have no user-visible error state or retry action.
 - The mobile policy is based on startup width rather than input capabilities or live media queries.
-- Decide whether vertical input should control altitude or be removed from the state model.

@@ -25,6 +25,8 @@ Keep CPU sampling, chunk placement, instance placement, and shader world coordin
 
 `ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random per-load seed. Each worker caches its noise functions until the seed or octave count changes.
 
+`main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
+
 For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. It also computes normals using the same Three.js plane topology as the former main-thread path. Shaders use the raw attribute for effects and coloring, so do not remove it.
 
 The worker transfers position, normal, UV, height, and index buffers. The main thread wraps them in `BufferGeometry`; it does not resample heights or recompute normals.

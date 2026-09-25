@@ -33,9 +33,11 @@ A successful Vite build proves that modules and assets can be bundled. It does n
 
 Run narrower checks first when a task introduces them, but do not skip the production build for source, shader, dependency, or configuration changes.
 
-The test suite covers symmetric desktop/mobile desired sets, negative centers, the current LOD rule, deterministic terrain buffers, topology counts, sea clamping, and adjacent chunk-edge heights.
+The test suite covers symmetric desktop/mobile desired sets, negative centers, the current LOD rule, deterministic terrain buffers, topology counts, sea clamping, adjacent chunk-edge heights, signed speed effects, vertical-input bands, safety-climb scaling, and terrain flight corridors.
 
 Browser lifecycle checks can read `window.__INFINITE_WORLD__.getChunkStats()`. After the queue drains, `live` must equal `desired`, `pending`, `queued`, and `inFlight` must return to zero, `created - disposed` must equal `live`, `generated` must be at least `created`, and `failed` must remain zero. Desktop should report up to two workers; mobile reports one.
+
+Flight checks can read `window.__INFINITE_WORLD__.getFlightStats()`. Use `pointerYRatio`, `verticalInput`, position Y, speed, camera FOV/Z, and corridor limits to distinguish actual flight changes from camera motion.
 
 ## Manual Experience Smoke Test
 
@@ -44,13 +46,14 @@ Use a fresh page load and check:
 1. The loader appears, progresses, and disappears.
 2. The canvas renders nonblank terrain with no console errors or failed requests.
 3. The play action starts movement and soundtrack playback.
-4. Pointer movement turns and rolls the airplane; touch movement works in a mobile viewport.
-5. Wheel input produces temporary acceleration, camera movement, FOV change, and trails.
+4. Pointer movement turns and rolls the airplane; above `45%` it climbs, from `45%` through `65%` it settles at the reached altitude, and below `65%` it descends. Repeat with touch in a mobile viewport.
+5. Scrolling down produces temporary acceleration, camera movement, FOV expansion, and trails. Scrolling up produces gentler braking and the opposite camera/FOV response without an acceleration trail.
 6. The sound control mutes and restores volume.
 7. New terrain chunks appear during traversal without obvious long stalls. When a scenery feature is re-enabled, repeat this check for its trees, clouds, or boats.
 8. Fog, distance fades, curvature, water movement, and biome bands remain visually coherent.
 9. Resize preserves canvas framing and control layout.
-10. The experience remains usable at a viewport below `768px`, including the very narrow play-action layout.
+10. During low flight, upcoming terrain raises the safety floor smoothly without a visible altitude snap; the plane neither enters terrain nor exceeds Y `95`.
+11. The experience remains usable at a viewport below `768px`, including the very narrow play-action layout.
 
 For worker changes, use a fixed URL seed, confirm a separate worker network request, and compare terrain scale, water, bands, seams, and the nonblank canvas against the same seed before the change.
 

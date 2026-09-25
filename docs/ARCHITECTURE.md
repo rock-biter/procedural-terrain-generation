@@ -16,6 +16,7 @@ This document maps runtime ownership and data flow. Read it before moving behavi
 | Worker execution      | [`src/chunkGeometry.worker.js`](../src/chunkGeometry.worker.js), [`src/chunkWorkerPool.js`](../src/chunkWorkerPool.js) | Reuses a bounded module-worker pool and transfers generated buffers to the main thread.                  |
 | Terrain unit          | [`src/chunk.js`](../src/chunk.js)                                                                                      | Owns one rendered mesh, replaces/disposes geometry, injects shaders, and places decorations.             |
 | Player movement       | [`src/plane.js`](../src/plane.js)                                                                                      | Owns flight input, speed changes, camera attachment, and trail rendering.                                |
+| Flight policy         | [`src/flightPolicy.js`](../src/flightPolicy.js)                                                                        | Computes speed effects, vertical input, terrain clearance, safety-climb speed, and altitude limits.      |
 | Instanced scenery     | [`src/trees.js`](../src/trees.js), [`src/clouds.js`](../src/clouds.js)                                                 | Build instanced meshes and patch their materials when their feature flags are enabled.                   |
 | Shader source         | [`src/shaders/`](../src/shaders/)                                                                                      | Supplies GLSL replacements for Three.js shader chunks.                                                   |
 
@@ -28,7 +29,7 @@ Importing `main.js` performs the following work:
 3. Start loading the soundtrack and airplane model through a shared `THREE.LoadingManager`. The terrain normal map loads independently from `src/chunk.js`; tree and boat asset requests are skipped while their feature flags are disabled.
 4. Create the scene, camera, renderer, lights, fog, and timer while those asynchronous requests are in flight.
 5. When the loading manager completes, fade out the loader and call `init(assets)`.
-6. `init()` creates `Plane` and `ChunkManager`, places the plane above the terrain, adds it to the scene, and schedules `tic()`.
+6. `init()` creates `Plane` and `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane above the terrain, adds it to the scene, and schedules `tic()`.
 7. The play action starts audio, accelerates the plane, moves the camera backward, and enables the flight effect.
 
 Rendering begins after assets load, before the user presses the play action. The play action starts movement and audio; it is not the application bootstrap.
@@ -58,7 +59,7 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 - The worker pool uses up to two workers on desktop and one on mobile. Workers cache their seeded simplex functions and transfer typed-array buffers instead of cloning them.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry and local decorations.
 
-`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, and seed diagnostics. It does not expose mutable manager state.
+`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, and seed diagnostics. `getFlightStats()` exposes position, speed effect, pointer input, vertical velocity, camera state, and the current terrain corridor. Neither API exposes mutable runtime state.
 
 Do not create a second render loop, terrain-parameter store, or chunk registry without an architectural reason documented here.
 
@@ -70,7 +71,7 @@ DOM and asset requests
         v
 main.js: LoadingManager -> init(assets)
         |                    |
-        |                    +-> Plane -> camera, controls, trails
+        |                    +-> Plane -> flightPolicy, camera, controls, trails
         |                    |
         |                    +-> ChunkManager -> worker pool
         |                           |                |
@@ -87,7 +88,7 @@ Terrain CPU calculations and terrain GLSL both consume related world data. When 
 
 - Add world-streaming policy to `ChunkManager`, not `main.js`.
 - Add per-chunk generation or decoration rules to `Chunk` or a dedicated helper extracted from it.
-- Add player input, speed, camera-follow, or trail behavior to `Plane`.
+- Add runtime player input, camera-follow, or trail behavior to `Plane`; keep independently testable scalar flight rules in `flightPolicy.js`.
 - Add shared scene lifecycle behavior to `main.js` only when no narrower owner exists.
 - Keep material-specific GLSL in `src/shaders/` and document new replacement points in [Rendering](RENDERING.md).
 - Keep DOM behavior synchronized between `index.html` and `main.js`; see [Experience](EXPERIENCE.md).
