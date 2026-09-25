@@ -13,7 +13,7 @@ This document maps runtime ownership and data flow. Read it before moving behavi
 | World streaming       | [`src/chunkManager.js`](../src/chunkManager.js)                        | Tracks the moving plane, queues chunk work, selects LOD, and adds or removes chunks.         |
 | Terrain unit          | [`src/chunk.js`](../src/chunk.js)                                      | Builds one terrain mesh, computes heights, injects terrain shaders, and places decorations.  |
 | Player movement       | [`src/plane.js`](../src/plane.js)                                      | Owns flight input, speed changes, camera attachment, and trail rendering.                    |
-| Instanced scenery     | [`src/trees.js`](../src/trees.js), [`src/clouds.js`](../src/clouds.js) | Build instanced meshes and patch their materials.                                            |
+| Instanced scenery     | [`src/trees.js`](../src/trees.js), [`src/clouds.js`](../src/clouds.js) | Build instanced meshes and patch their materials when their feature flags are enabled.       |
 | Shader source         | [`src/shaders/`](../src/shaders/)                                      | Supplies GLSL replacements for Three.js shader chunks.                                       |
 
 ## Startup Sequence
@@ -22,7 +22,7 @@ Importing `main.js` performs the following work:
 
 1. Resolve the loader, progress, play, and sound-toggle elements from `index.html`.
 2. Create the shared `assets`, `params`, and `uniforms` objects.
-3. Start loading the soundtrack, terrain normal map, boat model, and airplane model through a shared `THREE.LoadingManager`.
+3. Start loading the soundtrack and airplane model through a shared `THREE.LoadingManager`. The terrain normal map loads independently from `src/chunk.js`; tree and boat asset requests are skipped while their feature flags are disabled.
 4. Create the scene, camera, renderer, lights, fog, and timer while those asynchronous requests are in flight.
 5. When the loading manager completes, fade out the loader and call `init(assets)`.
 6. `init()` creates `Plane` and `ChunkManager`, places the plane above the terrain, adds it to the scene, and schedules `tic()`.
@@ -45,10 +45,11 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 ## Shared State And Ownership
 
 - `params` in `main.js` is the mutable source for terrain generation, colors, fog, light intensity, and the disabled debug GUI.
+- `worldFeatures` in `main.js` is the frozen runtime switch for trees, clouds, and boats. All three are currently `false` so chunk work is terrain-only.
 - `uniforms` in `main.js` is shared with chunks, instanced scenery, and boat materials. `Chunk` adds `uCurvature` to that object.
 - The perspective camera becomes a child of `Plane` through `Plane.addCamera()`.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
-- Loaded assets are collected before `init()`. `Plane` requires the airplane mesh and chunk boat generation requires the boat model.
+- Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the tree normal map and boat model are loaded only when their corresponding feature is enabled.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry and local decorations.
 
 Do not create a second render loop, terrain-parameter store, or chunk registry without an architectural reason documented here.

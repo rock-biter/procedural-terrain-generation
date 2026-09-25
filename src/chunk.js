@@ -22,12 +22,9 @@ import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import Trees from './trees'
 import Clouds from './clouds'
-import boatSrc from '/boat/scene.gltf?url'
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 
 const isMobile = window.innerWidth < 768
 const loader = new TextureLoader()
-const gltfLoader = new GLTFLoader()
 const normalMap = loader.load(fabricSrc)
 normalMap.repeat.set(6, 6)
 normalMap.wrapS = RepeatWrapping
@@ -44,6 +41,11 @@ const material = new MeshStandardMaterial({
 
 const CURVATURE = 3000
 const V2 = new Vector2(0, 0)
+const DEFAULT_FEATURES = Object.freeze({
+	trees: true,
+	clouds: true,
+	boats: true,
+})
 
 export default class Chunk extends Mesh {
 	treesPositionArray = []
@@ -58,7 +60,8 @@ export default class Chunk extends Mesh {
 		LOD = 0,
 		position = new Vector3(0, 0, 0),
 		uniforms,
-		assets
+		assets,
+		features = DEFAULT_FEATURES,
 	) {
 		const density = isMobile ? 4 : 2
 		const segments = Math.max(Math.floor(size * 0.5 ** LOD), density) / density
@@ -77,6 +80,7 @@ export default class Chunk extends Mesh {
 		this.uniforms.uCurvature = { value: CURVATURE }
 		this.boat = assets.boatModel
 		this.assets = assets
+		this.features = features
 
 		// sea.scale.setScalar(size)
 
@@ -114,24 +118,24 @@ export default class Chunk extends Mesh {
 				common +
 					`
 				attribute float height;
-				`
+				`,
 			)
 			shader.vertexShader = shader.vertexShader.replace(
 				'#include <project_vertex>',
-				projectVertex
+				projectVertex,
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <common>',
-				common
+				common,
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <color_fragment>',
-				colorFragment
+				colorFragment,
 			)
 
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <normal_fragment_maps>',
-				normalFragmentMap
+				normalFragmentMap,
 			)
 		}
 	}
@@ -161,7 +165,7 @@ export default class Chunk extends Mesh {
 		if (!heightAttr) {
 			this.geometry.setAttribute(
 				'height',
-				new BufferAttribute(new Float32Array(posAttr.count), 1)
+				new BufferAttribute(new Float32Array(posAttr.count), 1),
 			)
 		}
 
@@ -189,9 +193,11 @@ export default class Chunk extends Mesh {
 		this.geometry.computeVertexNormals()
 
 		// this.createTreesMesh()
-		if (!this.trees && this.LOD <= 2) this.generateTrees()
-		if (!this.clouds) this.generateClouds()
-		if (!this.boats) this.addBoats()
+		if (this.features.trees && !this.trees && this.LOD <= 2) {
+			this.generateTrees()
+		}
+		if (this.features.clouds && !this.clouds) this.generateClouds()
+		if (this.features.boats && !this.boats) this.addBoats()
 	}
 
 	addBoats() {
@@ -251,11 +257,11 @@ export default class Chunk extends Mesh {
 						common +
 							`
 				attribute float height;
-				`
+				`,
 					)
 					shader.vertexShader = shader.vertexShader.replace(
 						'#include <project_vertex>',
-						projectVertexBoat
+						projectVertexBoat,
 					)
 				}
 			}
@@ -271,7 +277,7 @@ export default class Chunk extends Mesh {
 
 		const position = new BufferAttribute(
 			new Float32Array(this.treesPositionArray),
-			3
+			3,
 		)
 
 		// console.log(this.trees)
@@ -309,7 +315,7 @@ export default class Chunk extends Mesh {
 			this.treesPositionArray.push(
 				x - this.position.x,
 				y + 1,
-				z - this.position.z
+				z - this.position.z,
 			)
 			this.treesCount++
 		}
@@ -334,7 +340,7 @@ export default class Chunk extends Mesh {
 	createCloudsMesh() {
 		const position = new BufferAttribute(
 			new Float32Array(this.cloudsPositionArray),
-			3
+			3,
 		)
 
 		if (this.clouds) {
@@ -358,7 +364,7 @@ export default class Chunk extends Mesh {
 			this.cloudsPositionArray.push(
 				x - this.position.x,
 				100,
-				z - this.position.z
+				z - this.position.z,
 			)
 			this.cloudsCount++
 		}
@@ -387,7 +393,7 @@ export function getHeight(x, z, noises, params) {
 
 		let increment = noises[j](
 			x * 0.01 * fx * lacunarity,
-			z * 0.01 * fz * lacunarity
+			z * 0.01 * fz * lacunarity,
 		)
 
 		increment *= increment
@@ -405,7 +411,7 @@ export function getHeight(x, z, noises, params) {
 	l = MathUtils.lerp(
 		l,
 		(MathUtils.smoothstep(pct, 0.5, 1) - 0.5) * params.amplitude * 2,
-		1 - MathUtils.smoothstep(n, -1, -0.3)
+		1 - MathUtils.smoothstep(n, -1, -0.3),
 	)
 
 	h += l

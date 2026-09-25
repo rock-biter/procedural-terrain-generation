@@ -6,13 +6,13 @@ This document inventories runtime assets and records the checks required when ad
 
 ## Asset Inventory
 
-| Asset              | Path                                                                                | Runtime use                                 | License metadata                                                |
-| ------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------- |
-| Airplane model     | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`       | Player model loaded in `main.js`            | [`public/airplane/license.txt`](../public/airplane/license.txt) |
-| Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Cloned into suitable water areas by `Chunk` | [`public/boat/license.txt`](../public/boat/license.txt)         |
-| Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Terrain, tree, and cloud materials          | No dedicated provenance file in the repository                  |
-| Unused texture     | [`src/textures/tessuto.jpg`](../src/textures/tessuto.jpg)                           | Not imported by current source              | No dedicated provenance file in the repository                  |
-| Soundtrack         | [`src/audio/epic-soundtrack.mp3`](../src/audio/epic-soundtrack.mp3)                 | Looping experience audio                    | No dedicated provenance file in the repository                  |
+| Asset              | Path                                                                                | Runtime use                                  | License metadata                                                |
+| ------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------- |
+| Airplane model     | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`       | Player model loaded in `main.js`             | [`public/airplane/license.txt`](../public/airplane/license.txt) |
+| Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Dormant while `worldFeatures.boats` is false | [`public/boat/license.txt`](../public/boat/license.txt)         |
+| Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Terrain; dormant tree/cloud material paths   | No dedicated provenance file in the repository                  |
+| Unused texture     | [`src/textures/tessuto.jpg`](../src/textures/tessuto.jpg)                           | Not imported by current source               | No dedicated provenance file in the repository                  |
+| Soundtrack         | [`src/audio/epic-soundtrack.mp3`](../src/audio/epic-soundtrack.mp3)                 | Looping experience audio                     | No dedicated provenance file in the repository                  |
 
 Do not infer redistribution rights for an asset that lacks provenance metadata. Resolve and record its source and license before publishing a new distribution that depends on it.
 
@@ -35,18 +35,15 @@ Changing model hierarchy, pivot, units, or orientation can affect steering, came
 
 ### Boat
 
-`main.js` imports `/boat/scene.gltf?url`, selects `gltf.scene.children[0].children[0]`, scales it to `1.3`, and stores it as `assets.boatModel`. `Chunk` clones that model, rotates each clone around Y, positions it at Y `0.8`, and injects the boat curvature shader into mesh materials.
+When `worldFeatures.boats` is enabled, `main.js` loads `/boat/scene.gltf`, selects `gltf.scene.children[0].children[0]`, scales it to `1.3`, and stores it as `assets.boatModel`. `Chunk` clones that model, rotates each clone around Y, positions it at Y `0.8`, and injects the boat curvature shader into mesh materials. The current terrain-only configuration makes no boat request.
 
 The hard-coded child selection is part of the current asset contract. A replacement model with a different hierarchy requires a corresponding loader change and browser validation.
 
 ### Textures
 
-`normal.jpg` is loaded twice by current code:
+`normal.jpg` is always loaded independently by `src/chunk.js` for terrain, with repeat wrapping and a `6` by `6` repeat. When trees are enabled, `main.js` also loads it through the shared loading manager and exposes it as `assets.normalMap`.
 
-- `main.js` loads it through the shared loading manager and exposes it as `assets.normalMap` for trees.
-- `src/chunk.js` loads it independently for terrain and clouds, enables repeat wrapping, and sets a `6` by `6` repeat.
-
-The independent chunk-level texture request is not part of the loading manager's progress state.
+With the current tree flag disabled there is one image request, and that request is not part of the loading manager's progress state. Re-enabling trees restores the second texture-loading path unless asset ownership is consolidated first.
 
 ### Audio
 
@@ -69,4 +66,4 @@ The independent chunk-level texture request is not part of the loading manager's
 - What are the source and redistribution terms for the soundtrack and both texture files?
 - Is `tessuto.jpg` intentionally reserved for future work or safe to remove?
 - Should model extraction use names instead of hierarchy indices?
-- Should duplicate normal-map loading be consolidated under the asset-loading lifecycle?
+- Before re-enabling trees, should the conditional second normal-map loading path be consolidated under the asset-loading lifecycle?

@@ -8,7 +8,6 @@ import ChunkManager from './src/chunkManager'
 import { getHeight } from './src/chunk'
 import Plane from './src/plane'
 import airplane from '/airplane/scene.gltf?url'
-import boatSrc from '/boat/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import normalMapSrc from './src/textures/normal.jpg'
@@ -21,6 +20,11 @@ const toggleEl = document.getElementById('sound-toggle')
 const cameraTarget = new THREE.Vector3(0, 6.9, 0)
 let volume = true
 const isMobile = window.innerWidth < 768
+const worldFeatures = Object.freeze({
+	trees: false,
+	clouds: false,
+	boats: false,
+})
 
 const assets = {
 	planeModel: null,
@@ -111,18 +115,22 @@ audioLoader.load(audioSrc, (buffer) => {
 	camera.add(listener)
 })
 
-assets.normalMap = textureLoader.load(normalMapSrc)
+if (worldFeatures.trees) {
+	assets.normalMap = textureLoader.load(normalMapSrc)
+}
 
-gltfLoader.load(boatSrc, (gltf) => {
-	// console.log('boat', gltf)
+if (worldFeatures.boats) {
+	gltfLoader.load('/boat/scene.gltf', (gltf) => {
+		// console.log('boat', gltf)
 
-	const model = gltf.scene.children[0].children[0]
-	model.scale.setScalar(1.3)
-	// model.scale.setScalar(0.1)
-	model.rotation.x = 0
+		const model = gltf.scene.children[0].children[0]
+		model.scale.setScalar(1.3)
+		// model.scale.setScalar(0.1)
+		model.rotation.x = 0
 
-	assets.boatModel = model
-})
+		assets.boatModel = model
+	})
+}
 
 gltfLoader.load(airplane, (gltf) => {
 	gltf.scene.traverse((el) => {
@@ -335,6 +343,7 @@ function init(assets) {
 		scene,
 		uniforms,
 		assets,
+		worldFeatures,
 	)
 
 	/**

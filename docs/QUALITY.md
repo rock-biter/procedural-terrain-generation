@@ -43,7 +43,7 @@ Use a fresh page load and check:
 4. Pointer movement turns and rolls the airplane; touch movement works in a mobile viewport.
 5. Wheel input produces temporary acceleration, camera movement, FOV change, and trails.
 6. The sound control mutes and restores volume.
-7. New terrain chunks, trees, clouds, and boats appear during traversal without obvious long stalls.
+7. New terrain chunks appear during traversal without obvious long stalls. When a scenery feature is re-enabled, repeat this check for its trees, clouds, or boats.
 8. Fog, distance fades, curvature, water movement, and biome bands remain visually coherent.
 9. Resize preserves canvas framing and control layout.
 10. The experience remains usable at a viewport below `768px`, including the very narrow play-action layout.

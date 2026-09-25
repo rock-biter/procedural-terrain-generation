@@ -55,9 +55,11 @@ An unchanged LOD returns early. Any new LOD rule must preserve this guard and mu
 
 ## Per-Chunk Scenery
 
+`main.js` currently passes `worldFeatures` with `trees`, `clouds`, and `boats` all set to `false`. `Chunk.updateGeometry()` therefore stops after terrain height and normal generation. The scenery implementations remain available behind those flags for later isolated work.
+
 ### Trees
 
-- Trees are generated when a chunk has no tree mesh and its LOD is `2` or lower.
+- When enabled, trees are generated when a chunk has no tree mesh and its LOD is `2` or lower.
 - Candidate spacing is `5` units on desktop and `8` on mobile.
 - Placement combines terrain height, two noise frequencies, and a random threshold.
 - Valid tree heights are greater than `4` and less than `42`.
@@ -65,18 +67,18 @@ An unchanged LOD returns early. Any new LOD rule must preserve this guard and mu
 
 ### Clouds
 
-- Clouds are generated once per chunk and passed to a `Clouds` instanced mesh.
+- When enabled, clouds are generated once per chunk and passed to a `Clouds` instanced mesh.
 - The current candidate loop samples every integer position across the chunk. It computes a mobile/desktop `density` value but does not use it.
 - Placement combines two noise frequencies with a random threshold and stores cloud positions around Y `100`.
 
 ### Boats
 
-- Each chunk attempts to place between zero and three boats.
+- When enabled, each chunk attempts to place between zero and three boats.
 - Each boat gets at most `20` random placement attempts.
 - Accepted terrain height must be between `-10` and `-2`.
 - The loaded boat model is cloned, randomly rotated, positioned at Y `0.8`, and given the boat vertex-shader replacement.
 
-Tree, cloud, and boat placement includes `Math.random()`, so decoration is not reproducible between sessions even if terrain noise is later seeded.
+Tree, cloud, and boat placement includes `Math.random()`, so re-enabling decoration would not be reproducible between sessions even if terrain noise were later seeded.
 
 ## Resource Lifecycle
 

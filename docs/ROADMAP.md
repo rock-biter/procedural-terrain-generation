@@ -6,7 +6,9 @@ This is the living register for technical debt, performance work, architectural 
 
 The first analysis focuses on terrain generation and streaming because they dominate current startup and traversal cost. Current behavior remains documented in [Terrain](TERRAIN.md), [Architecture](ARCHITECTURE.md), and [Rendering](RENDERING.md). Validation rules remain in [Quality](QUALITY.md).
 
-Last baseline review: **2026-09-25**.
+Last baseline review: **2026-09-26**.
+
+Current implementation scope: `worldFeatures` disables trees, clouds, and boats so streaming work can be repaired and measured against terrain alone. Their implementations and historical cost analysis remain in this document for later reintroduction.
 
 ## How To Use This Document
 
@@ -59,9 +61,9 @@ main.js: tic()
                  -> PlaneGeometry allocation
                  -> getHeight() for every terrain vertex
                  -> computeVertexNormals()
-                 -> generateTrees() for LOD <= 2
-                 -> generateClouds() for every LOD
-                 -> addBoats()
+                 -> [disabled] generateTrees() for LOD <= 2
+                 -> [disabled] generateClouds() for every LOD
+                 -> [disabled] addBoats()
             -> or Chunk.updateLOD()
                  -> dispose and rebuild terrain geometry
                  -> resample heights and normals
@@ -96,7 +98,7 @@ All generation callbacks execute on the main thread. The queue limits callback c
 | Cloud candidates                     |                                         5,177,344 |                            3,080,192 |
 | Cloud noise evaluations              |                                        10,354,688 |                            6,160,384 |
 
-Before boat placement, the initial desired window implies about **12.82 million** noise evaluations on desktop and **6.81 million** on mobile. These calls are distributed by the work queue, but each individual chunk is still generated synchronously.
+The terrain-only runtime performs about **1.31 million** initial noise evaluations on desktop and **309 thousand** on mobile. With every dormant scenery path enabled, the same window would return to about **12.82 million** desktop and **6.81 million** mobile evaluations before boat placement. These calls are distributed by the work queue, but each individual chunk is still generated synchronously.
 
 ### Terrain Cost Per Chunk
 
@@ -127,27 +129,27 @@ Each chunk creates new copies of these identical base geometries. Instance trans
 
 ## Known Problem Register
 
-| ID          | Priority | Status   | Problem                                                                         | Evidence                                                                                                                                       |
-| ----------- | -------- | -------- | ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OBS-001`   | P0       | Observed | No repeatable performance baseline or streaming telemetry.                      | No application instrumentation or recorded baseline exists for frame time, queue, chunk, generation, or the built-in `renderer.info` counters. |
-| `STRM-001`  | P0       | Observed | The pending-work queue is not keyed consistently and cannot cancel stale work.  | Creation items use `key`; lookup and LOD items use `id`; old callbacks survive range changes.                                                  |
-| `STRM-002`  | P0       | Observed | Desired-set reconciliation does not inspect all live chunks.                    | The asymmetric local scan cannot reach some chunks left behind; `lookForDistantChunks()` is disabled.                                          |
-| `PERF-001`  | P0       | Observed | Cloud placement scans all 65,536 integer positions in every chunk at every LOD. | `generateClouds()` ignores its `density` variable and performs two noise calls per candidate.                                                  |
-| `LIFE-001`  | P0       | Observed | Per-chunk GPU resource ownership and disposal are incomplete.                   | `Chunk.dispose()` omits clouds and does not dispose unique tree/cloud geometries.                                                              |
-| `PERF-002`  | P1       | Observed | Streaming is limited by callback count rather than a frame-time budget.         | A single `createChunk()` performs terrain and decoration generation synchronously.                                                             |
-| `PERF-003`  | P1       | Observed | Every LOD transition reallocates and fully recomputes terrain geometry.         | `updateLOD()` replaces geometry, resamples all heights, and recomputes normals.                                                                |
-| `PERF-004`  | P1       | Observed | Identical tree and cloud base geometries are recreated per chunk.               | Constructors allocate new `IcosahedronGeometry` instances while materials are shared.                                                          |
-| `STATE-001` | P1       | Observed | Chunk registries retain historical keys and can accumulate duplicates.          | Disposal assigns `undefined` instead of deleting; `chunkKeys` is not pruned by the active path.                                                |
-| `CORR-001`  | P1       | Observed | Tree and cloud candidates are offset by a full chunk instead of half a chunk.   | Generation subtracts `size`; terrain local bounds are centered on `size / 2`.                                                                  |
-| `CORR-002`  | P1       | Observed | Boat world coordinates are assigned as local coordinates on a chunk child.      | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                               |
-| `STATE-002` | P1       | Observed | Runtime terrain-parameter updates are unsafe and incomplete.                    | Disposed entries can enqueue undefined callbacks; octave noise functions are not resized; decorations keep old placement.                      |
-| `DET-001`   | P1       | Observed | Terrain and decoration are nondeterministic.                                    | Simplex noise has no seeded PRNG and placement uses `Math.random()`.                                                                           |
-| `TEST-001`  | P1       | Observed | Streaming and generation rules have no automated regression coverage.           | There is no test suite for coordinates, desired sets, queue cancellation, height continuity, or disposal.                                      |
-| `STRM-003`  | P2       | Observed | Priority uses distance only and has no hysteresis.                              | Work is not biased by movement direction, camera visibility, or recent LOD state.                                                              |
-| `REND-001`  | P2       | Observed | Shared material hooks and shared glTF resources have implicit ownership.        | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                      |
-| `FRAME-001` | P2       | Observed | Delta clamping slows traversal during stalls and can hide streaming pressure.   | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                      |
-| `LOAD-001`  | P3       | Observed | The normal map is loaded through two independent paths.                         | `main.js` uses the loading manager; `chunk.js` creates a separate texture loader.                                                              |
-| `MAINT-001` | P3       | Observed | Dead paths and misleading names obscure lifecycle behavior.                     | `pool` is a work queue, `camera` is the plane, `updateChunks()` is async without awaits, and dormant code remains.                             |
+| ID          | Priority | Status   | Problem                                                                                 | Evidence                                                                                                                                         |
+| ----------- | -------- | -------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OBS-001`   | P0       | Observed | No repeatable performance baseline or streaming telemetry.                              | No application instrumentation or recorded baseline exists for frame time, queue, chunk, generation, or the built-in `renderer.info` counters.   |
+| `STRM-001`  | P0       | Observed | The pending-work queue is not keyed consistently and cannot cancel stale work.          | Creation items use `key`; lookup and LOD items use `id`; old callbacks survive range changes.                                                    |
+| `STRM-002`  | P0       | Observed | Desired-set reconciliation does not inspect all live chunks.                            | The asymmetric local scan cannot reach some chunks left behind; `lookForDistantChunks()` is disabled.                                            |
+| `PERF-001`  | P0       | Observed | Dormant cloud placement scans all 65,536 integer positions in every chunk at every LOD. | The current feature flag prevents execution; `generateClouds()` still ignores its `density` variable and performs two noise calls per candidate. |
+| `LIFE-001`  | P0       | Observed | Per-chunk GPU resource ownership and disposal are incomplete.                           | `Chunk.dispose()` omits clouds and does not dispose unique tree/cloud geometries.                                                                |
+| `PERF-002`  | P1       | Observed | Streaming is limited by callback count rather than a frame-time budget.                 | A single `createChunk()` performs terrain and decoration generation synchronously.                                                               |
+| `PERF-003`  | P1       | Observed | Every LOD transition reallocates and fully recomputes terrain geometry.                 | `updateLOD()` replaces geometry, resamples all heights, and recomputes normals.                                                                  |
+| `PERF-004`  | P1       | Observed | Identical tree and cloud base geometries are recreated per chunk.                       | Constructors allocate new `IcosahedronGeometry` instances while materials are shared.                                                            |
+| `STATE-001` | P1       | Observed | Chunk registries retain historical keys and can accumulate duplicates.                  | Disposal assigns `undefined` instead of deleting; `chunkKeys` is not pruned by the active path.                                                  |
+| `CORR-001`  | P1       | Observed | Tree and cloud candidates are offset by a full chunk instead of half a chunk.           | Generation subtracts `size`; terrain local bounds are centered on `size / 2`.                                                                    |
+| `CORR-002`  | P1       | Observed | Boat world coordinates are assigned as local coordinates on a chunk child.              | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                                 |
+| `STATE-002` | P1       | Observed | Runtime terrain-parameter updates are unsafe and incomplete.                            | Disposed entries can enqueue undefined callbacks; octave noise functions are not resized; decorations keep old placement.                        |
+| `DET-001`   | P1       | Observed | Terrain and decoration are nondeterministic.                                            | Simplex noise has no seeded PRNG and placement uses `Math.random()`.                                                                             |
+| `TEST-001`  | P1       | Observed | Streaming and generation rules have no automated regression coverage.                   | There is no test suite for coordinates, desired sets, queue cancellation, height continuity, or disposal.                                        |
+| `STRM-003`  | P2       | Observed | Priority uses distance only and has no hysteresis.                                      | Work is not biased by movement direction, camera visibility, or recent LOD state.                                                                |
+| `REND-001`  | P2       | Observed | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
+| `FRAME-001` | P2       | Observed | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
+| `LOAD-001`  | P3       | Observed | Re-enabling trees loads the normal map through two independent paths.                   | The terrain-only runtime uses only `chunk.js`; the guarded tree path in `main.js` uses the loading manager.                                      |
+| `MAINT-001` | P3       | Observed | Dead paths and misleading names obscure lifecycle behavior.                             | `pool` is a work queue, `camera` is the plane, `updateChunks()` is async without awaits, and dormant code remains.                               |
 
 ## Detailed Findings
 
@@ -179,7 +181,7 @@ Required direction: compute a pure symmetric desired set, diff it against a `Map
 
 ### `PERF-001`: Cloud Sampling Dominates Static CPU Work
 
-Every chunk performs `256 * 256` cloud candidates, including distant LOD 3 chunks. Each candidate evaluates two simplex-noise functions before the random acceptance test. The mobile/desktop density constant is unused, so mobile receives no reduction.
+When clouds are enabled, every chunk performs `256 * 256` cloud candidates, including distant LOD 3 chunks. Each candidate evaluates two simplex-noise functions before the random acceptance test. The mobile/desktop density constant is unused, so mobile receives no reduction. The current terrain-only flags avoid this work but do not resolve the dormant implementation.
 
 Candidate strategies:
 

@@ -19,7 +19,7 @@ Changing an ID requires updating both files. UI classes are Tailwind utilities i
 
 ## Loading Flow
 
-1. The module starts soundtrack, normal-map, boat, and airplane requests with a shared `THREE.LoadingManager`.
+1. The module starts soundtrack and airplane requests with a shared `THREE.LoadingManager`. The terrain normal map loads independently; tree and boat requests are disabled by `worldFeatures`.
 2. `onStart` reveals the loader.
 3. `onProgress` animates the progress width from loaded item count divided by total item count.
 4. `onLoad` hides the canvas, registers the sound toggle, and fades out the loader.
@@ -81,7 +81,7 @@ It controls:
 - Initial camera FOV and zoom.
 - Play-transition camera distance.
 - Chunk radius and per-frame queue throughput.
-- Terrain and tree density.
+- Terrain density and, when trees are enabled, tree density.
 
 `handleResize()` updates renderer dimensions and camera projection, but it does not recompute `isMobile` or rebuild terrain. Crossing the breakpoint after startup therefore does not switch runtime policy.
 

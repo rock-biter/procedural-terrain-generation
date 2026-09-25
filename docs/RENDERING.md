@@ -32,6 +32,8 @@ The application does not use `ShaderMaterial`. It starts with built-in Three.js 
 
 Each replacement string must match the corresponding Three.js shader include exactly. A Three.js upgrade can rename or reorganize those includes while the JavaScript build still succeeds.
 
+The tree, cloud, and boat shader paths are currently dormant because all three `worldFeatures` flags are disabled in `main.js`. Terrain and water continue to use the existing `MeshStandardMaterial` replacement path unchanged.
+
 ## Shared GLSL Contract
 
 [`src/shaders/common.glsl`](../src/shaders/common.glsl) retains Three.js's original `#include <common>` and adds:
@@ -81,8 +83,8 @@ Do not replace the shared uniform wrapper objects each frame. Update their `.val
 ## Materials And Textures
 
 - Terrain uses `normal.jpg` with repeat wrapping, a `6` by `6` repeat, and normal scale `(2, -2)`.
-- Trees use the separately loaded `assets.normalMap`.
-- Clouds receive the terrain normal map after construction.
+- When enabled, trees use the separately loaded `assets.normalMap`.
+- When enabled, clouds receive the terrain normal map after construction.
 - Terrain, tree, and cloud materials are module-level shared instances. Their shader hooks and mutable properties therefore affect every instance using that material.
 - Boats originate from cloned glTF scene nodes; verify whether geometry and material resources remain shared before disposing or mutating them.
 
