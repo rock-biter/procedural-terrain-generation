@@ -10,7 +10,8 @@ This document maps runtime ownership and data flow. Read it before moving behavi
 | --------------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
 | HTML shell            | [`index.html`](../index.html)                                          | Loader, play action, sound toggle, and module entry point.                                   |
 | Application bootstrap | [`main.js`](../main.js)                                                | Asset loading, shared parameters and uniforms, scene setup, frame loop, and resize handling. |
-| World streaming       | [`src/chunkManager.js`](../src/chunkManager.js)                        | Tracks the moving plane, queues chunk work, selects LOD, and adds or removes chunks.         |
+| World streaming       | [`src/chunkManager.js`](../src/chunkManager.js)                        | Reconciles desired/live chunks, queues keyed work, and owns scene membership.                |
+| Streaming policy      | [`src/chunkPolicy.js`](../src/chunkPolicy.js)                          | Computes chunk keys, symmetric desired sets, and distance-based LOD without browser state.   |
 | Terrain unit          | [`src/chunk.js`](../src/chunk.js)                                      | Builds one terrain mesh, computes heights, injects terrain shaders, and places decorations.  |
 | Player movement       | [`src/plane.js`](../src/plane.js)                                      | Owns flight input, speed changes, camera attachment, and trail rendering.                    |
 | Instanced scenery     | [`src/trees.js`](../src/trees.js), [`src/clouds.js`](../src/clouds.js) | Build instanced meshes and patch their materials when their feature flags are enabled.       |
@@ -37,7 +38,7 @@ Rendering begins after assets load, before the user presses the play action. The
 1. Update `THREE.Timer` and clamp the movement delta to at most `0.016` seconds.
 2. Call `plane.update(deltaTime)`.
 3. Write elapsed time and plane position to `uTime` and `uCamera`.
-4. Call `chunkManager.updateChunks()` to process or enqueue world-streaming work.
+4. Call `chunkManager.updateChunks()` to reconcile on boundary changes or process bounded keyed work.
 5. Render the scene and schedule the next frame.
 
 Keep frame-sensitive behavior in this order unless a change explicitly depends on a different update sequence.
@@ -50,7 +51,10 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 - The perspective camera becomes a child of `Plane` through `Plane.addCamera()`.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
 - Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the tree normal map and boat model are loaded only when their corresponding feature is enabled.
+- `ChunkManager` owns `Map` registries for desired chunks, live chunks, and one pending job per chunk key. A monotonically increasing revision invalidates obsolete work.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry and local decorations.
+
+`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only `desired`, `live`, `pending`, `created`, `disposed`, and `revision` counters for browser validation. It does not expose mutable manager state.
 
 Do not create a second render loop, terrain-parameter store, or chunk registry without an architectural reason documented here.
 

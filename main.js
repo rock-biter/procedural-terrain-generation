@@ -332,6 +332,10 @@ const chunkSize = 256
 // plane.add(camera)
 let chunkManager, plane
 
+window.__INFINITE_WORLD__ = Object.freeze({
+	getChunkStats: () => chunkManager?.getStats() ?? null,
+})
+
 function init(assets) {
 	plane = new Plane(assets.planeModel, null, params, camera)
 

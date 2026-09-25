@@ -32,13 +32,18 @@ For every terrain vertex, `Chunk.updateGeometry()` stores the raw height in the 
 `ChunkManager.updateChunks()` drives streaming:
 
 - Desktop keeps chunks within `maxDistance = 5`; mobile uses `4`.
-- Entering a new chunk enqueues creation and LOD updates around the tracked position; out-of-range chunks are disposed immediately during that scan.
-- While the tracked position remains in the same chunk, the manager processes up to three queued callbacks per frame on desktop or two on mobile.
-- The queue is sorted by distance and processed with `pop()`, causing nearer work to run first.
-- A new `Chunk` is added directly to the scene and registered in the `chunks` object and `chunkKeys` array.
-- Out-of-range chunks call `Chunk.dispose()` and their registry entry is set to `undefined`.
+- [`src/chunkPolicy.js`](../src/chunkPolicy.js) computes a symmetric Euclidean desired set: `81` coordinates on desktop and `49` on mobile.
+- Entering a new chunk increments the desired-set revision and diffs every live chunk against the new set.
+- Out-of-range chunks are immediately disposed and deleted from the live `Map`; pending jobs outside the set are deleted as well.
+- Missing chunks and changed LODs become keyed jobs in a pending `Map`, so each coordinate has at most one queued operation.
+- Jobs carry the desired-set revision and are rejected if their key, revision, or target LOD is no longer current.
+- While the tracked position remains in the same chunk, the manager processes up to three jobs per frame on desktop or two on mobile. Near LOD 0/1 work remains limited to one job in that frame.
+- Pending jobs are sorted by distance so nearer work runs first.
+- A new `Chunk` is added directly to the scene and registered in the live `Map`.
 
-Queue behavior spreads expensive geometry work across frames. Avoid replacing it with synchronous bulk creation without profiling startup and traversal frame times.
+`ChunkManager.getStats()` reports desired, live, pending, cumulative created/disposed, and revision values. The browser exposes a read-only accessor at `window.__INFINITE_WORLD__.getChunkStats()`.
+
+Queue behavior spreads expensive geometry work across frames. It still limits operation count rather than elapsed milliseconds; avoid replacing it with synchronous bulk creation without profiling startup and traversal frame times.
 
 ## Level Of Detail
 

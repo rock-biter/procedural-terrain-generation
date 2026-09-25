@@ -17,11 +17,13 @@ Use pnpm for dependency changes. Do not introduce a second lockfile.
 ```bash
 pnpm install
 pnpm dev
+pnpm test
 pnpm build
 pnpm preview
 ```
 
 - `pnpm dev` starts Vite with network access through `--host`.
+- `pnpm test` runs the dependency-free Node test suite.
 - `pnpm build` creates the production bundle in `dist/`.
 - `pnpm preview` serves the production bundle locally.
 - Use the URL printed by Vite; the default port may change when it is already occupied.
@@ -34,9 +36,10 @@ Do not edit or commit generated files under `dist/`.
 - `vite-plugin-glsl` makes GLSL files importable by JavaScript.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
-- The repository currently has no formatter, linter, automated test suite, or CI workflow.
+- Node's built-in test runner covers pure chunk-policy behavior under `test/`.
+- The repository currently has no formatter, linter, browser test suite, or CI workflow.
 
-See [Quality](QUALITY.md) for the validation expected in the absence of automated tests.
+See [Quality](QUALITY.md) for the browser and rendering validation that remains outside the pure Node tests.
 
 ## Code Conventions
 
@@ -55,7 +58,7 @@ Follow the patterns in the code being changed rather than introducing a parallel
 
 1. Read the topic guide linked from the root `AGENTS.md` and the owning source module.
 2. Make the smallest change that preserves existing ownership boundaries.
-3. Run `pnpm build` after every source, shader, dependency, or configuration change.
+3. Run `pnpm test` and `pnpm build` after every source, shader, dependency, or configuration change.
 4. Perform the change-specific checks in [Quality](QUALITY.md).
 5. Update the relevant guide when behavior, commands, architecture, or asset requirements change.
 

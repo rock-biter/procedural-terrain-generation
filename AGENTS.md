@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders terrain, water, trees, clouds, boats, trails, fog, and audio through a mix of CPU generation and patched Three.js shaders.
+This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. The current terrain-only work mode disables trees, clouds, and boats behind feature flags.
 
 [`README.md`](README.md) is the short human-facing introduction. This file is the entry point for coding agents and routes detailed work to the owning guide.
 
@@ -32,6 +32,7 @@ Use Node.js `^20.19.0` or `>=22.12.0` and pnpm `9.15.9`.
 ```bash
 pnpm install
 pnpm dev
+pnpm test
 pnpm build
 pnpm preview
 ```
@@ -42,6 +43,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 
 - [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, the render loop, and resize behavior.
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, queued work, LOD selection, and scene membership.
+- [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, symmetric desired-set selection, and distance-based LOD policy.
 - [`src/chunk.js`](src/chunk.js) owns height sampling, terrain geometry, and per-chunk scenery.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
 - [`src/trees.js`](src/trees.js) and [`src/clouds.js`](src/clouds.js) own instanced scenery meshes.
@@ -65,10 +67,11 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository currently has no automated tests, linting, type checking, formatter, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
-1. Run `pnpm build`.
-2. Load the app and check browser console and network failures.
-3. Perform the change-specific desktop and mobile checks in [`docs/QUALITY.md`](docs/QUALITY.md).
+1. Run `pnpm test`.
+2. Run `pnpm build`.
+3. Load the app and check browser console and network failures.
+4. Perform the change-specific desktop and mobile checks in [`docs/QUALITY.md`](docs/QUALITY.md).
 
 A successful build does not prove that WebGL shaders compile or that the canvas renders correctly. Report any check that could not be performed.

@@ -1,16 +1,20 @@
-import { Vector2, Vector3 } from 'three'
+import { Vector3 } from 'three'
 import Chunk from './chunk'
 import { createNoise2D } from 'simplex-noise'
-const _V = new Vector2(0, 0)
+import { getChunkKey, getChunkLOD, getDesiredChunks } from './chunkPolicy'
+
 const isMobile = window.innerWidth < 768
 
 export default class ChunkManager {
-	chunks = {}
-	chunkKeys = []
-	items = []
+	chunks = new Map()
+	desired = new Map()
+	pending = new Map()
 	lastChunkVisited = null
-	pool = []
+	revision = 0
+	created = 0
+	disposed = 0
 	maxDistance = isMobile ? 4 : 5
+	jobsPerFrame = isMobile ? 2 : 3
 
 	constructor(chunkSize, camera, params, scene, uniforms, assets, features) {
 		this.params = params
@@ -30,207 +34,166 @@ export default class ChunkManager {
 	}
 
 	init() {
-		const [i, j] = this.getCoordsByCamera()
 		this.updateChunks()
 	}
 
 	getLODbyCoords(k, w) {
 		const [i, j] = this.getCoordsByCamera()
 
-		return Math.floor(_V.set(k - i, w - j).length() * 0.7)
+		return getChunkLOD(Math.hypot(k - i, w - j))
 	}
 
-	isOutOfRange(k, w, [i, j]) {
-		// const [i, j] = this.getCoordsByCamera()
-		const distance = _V.set(k - i, w - j).length()
+	reconcileChunks(i, j) {
+		this.revision++
+		this.desired = getDesiredChunks(i, j, this.maxDistance)
 
-		return distance > this.maxDistance
-	}
-
-	lookForDistantChunks() {
-		const [i, j] = this.getCoordsByCamera()
-		const keys = []
-		const validKeys = []
-
-		for (const key of this.chunkKeys) {
-			const chunk = this.chunks[key]
-			const [k, w] = chunk.coords
-
-			if (this.isOutOfRange(k, w, [i, j])) {
-				keys.push(key)
-			} else {
-				validKeys.push(key)
-				const LOD = this.getLODbyCoords(k, w)
-
-				const indexOf = this.pool.findIndex((el) => el.id === key)
-				const newEl = {
-					id: key,
-					LOD: LOD,
-					coords: [k, w],
-					callback: () => chunk.updateLOD(LOD),
-				}
-				if (indexOf >= 0) {
-					this.pool[indexOf] = newEl
-				} else {
-					this.pool.push(newEl)
-				}
-			}
+		for (const key of this.chunks.keys()) {
+			if (!this.desired.has(key)) this.disposeChunk(key)
 		}
 
-		this.chunkKeys = validKeys
-		// console.log(validKeys)
+		for (const key of this.pending.keys()) {
+			if (!this.desired.has(key)) this.pending.delete(key)
+		}
 
-		// keys.forEach((key) => {
-		// 	const chunk = this.chunks[key]
-		// 	if (chunk === undefined) return
+		for (const target of this.desired.values()) {
+			const chunk = this.chunks.get(target.key)
+			const pending = this.pending.get(target.key)
 
-		// 	this.pool.push({
-		// 		id: key,
-		// 		LOD: 100,
-		// 		coords: [0, 0],
-		// 		callback: () => chunk.dispose(),
-		// 	})
-
-		// 	// delete this.chunks[key]
-		// })
-
-		this.pool = this.pool.filter((el) => !keys.includes(el.key))
+			if (!chunk) {
+				this.pending.set(target.key, {
+					...target,
+					type: 'create',
+					revision: this.revision,
+				})
+			} else if (chunk.LOD !== target.LOD) {
+				this.pending.set(target.key, {
+					...target,
+					type: 'updateLOD',
+					revision: this.revision,
+				})
+			} else if (pending?.type === 'regenerate') {
+				this.pending.set(target.key, {
+					...pending,
+					distance: target.distance,
+					revision: this.revision,
+				})
+			} else {
+				this.pending.delete(target.key)
+			}
+		}
 	}
 
 	createChunk(i, j, LOD) {
-		LOD = LOD || this.params.LOD
+		const key = getChunkKey(i, j)
+		const target = this.desired.get(key)
+		const selectedLOD = LOD ?? this.params.LOD
 
-		if (this.chunks[`${i}|${j}`] === undefined) {
+		if (target?.LOD === selectedLOD && !this.chunks.has(key)) {
 			const position = new Vector3(i + 0.5, 0, j + 0.5)
 			position.multiplyScalar(this.chunkSize)
 			const chunk = new Chunk(
 				this.chunkSize,
 				this.noise,
 				this.params,
-				LOD,
+				selectedLOD,
 				position,
 				this.uniforms,
 				this.assets,
 				this.features,
 			)
 			chunk.coords = [i, j]
-			this.chunks[`${i}|${j}`] = chunk
-			this.chunkKeys.push(`${i}|${j}`)
+			this.chunks.set(key, chunk)
+			this.created++
 			this.scene.add(chunk)
 		}
 	}
 
-	async updateChunks() {
-		const [i, j] = this.getCoordsByCamera()
+	processPendingJobs() {
+		const jobs = [...this.pending.values()].sort(
+			(a, b) => a.distance - b.distance,
+		)
+		let processed = 0
 
-		this.pool.sort((a, b) => {
-			const aL = Math.sqrt((a.coords[0] - i) ** 2 + (a.coords[1] - j) ** 2)
-			const bL = Math.sqrt((b.coords[0] - i) ** 2 + (b.coords[1] - j) ** 2)
-			return bL - aL
-		})
+		for (const job of jobs) {
+			if (processed >= this.jobsPerFrame) break
+			if (this.pending.get(job.key) !== job) continue
 
-		let count = 0
+			this.pending.delete(job.key)
+			if (!this.isJobCurrent(job)) continue
 
-		const currentChunkKey = `${i}|${j}`
-		if (currentChunkKey === this.lastChunkVisited) {
-			for (let g = 0; g < (isMobile ? 2 : 3); g++) {
-				const { callback, LOD } = this.pool.pop() || {}
-				if (callback) {
-					callback()
-				}
-
-				count++
-
-				if (LOD <= 1 && count === 1) {
-					break
-				}
+			const chunk = this.chunks.get(job.key)
+			if (job.type === 'create') {
+				this.createChunk(job.coords[0], job.coords[1], job.LOD)
+			} else if (job.type === 'updateLOD') {
+				chunk?.updateLOD(job.LOD)
+			} else if (job.type === 'regenerate') {
+				chunk?.updateGeometry()
 			}
 
-			return
-		} else {
-			// console.log('new chunk')
-			this.lastChunkVisited = currentChunkKey
+			processed++
+			if (job.LOD <= 1 && processed === 1) break
 		}
-
-		for (let k = i - this.maxDistance + 1; k <= i + this.maxDistance + 1; k++) {
-			for (
-				let w = j - this.maxDistance + 1;
-				w <= j + this.maxDistance + 1;
-				w++
-			) {
-				const key = `${k}|${w}`
-				const chunk = this.chunks[key]
-
-				if (this.isOutOfRange(k, w, [i, j])) {
-					if (chunk) {
-						// console.log('dispose')
-						this.disposeChunk(chunk, key)
-					}
-					continue
-				}
-
-				_V.set(k - i, w - j)
-				const LOD = this.getLODbyCoords(k, w)
-
-				const indexOf = this.pool.findIndex((el) => el.id === key)
-				// const inPool = this.pool.findIndex((el) => el.key === key)
-				// if (inPool >= 0) {
-				// 	this.pool.splice(inPool, 1)
-				// }
-				let el
-
-				if (chunk === undefined) {
-					// this.createChunk(k, w, LOD)
-					el = {
-						key,
-						coords: [k, w],
-						LOD,
-						callback: () => this.createChunk(k, w, LOD),
-					}
-
-					// this.createChunk(k, w, LOD)
-				} else {
-					// const indexOf = this.pool.findIndex((el) => el.id === key)
-					el = {
-						id: key,
-						LOD: LOD,
-						coords: [k, w],
-						callback: () => chunk.updateLOD(LOD),
-					}
-				}
-
-				if (indexOf >= 0) {
-					this.pool[indexOf] = el
-				} else {
-					this.pool.push(el)
-				}
-			}
-		}
-
-		// this.lookForDistantChunks()
 	}
 
-	disposeChunk(chunk, key) {
+	isJobCurrent(job) {
+		if (job.revision !== this.revision) return false
+
+		const target = this.desired.get(job.key)
+		if (!target) return false
+		if (job.type === 'regenerate' || job.forceLOD) {
+			return this.chunks.has(job.key)
+		}
+
+		return target.LOD === job.LOD
+	}
+
+	updateChunks() {
+		const [i, j] = this.getCoordsByCamera()
+		const currentChunkKey = getChunkKey(i, j)
+
+		if (currentChunkKey !== this.lastChunkVisited) {
+			this.lastChunkVisited = currentChunkKey
+			this.reconcileChunks(i, j)
+			return
+		}
+
+		this.processPendingJobs()
+	}
+
+	disposeChunk(key) {
+		const chunk = this.chunks.get(key)
+		if (!chunk) return
+
+		this.pending.delete(key)
 		chunk.dispose()
-		// delete this.chunks[key]
-		this.chunks[key] = undefined
+		this.chunks.delete(key)
+		this.disposed++
 	}
 
 	onParamsChange(LOD) {
-		for (const key in this.chunks) {
-			const chunk = this.chunks[key]
-			if (LOD) {
-				// chunk.updateLOD(LOD)
-				this.pool.push({
-					coords: [0, 0],
-					callback: () => chunk.updateLOD(LOD),
-				})
-			} else {
-				this.pool.push({
-					coords: [0, 0],
-					callback: () => chunk.updateGeometry(),
-				})
-			}
+		for (const [key, chunk] of this.chunks) {
+			const target = this.desired.get(key)
+			if (!target) continue
+
+			const forceLOD = LOD !== undefined
+			this.pending.set(key, {
+				...target,
+				type: forceLOD ? 'updateLOD' : 'regenerate',
+				LOD: forceLOD ? LOD : chunk.LOD,
+				forceLOD,
+				revision: this.revision,
+			})
+		}
+	}
+
+	getStats() {
+		return {
+			desired: this.desired.size,
+			live: this.chunks.size,
+			pending: this.pending.size,
+			created: this.created,
+			disposed: this.disposed,
+			revision: this.revision,
 		}
 	}
 
