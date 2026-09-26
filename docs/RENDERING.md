@@ -55,7 +55,7 @@ The plane trail injects `uRotation`, `uAcceleration`, and `vUV` inline because t
 ### Terrain
 
 - [`project-vertex.glsl`](../src/shaders/project-vertex.glsl) applies water movement, distance-based curvature, and the final projection.
-- [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) selects water, sand, grass, land, rock, and snow bands; adds wave highlights; and darkens distant terrain.
+- [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) keeps five elevation-based land bands and switches between their existing palette and a sand-to-dark-brown desert palette. A very-low-frequency signed simplex-noise sample in world XZ coordinates selects the desert biome below zero and the existing biome above zero; two denser samples fray the boundary at different scales. An antialiased black separator hides the hard palette transition on land only, leaving water colors and wave highlights independent.
 - [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) attenuates tangent-space normal-map strength with distance.
 
 ### Instanced Scenery
