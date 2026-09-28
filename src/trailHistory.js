@@ -1,4 +1,4 @@
-const STRIDE = 12
+const STRIDE = 13
 const MIN_SAMPLE_DISTANCE = 0.25
 
 function smoothstep(low, high, value) {
@@ -23,6 +23,10 @@ export function getTrailWidths(turnInput, speed, baseSpeed, out) {
 	return out
 }
 
+export function getTrailBankFactor(roll) {
+	return Math.max(0, Math.min(1, Math.abs(roll) / (Math.PI * 0.25)))
+}
+
 export default class TrailHistory {
 	constructor(capacity = 512) {
 		this.capacity = capacity
@@ -40,7 +44,7 @@ export default class TrailHistory {
 		return ((this.start + offset) % this.capacity) * STRIDE
 	}
 
-	write(offset, center, forward, wing, leftWidth, rightWidth) {
+	write(offset, center, forward, wing, leftWidth, rightWidth, bank) {
 		const i = this.index(offset)
 		const values = this.values
 		values[i] = this.distance
@@ -55,9 +59,10 @@ export default class TrailHistory {
 		values[i + 9] = wing.z
 		values[i + 10] = leftWidth
 		values[i + 11] = rightWidth
+		values[i + 12] = bank
 	}
 
-	push(center, forward, wing, leftWidth, rightWidth, length = 60) {
+	push(center, forward, wing, leftWidth, rightWidth, bank, length = 60) {
 		if (this.count) {
 			this.distance += Math.hypot(
 				center.x - this.previousX,
@@ -71,7 +76,7 @@ export default class TrailHistory {
 
 		if (!this.count) {
 			this.count = 1
-			this.write(0, center, forward, wing, leftWidth, rightWidth)
+			this.write(0, center, forward, wing, leftWidth, rightWidth, bank)
 			return
 		}
 
@@ -86,7 +91,7 @@ export default class TrailHistory {
 			this.count++
 			this.lastCommittedDistance = this.distance
 		}
-		this.write(this.count - 1, center, forward, wing, leftWidth, rightWidth)
+		this.write(this.count - 1, center, forward, wing, leftWidth, rightWidth, bank)
 
 		while (
 			this.count > 2 &&
@@ -116,6 +121,7 @@ export default class TrailHistory {
 			out[field - 1] = this.values[a + field] +
 				(this.values[b + field] - this.values[a + field]) * t
 		}
+		out[STRIDE - 1] = this.values[a] + (this.values[b] - this.values[a]) * t
 		return true
 	}
 }

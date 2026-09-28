@@ -13,7 +13,7 @@ import {
 } from 'three'
 import common from './shaders/common.glsl'
 import projectVertex from './shaders/project-vertex-plane.glsl'
-import TrailHistory, { getTrailWidths } from './trailHistory.js'
+import TrailHistory, { getTrailBankFactor, getTrailWidths } from './trailHistory.js'
 import {
 	constrainDescentToMinimum,
 	FLIGHT_LIMITS,
@@ -80,7 +80,7 @@ export default class Plane extends Object3D {
 		this.trailForward = new Vector3()
 		this.trailWing = new Vector3()
 		this.trailQuaternion = new Quaternion()
-		this.trailRow = new Float64Array(11)
+		this.trailRow = new Float64Array(13)
 		this.trailWidths = new Float32Array(2)
 		this.trailUniforms = {
 			uTrailRibbonWidth: { value: this.params.trails.ribbonWidth },
@@ -90,11 +90,15 @@ export default class Plane extends Object3D {
 			uTrailOuterAmplitude: { value: this.params.trails.outerEdge.amplitude },
 			uTrailInnerFrequency: { value: this.params.trails.innerEdge.frequency },
 			uTrailInnerAmplitude: { value: this.params.trails.innerEdge.amplitude },
+			uTrailOscillationFrequency: { value: this.params.trails.oscillation.frequency },
+			uTrailOscillationAmplitude: { value: this.params.trails.oscillation.amplitude },
 		}
 
 		const positions = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 3)
 		const uv = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 2)
 		const widths = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 2)
+		const distances = new Float32Array((TRAIL_SEGMENTS + 1) * 2)
+		const banks = new Float32Array((TRAIL_SEGMENTS + 1) * 2)
 		const indices = new Uint16Array(TRAIL_SEGMENTS * 6)
 		for (let row = 0; row <= TRAIL_SEGMENTS; row++) {
 			const v = 1 - row / TRAIL_SEGMENTS
@@ -112,15 +116,22 @@ export default class Plane extends Object3D {
 		positionAttribute.setUsage(DynamicDrawUsage)
 		const widthAttribute = new BufferAttribute(widths, 2)
 		widthAttribute.setUsage(DynamicDrawUsage)
+		const distanceAttribute = new BufferAttribute(distances, 1)
+		distanceAttribute.setUsage(DynamicDrawUsage)
+		const bankAttribute = new BufferAttribute(banks, 1)
+		bankAttribute.setUsage(DynamicDrawUsage)
 		geometry.setAttribute('position', positionAttribute)
 		geometry.setAttribute('uv', new BufferAttribute(uv, 2))
 		geometry.setAttribute('trailWidths', widthAttribute)
+		geometry.setAttribute('trailDistance', distanceAttribute)
+		geometry.setAttribute('trailBank', bankAttribute)
 		geometry.setIndex(new BufferAttribute(indices, 1))
 		geometry.setDrawRange(0, 0)
 		const material = new MeshBasicMaterial({
 			color: 0xffffff,
 			side: DoubleSide,
-			transparent: false,
+			transparent: true,
+			depthWrite: false,
 		})
 
 		this.trails = new Mesh(geometry, material)
@@ -132,7 +143,11 @@ export default class Plane extends Object3D {
 				'#include <common>',
 				`#include <common>
 				attribute vec2 trailWidths;
+				attribute float trailDistance;
+				attribute float trailBank;
 				varying vec2 vTrailWidths;
+				varying float vTrailDistance;
+				varying float vTrailBank;
 				varying vec2 vUV;
 				varying vec3 vTrailWorldPosition;`,
 			)
@@ -147,6 +162,8 @@ export default class Plane extends Object3D {
 				common +
 					`
 				varying vec2 vTrailWidths;
+				varying float vTrailDistance;
+				varying float vTrailBank;
 				varying vec2 vUV;
 				varying vec3 vTrailWorldPosition;
 				uniform float uTrailRibbonWidth;
@@ -156,6 +173,8 @@ export default class Plane extends Object3D {
 				uniform float uTrailOuterAmplitude;
 				uniform float uTrailInnerFrequency;
 				uniform float uTrailInnerAmplitude;
+				uniform float uTrailOscillationFrequency;
+				uniform float uTrailOscillationAmplitude;
 				`,
 			)
 
@@ -172,6 +191,7 @@ export default class Plane extends Object3D {
 				float taper = max(0.0, sin(3.14159265 * vUV.y));
 				float noiseFade = taper * taper;
 				float halfWidth = 0.5 * uTrailLineWidth / uTrailRibbonWidth * taper * widthFactor;
+				float widthInPixels = 2.0 * halfWidth / max(fwidth(vUV.x), 0.000001);
 				float outerNoise = snoise(noisePosition * uTrailOuterFrequency) * 0.7
 					+ snoise(noisePosition * uTrailOuterFrequency * 2.4 + 17.0) * 0.3;
 				float innerNoise = snoise(noisePosition * uTrailInnerFrequency * 1.27 + 13.0) * 0.7
@@ -179,6 +199,16 @@ export default class Plane extends Object3D {
 				float stripeCenter = max(0.07,
 					(uTrailLineWidth * 0.5 + uTrailOuterAmplitude + uTrailBorderWidth)
 					/ uTrailRibbonWidth + 0.005);
+				float oscillationRamp = smoothstep(0.0, 0.35, 1.0 - vUV.y);
+				float sideOffset = side * 17.0;
+				float oscillation = 0.8 * sin(
+					vTrailDistance * 6.2831853 * uTrailOscillationFrequency + side * 2.1
+				) + 0.2 * snoise(vec2(
+					vTrailDistance * uTrailOscillationFrequency * 2.0 + sideOffset,
+					sideOffset + 7.0
+				));
+				stripeCenter += oscillation * uTrailOscillationAmplitude / uTrailRibbonWidth
+					* oscillationRamp * vTrailBank;
 				float outerEdge = stripeCenter - halfWidth
 					+ outerNoise * uTrailOuterAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
 				float innerEdge = stripeCenter + halfWidth
@@ -189,6 +219,7 @@ export default class Plane extends Object3D {
 					|| edge > innerEdge + outlineWidth) discard;
 				float core = step(outerEdge, edge) * step(edge, innerEdge);
 				diffuseColor.rgb *= mix(vec3(0.03), vec3(1.0), core);
+				diffuseColor.a *= mix(0.65, 1.0, smoothstep(0.75, 2.5, widthInPixels));
 				`,
 			)
 		}
@@ -202,6 +233,8 @@ export default class Plane extends Object3D {
 		this.trailUniforms.uTrailOuterAmplitude.value = this.params.trails.outerEdge.amplitude
 		this.trailUniforms.uTrailInnerFrequency.value = this.params.trails.innerEdge.frequency
 		this.trailUniforms.uTrailInnerAmplitude.value = this.params.trails.innerEdge.amplitude
+		this.trailUniforms.uTrailOscillationFrequency.value = this.params.trails.oscillation.frequency
+		this.trailUniforms.uTrailOscillationAmplitude.value = this.params.trails.oscillation.amplitude
 		this.updateWorldMatrix(true, false)
 		this.model.getWorldQuaternion(this.trailQuaternion)
 		this.trailForward.set(0, 0, 1).applyQuaternion(this.quaternion)
@@ -221,12 +254,15 @@ export default class Plane extends Object3D {
 			this.trailWing,
 			this.trailWidths[0],
 			this.trailWidths[1],
+			getTrailBankFactor(this.model.rotation.z),
 			TRAIL_LENGTH,
 		)
 
 		const geometry = this.trails.geometry
 		const positions = geometry.attributes.position.array
 		const widths = geometry.attributes.trailWidths.array
+		const distances = geometry.attributes.trailDistance.array
+		const banks = geometry.attributes.trailBank.array
 		for (let row = 0; row <= TRAIL_SEGMENTS; row++) {
 			this.trailHistory.sample(row * TRAIL_LENGTH / TRAIL_SEGMENTS, this.trailRow)
 			const x = this.trailRow[0]
@@ -255,6 +291,10 @@ export default class Plane extends Object3D {
 			widths[widthOffset + 1] = this.trailRow[10]
 			widths[widthOffset + 2] = this.trailRow[9]
 			widths[widthOffset + 3] = this.trailRow[10]
+			banks[row * 2] = this.trailRow[11]
+			banks[row * 2 + 1] = this.trailRow[11]
+			distances[row * 2] = this.trailRow[12]
+			distances[row * 2 + 1] = this.trailRow[12]
 		}
 		geometry.setDrawRange(
 			0,
@@ -262,6 +302,8 @@ export default class Plane extends Object3D {
 		)
 		geometry.attributes.position.needsUpdate = true
 		geometry.attributes.trailWidths.needsUpdate = true
+		geometry.attributes.trailDistance.needsUpdate = true
+		geometry.attributes.trailBank.needsUpdate = true
 	}
 
 	updateSpeedEffect(progress) {

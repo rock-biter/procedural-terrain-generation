@@ -196,6 +196,7 @@ const params = {
 		borderWidth: 0.065,
 		outerEdge: { frequency: 2.7, amplitude: 0.475 },
 		innerEdge: { frequency: 2.1, amplitude: 0.325 },
+		oscillation: { frequency: 0.03, amplitude: 0.3 },
 	},
 }
 
@@ -312,6 +313,15 @@ if (gui) {
 	const innerEdgeFolder = trailsFolder.addFolder('Inner edge')
 	innerEdgeFolder.add(params.trails.innerEdge, 'frequency', 0.1, 8, 0.1)
 	innerEdgeFolder.add(params.trails.innerEdge, 'amplitude', 0, 0.5, 0.005)
+	const oscillationFolder = trailsFolder.addFolder('Oscillation')
+	oscillationFolder.add(
+		params.trails.oscillation,
+		'frequency',
+		0.01,
+		0.3,
+		0.005,
+	)
+	oscillationFolder.add(params.trails.oscillation, 'amplitude', 0, 0.5, 0.005)
 }
 
 /**
