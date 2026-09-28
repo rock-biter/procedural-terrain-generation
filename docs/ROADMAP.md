@@ -374,7 +374,19 @@ See the owning guides for current behavior and constraints. Promote an item into
 
 ## Future Feature Intake
 
-No future feature requirements have been recorded yet. Add each one with this template:
+### `FEAT-001`: Post-Processing Pipeline And Speed Effect
+
+- **Status:** In progress
+- **User value:** Makes acceleration feel faster without affecting the sharp center of the view.
+- **Behavior:** While boosting, blur and chromatic aberration grow from configurable radii toward the viewport edges. Idle frames bypass post-processing.
+- **Dependencies:** `postprocessing` 6.x within its `three` peer range.
+- **Affected systems:** Rendering, frame loop, debug GUI.
+- **Performance budget:** No idle cost beyond the canvas render. While active: one MSAA scene target, up to six downsample passes at half resolution and below, and one fullscreen composite that samples only where masks are nonzero.
+- **Options:** Hardware mipmap blur was rejected because box-filtered mips looked blocky. A single-level blurred image mixed with the sharp image was rejected because it ghosts. The implemented 13-tap pyramid with B-spline sampling gives a variable radius at low cost.
+- **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; bypass restored after the boost. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
+- **Documentation:** [Rendering](RENDERING.md), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
+
+Add further features with this template:
 
 ```markdown
 ### `FEAT-XXX`: Short Title

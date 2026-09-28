@@ -47,7 +47,7 @@ Use a fresh page load and check:
 2. The canvas renders nonblank terrain with no console errors or failed requests.
 3. The play action starts movement and soundtrack playback.
 4. Pointer movement turns and rolls the airplane; above `45%` it climbs, from `45%` through `65%` it settles at the reached altitude, and below `65%` it descends. Repeat with touch in a mobile viewport.
-5. Scrolling down produces temporary acceleration, camera movement, FOV expansion, and trails. Scrolling up produces gentler braking and the opposite camera/FOV response without an acceleration trail.
+5. Scrolling down produces temporary acceleration, camera movement, FOV expansion, trails, and an edge blur with chromatic aberration that leaves the center sharp. Scrolling up produces gentler braking and the opposite camera/FOV response without an acceleration trail or post-processing effect. Once the boost fades, `getPostProcessingStats().active` returns to `false`.
 6. The sound control mutes and restores volume.
 7. New terrain chunks appear during traversal without obvious long stalls. When a scenery feature is re-enabled, repeat this check for its trees, clouds, or boats.
 8. Fog, distance fades, curvature, water movement, and biome bands remain visually coherent.

@@ -34,6 +34,7 @@ Do not edit or commit generated files under `dist/`.
 
 - Vite builds the ES-module application.
 - `vite-plugin-glsl` makes GLSL files importable by JavaScript.
+- `postprocessing` (pmndrs) provides the effect composer; its `three` peer range must include the installed Three.js version.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
 - Node's built-in test runner covers pure chunk-policy, flight-policy, and deterministic terrain-buffer behavior under `test/`.
@@ -64,14 +65,14 @@ Follow the patterns in the code being changed rather than introducing a parallel
 4. Perform the change-specific checks in [Quality](QUALITY.md).
 5. Update the relevant guide when behavior, commands, architecture, or asset requirements change.
 
-When updating dependencies, keep `package.json` and `pnpm-lock.yaml` in sync and review upstream migration notes for Three.js, Vite, Tailwind CSS, and `vite-plugin-glsl`.
+When updating dependencies, keep `package.json` and `pnpm-lock.yaml` in sync and review upstream migration notes for Three.js, `postprocessing`, Vite, Tailwind CSS, and `vite-plugin-glsl`.
 
 ## Debugging Notes
 
 - The scene starts rendering only after the loading manager completes and `init()` schedules the first animation frame.
 - Browser console errors and failed network requests are the first checks when the page remains on the loader.
 - Shader compilation failures appear in the browser console, not necessarily during `pnpm build`.
-- The optional `lil-gui` setup in `main.js` is currently disabled. Do not make it part of the normal runtime unless the task explicitly requires debug controls.
+- The optional `lil-gui` setup in `main.js` is enabled only with `?gui=1`. It includes terrain, color, light, and speed-effect controls; the **Speed effect > preview** slider holds the blur and chromatic aberration on while tuning. With the GUI enabled, the play action does not start the soundtrack.
 
 ## Open Questions
 

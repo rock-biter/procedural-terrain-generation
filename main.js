@@ -7,6 +7,7 @@ import Chunk from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import { getHeight } from './src/chunkGeometry'
 import Plane from './src/plane'
+import PostProcessing from './src/postProcessing'
 import TerrainSampleDebug from './src/terrainSampleDebug'
 import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
@@ -159,7 +160,7 @@ gltfLoader.load(airplane, (gltf) => {
  * Debug
  */
 let gui
-// gui = new dat.GUI()
+if (urlParams.get('gui') === '1') gui = new dat.GUI()
 
 const params = {
 	speedEffect: 0,
@@ -181,6 +182,13 @@ const params = {
 		uGrass: '#6d976d',
 		uLand: '#5e551d',
 		uRocks: '#521f00',
+	},
+	postProcessing: {
+		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
+		preview: 0,
+		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
+		blur: { strength: 0.015, start: 0.05, end: 1, curve: 1.5 },
+		aberration: { strength: 0.02, start: 0.1, end: 1, curve: 2 },
 	},
 }
 
@@ -251,6 +259,37 @@ if (gui) {
 	gui
 		.add(params, 'ambientLight', 0, 10, 0.1)
 		.onChange((val) => (ambientLight.intensity = val))
+
+	const updatePost = () =>
+		postProcessing.speedEffect.setParams(params.postProcessing)
+	const speedFolder = gui.addFolder('Speed effect')
+	speedFolder.add(params.postProcessing, 'preview', 0, 1, 0.01)
+	const blurFolder = speedFolder.addFolder('Blur')
+	blurFolder
+		.add(params.postProcessing.blur, 'strength', 0, 0.15, 0.001)
+		.onChange(updatePost)
+	blurFolder
+		.add(params.postProcessing.blur, 'start', 0, 1, 0.01)
+		.onChange(updatePost)
+	blurFolder
+		.add(params.postProcessing.blur, 'end', 0, 1.5, 0.01)
+		.onChange(updatePost)
+	blurFolder
+		.add(params.postProcessing.blur, 'curve', 0.1, 5, 0.05)
+		.onChange(updatePost)
+	const aberrationFolder = speedFolder.addFolder('Chromatic aberration')
+	aberrationFolder
+		.add(params.postProcessing.aberration, 'strength', 0, 0.05, 0.0005)
+		.onChange(updatePost)
+	aberrationFolder
+		.add(params.postProcessing.aberration, 'start', 0, 1, 0.01)
+		.onChange(updatePost)
+	aberrationFolder
+		.add(params.postProcessing.aberration, 'end', 0, 1.5, 0.01)
+		.onChange(updatePost)
+	aberrationFolder
+		.add(params.postProcessing.aberration, 'curve', 0.1, 5, 0.05)
+		.onChange(updatePost)
 }
 
 /**
@@ -307,6 +346,12 @@ const renderer = new THREE.WebGLRenderer({
 	logarithmicDepthBuffer: true,
 })
 document.body.appendChild(renderer.domElement)
+const postProcessing = new PostProcessing(
+	renderer,
+	scene,
+	camera,
+	params.postProcessing,
+)
 handleResize()
 
 /**
@@ -341,6 +386,7 @@ let chunkManager, plane, terrainSampleDebug
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
 	getFlightStats: () => plane?.getStats() ?? null,
+	getPostProcessingStats: () => postProcessing.getStats(),
 })
 
 function init(assets) {
@@ -429,7 +475,8 @@ function tic(timestamp) {
 
 	// controls.update(deltaTime)
 
-	renderer.render(scene, camera)
+	postProcessing.setSpeedEffect(plane.uniforms.uAcceleration.value)
+	postProcessing.render(deltaTime)
 
 	requestAnimationFrame(tic)
 }
@@ -445,8 +492,8 @@ function handleResize() {
 	camera.aspect = sizes.width / sizes.height
 	camera.updateProjectionMatrix()
 
-	renderer.setSize(sizes.width, sizes.height)
-
 	const pixelRatio = Math.min(window.devicePixelRatio, 2)
 	renderer.setPixelRatio(pixelRatio)
+	// Also resizes the renderer; buffers follow the drawing-buffer size, so pixel ratio must be set first.
+	postProcessing.setSize(sizes.width, sizes.height)
 }

@@ -32,7 +32,7 @@ The current flow has no explicit asset error handler. A failed startup-critical 
 
 The play action is the required user gesture for audio and movement:
 
-- Start the looping soundtrack when the debug GUI is disabled.
+- Start the looping soundtrack when the debug GUI (`?gui=1`) is disabled.
 - Animate plane `baseSpeed` and `speed` from the initial values to `55`.
 - Hide the play action.
 - Move camera Z from `-1` to `-18` on desktop or `-16` on mobile.
@@ -67,6 +67,7 @@ There are no keyboard controls. Do not document or expose a control until it is 
 - After `addEffect()`, boost and braking change speed, camera Z, and FOV in opposite directions; values ease back toward the base state over time. Braking does not activate the acceleration-driven trail contribution.
 - `Plane.addEffect()` currently uses Z `-18` as its follow/effect baseline on every viewport, even after the mobile play transition ends at `-16`.
 - The airplane mesh roll and shader-driven trails visualize turning and acceleration.
+- Boosting also adds a blur and chromatic aberration that grow from the center toward the viewport edges and fade as the boost eases out. Braking does not trigger them. See [Rendering](RENDERING.md#post-processing-pipeline) for parameters.
 
 `window.__INFINITE_WORLD__.getFlightStats()` exposes read-only position, speed, manual and visual speed effects, terrain-brake effect, pointer ratio, vertical input, vertical velocity, camera state, and terrain-corridor values for browser checks. Corridor diagnostics include all four sampled heights, their speed-scaled distances, target and smoothed minimum altitudes, collision-risk state, minimum-altitude jump, brake impulse, and target and smoothed terrain slowdowns.
 

@@ -16,11 +16,29 @@ This document defines the contracts between Three.js materials, shared uniforms,
 - Ambient and directional lights use intensities from the shared `params` object.
 - The camera is attached to `Plane`, so its transform is relative to the moving player object.
 
-Resize changes the camera aspect, projection matrix, renderer dimensions, and capped pixel ratio.
+Resize changes the camera aspect, projection matrix, capped pixel ratio, and then the post-processing composer, which resizes the renderer and its buffers to the drawing-buffer size. The pixel ratio must be set before `PostProcessing.setSize()`.
+
+## Post-Processing Pipeline
+
+[`src/postProcessing.js`](../src/postProcessing.js) owns a `postprocessing` `EffectComposer` with 4x MSAA buffers (clamped to the device limit), a `RenderPass`, and one `EffectPass` containing `SpeedEffect`. `main.js` calls `postProcessing.render(deltaTime)` instead of `renderer.render()`; the composer disables `renderer.autoClear` and clears through the render pass.
+
+- **Idle bypass:** when the speed-effect intensity is `0`, the effect pass is disabled and the render pass draws straight to the antialiased canvas. No offscreen buffer, blur pyramid, or fullscreen pass runs. The first frame always runs the full chain so the effect shader compiles before the first boost.
+- **Intensity:** `setSpeedEffect()` maps the positive visual speed effect (`uAcceleration`) through `smoothstep(0.1, 1)`, raised to at least `params.postProcessing.preview`.
+- **Future passes:** add them to `PostProcessing`; keep the bypass condition in sync so a new always-on pass disables it.
+
+### `SpeedEffect`
+
+[`src/speedEffect.js`](../src/speedEffect.js) and [`speed-effect.glsl`](../src/shaders/speed-effect.glsl) combine an edge blur and radial chromatic aberration in one fullscreen effect.
+
+- In `Effect.update()`, a private `BlurPyramidPass` downsamples the scene buffer into up to six half-resolution render targets with a 13-tap filter ([`blur-downsample-fragment.glsl`](../src/shaders/blur-downsample-fragment.glsl)). Only the levels reachable by the current maximum blur are rendered. The level targets inherit the composer frame-buffer type and sRGB storage.
+- The effect converts each pixel's blur radius into a fractional level (`log2` of pixels) and blends the two nearest levels. Level `0` is the full-resolution input; higher levels use a four-tap cubic B-spline reconstruction to avoid bilinear blockiness.
+- Chromatic aberration samples red outward, green in place, and blue inward along the direction from the center, all at the same blur level. It is skipped below half a pixel of dispersion. Pixels with neither effect return the input color without sampling.
+- Each effect has `strength`, `start`, `end`, and `curve` in `params.postProcessing`. The mask is `intensity * pow(smoothstep(start, end, radius), curve)` with radius `0` at the center, about `0.71` at edge midpoints, and `1` at the corners. Blur strength is a fraction of viewport height; aberration strength is a UV offset at the edges.
+- `BLUR_LEVELS` in JavaScript must match the `blurLevel1`...`blurLevel6` samplers in GLSL.
 
 ## Shader Injection Pattern
 
-The application does not use `ShaderMaterial`. It starts with built-in Three.js materials and patches generated shaders through `material.onBeforeCompile`.
+Scene materials do not use `ShaderMaterial`. They start with built-in Three.js materials and patch generated shaders through `material.onBeforeCompile`. Only the post-processing blur downsample uses a standalone `ShaderMaterial`.
 
 | Rendered content          | JavaScript owner                    | Base material                      | Replacements                                                         |
 | ------------------------- | ----------------------------------- | ---------------------------------- | -------------------------------------------------------------------- |
@@ -76,6 +94,7 @@ The plane trail injects `uRotation`, `uAcceleration`, and `vUV` inline because t
 - `Chunk` adds `uCurvature` to the shared uniform object during construction.
 - Biome colors are initialized from `params.colors`; the disabled GUI can mutate them.
 - `Plane.update()` writes `uAcceleration` before the frame renders.
+- `main.js` passes `uAcceleration` to `PostProcessing.setSpeedEffect()` immediately before `PostProcessing.render()`.
 - Shader callbacks merge custom uniform entries with Three.js-generated uniforms at compilation time.
 
 Do not replace the shared uniform wrapper objects each frame. Update their `.value` fields so compiled materials retain the same references.
@@ -98,8 +117,9 @@ See [Assets](ASSETS.md) for load paths, transforms, and licensing.
 4. Run `pnpm build` to validate imports and bundling.
 5. Load the scene and check the browser console for shader compile or link errors.
 6. Inspect terrain, water, trees, clouds, boats, and trails as applicable.
-7. Move far enough to exercise distance fades, curvature, new chunks, and multiple LODs.
-8. Repeat at a narrow/mobile viewport because geometry density and camera settings differ.
+7. For post-processing changes, hold the effect with `?gui=1` and **Speed effect > preview**, and check the center, edges, and corners, and that the idle bypass returns (`getPostProcessingStats().active === false`).
+8. Move far enough to exercise distance fades, curvature, new chunks, and multiple LODs.
+9. Repeat at a narrow/mobile viewport because geometry density and camera settings differ.
 
 ## Open Questions
 

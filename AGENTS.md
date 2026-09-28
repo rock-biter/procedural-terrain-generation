@@ -13,7 +13,7 @@ This repository contains **Infinite Procedural World**, a browser-based Three.js
 | Install, commands, dependencies, source conventions, or debugging                   | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)   |
 | Bootstrap, frame loop, module ownership, or cross-system changes                    | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
 | Noise, height generation, chunks, LOD, pooling, trees, clouds, or boats             | [`docs/TERRAIN.md`](docs/TERRAIN.md)           |
-| Three.js materials, uniforms, GLSL, instancing, curvature, or fog                   | [`docs/RENDERING.md`](docs/RENDERING.md)       |
+| Three.js materials, uniforms, GLSL, instancing, curvature, fog, or post-processing  | [`docs/RENDERING.md`](docs/RENDERING.md)       |
 | Loader, play flow, controls, camera, audio, DOM, or responsive behavior             | [`docs/EXPERIENCE.md`](docs/EXPERIENCE.md)     |
 | Models, textures, audio files, loading transforms, or licensing                     | [`docs/ASSETS.md`](docs/ASSETS.md)             |
 | Build expectations, browser checks, manual QA, or future test automation            | [`docs/QUALITY.md`](docs/QUALITY.md)           |
@@ -49,6 +49,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and per-chunk scenery.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
 - [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
+- [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer and idle bypass; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
 - [`src/trees.js`](src/trees.js) and [`src/clouds.js`](src/clouds.js) own instanced scenery meshes.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
