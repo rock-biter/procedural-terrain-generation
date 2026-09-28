@@ -1,17 +1,19 @@
 import {
-	BoxGeometry,
+	BufferAttribute,
+	BufferGeometry,
 	DoubleSide,
+	DynamicDrawUsage,
 	MathUtils,
 	Mesh,
 	MeshBasicMaterial,
-	MeshNormalMaterial,
 	Object3D,
-	PlaneGeometry,
+	Quaternion,
 	Vector2,
 	Vector3,
 } from 'three'
 import common from './shaders/common.glsl'
 import projectVertex from './shaders/project-vertex-plane.glsl'
+import TrailHistory, { getTrailWidths } from './trailHistory.js'
 import {
 	constrainDescentToMinimum,
 	FLIGHT_LIMITS,
@@ -27,6 +29,8 @@ import {
 import gsap from 'gsap'
 const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
+const TRAIL_LENGTH = 60
+const TRAIL_SEGMENTS = 30
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 35)
@@ -71,68 +75,193 @@ export default class Plane extends Object3D {
 	}
 
 	addTrails() {
-		const l = 60
-		const plane = new PlaneGeometry(7.3, l, 1, l * 2)
-		plane.rotateX(Math.PI * 0.5)
-		plane.translate(0, -0.15, -l * 0.5 - 1.2)
+		this.trailHistory = new TrailHistory()
+		this.trailCenter = new Vector3()
+		this.trailForward = new Vector3()
+		this.trailWing = new Vector3()
+		this.trailQuaternion = new Quaternion()
+		this.trailRow = new Float64Array(11)
+		this.trailWidths = new Float32Array(2)
+		this.trailUniforms = {
+			uTrailRibbonWidth: { value: this.params.trails.ribbonWidth },
+			uTrailLineWidth: { value: this.params.trails.lineWidth },
+			uTrailBorderWidth: { value: this.params.trails.borderWidth },
+			uTrailOuterFrequency: { value: this.params.trails.outerEdge.frequency },
+			uTrailOuterAmplitude: { value: this.params.trails.outerEdge.amplitude },
+			uTrailInnerFrequency: { value: this.params.trails.innerEdge.frequency },
+			uTrailInnerAmplitude: { value: this.params.trails.innerEdge.amplitude },
+		}
+
+		const positions = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 3)
+		const uv = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 2)
+		const widths = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 2)
+		const indices = new Uint16Array(TRAIL_SEGMENTS * 6)
+		for (let row = 0; row <= TRAIL_SEGMENTS; row++) {
+			const v = 1 - row / TRAIL_SEGMENTS
+			uv[row * 4] = 0
+			uv[row * 4 + 1] = v
+			uv[row * 4 + 2] = 1
+			uv[row * 4 + 3] = v
+			if (row === TRAIL_SEGMENTS) continue
+			const i = row * 6
+			const vertex = row * 2
+			indices.set([vertex, vertex + 2, vertex + 1, vertex + 1, vertex + 2, vertex + 3], i)
+		}
+		const geometry = new BufferGeometry()
+		const positionAttribute = new BufferAttribute(positions, 3)
+		positionAttribute.setUsage(DynamicDrawUsage)
+		const widthAttribute = new BufferAttribute(widths, 2)
+		widthAttribute.setUsage(DynamicDrawUsage)
+		geometry.setAttribute('position', positionAttribute)
+		geometry.setAttribute('uv', new BufferAttribute(uv, 2))
+		geometry.setAttribute('trailWidths', widthAttribute)
+		geometry.setIndex(new BufferAttribute(indices, 1))
+		geometry.setDrawRange(0, 0)
 		const material = new MeshBasicMaterial({
 			color: 0xffffff,
 			side: DoubleSide,
-			transparent: true,
-			// opacity: 0.8,
-			// wireframe: true,
+			transparent: false,
 		})
 
-		this.trails = new Mesh(plane, material)
-		// console.log(this.trails)
-		this.add(this.trails)
+		this.trails = new Mesh(geometry, material)
+		this.trails.frustumCulled = false
 
 		material.onBeforeCompile = (shader) => {
-			shader.uniforms = {
-				...shader.uniforms,
-				...this.uniforms,
-				uRotation: { value: this.model.rotation },
-			}
-
+			Object.assign(shader.uniforms, this.trailUniforms)
 			shader.vertexShader = shader.vertexShader.replace(
 				'#include <common>',
-				common +
-					`
-				uniform vec4 uRotation;
-				varying vec2 vUV; 
-				`,
+				`#include <common>
+				attribute vec2 trailWidths;
+				varying vec2 vTrailWidths;
+				varying vec2 vUV;
+				varying vec3 vTrailWorldPosition;`,
 			)
 
 			shader.vertexShader = shader.vertexShader.replace(
 				'#include <project_vertex>',
-				projectVertex +
-					`
-				vUV = vec3( uv, 1 ).xy; `,
+				projectVertex,
 			)
 
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <common>',
 				common +
 					`
-				uniform vec4 uRotation;
-				uniform float uAcceleration;
-				varying vec2 vUV; 
+				varying vec2 vTrailWidths;
+				varying vec2 vUV;
+				varying vec3 vTrailWorldPosition;
+				uniform float uTrailRibbonWidth;
+				uniform float uTrailLineWidth;
+				uniform float uTrailBorderWidth;
+				uniform float uTrailOuterFrequency;
+				uniform float uTrailOuterAmplitude;
+				uniform float uTrailInnerFrequency;
+				uniform float uTrailInnerAmplitude;
 				`,
 			)
-
-			// console.log(shader.fragmentShader)
 
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <color_fragment>',
 				`
-				float min = 1. - vUV.y * 0.15 - 0.85;
-				float pct = 1. - step(min, vUV.x) + step(1. - min,vUV.x);
-				diffuseColor.a = smoothstep(0.15,1.2,max(abs(uRotation.z),(uAcceleration - 0.4) * 1.5) ) * pct * smoothstep(0.7,1.,vUV.y);
-
-				// diffuseColor.a *= pct;
+				#include <color_fragment>
+				float side = step(0.5, vUV.x);
+				float widthFactor = side > 0.5 ? vTrailWidths.y : vTrailWidths.x;
+				vec2 noisePosition = vec2(
+					vTrailWorldPosition.x * 0.35 + vTrailWorldPosition.z * 0.5 + side * 19.0,
+					vTrailWorldPosition.z * 0.35 + vTrailWorldPosition.y * 0.5 + side * 31.0
+				);
+				float taper = max(0.0, sin(3.14159265 * vUV.y));
+				float noiseFade = taper * taper;
+				float halfWidth = 0.5 * uTrailLineWidth / uTrailRibbonWidth * taper * widthFactor;
+				float outerNoise = snoise(noisePosition * uTrailOuterFrequency) * 0.7
+					+ snoise(noisePosition * uTrailOuterFrequency * 2.4 + 17.0) * 0.3;
+				float innerNoise = snoise(noisePosition * uTrailInnerFrequency * 1.27 + 13.0) * 0.7
+					+ snoise(noisePosition * uTrailInnerFrequency * 3.1 + 41.0) * 0.3;
+				float stripeCenter = max(0.07,
+					(uTrailLineWidth * 0.5 + uTrailOuterAmplitude + uTrailBorderWidth)
+					/ uTrailRibbonWidth + 0.005);
+				float outerEdge = stripeCenter - halfWidth
+					+ outerNoise * uTrailOuterAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
+				float innerEdge = stripeCenter + halfWidth
+					+ innerNoise * uTrailInnerAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
+				float edge = side > 0.5 ? 1.0 - vUV.x : vUV.x;
+				float outlineWidth = uTrailBorderWidth / uTrailRibbonWidth * taper * widthFactor;
+				if (halfWidth <= 0.0001 || edge < outerEdge - outlineWidth
+					|| edge > innerEdge + outlineWidth) discard;
+				float core = step(outerEdge, edge) * step(edge, innerEdge);
+				diffuseColor.rgb *= mix(vec3(0.03), vec3(1.0), core);
 				`,
 			)
 		}
+	}
+
+	updateTrails() {
+		this.trailUniforms.uTrailRibbonWidth.value = this.params.trails.ribbonWidth
+		this.trailUniforms.uTrailLineWidth.value = this.params.trails.lineWidth
+		this.trailUniforms.uTrailBorderWidth.value = this.params.trails.borderWidth
+		this.trailUniforms.uTrailOuterFrequency.value = this.params.trails.outerEdge.frequency
+		this.trailUniforms.uTrailOuterAmplitude.value = this.params.trails.outerEdge.amplitude
+		this.trailUniforms.uTrailInnerFrequency.value = this.params.trails.innerEdge.frequency
+		this.trailUniforms.uTrailInnerAmplitude.value = this.params.trails.innerEdge.amplitude
+		this.updateWorldMatrix(true, false)
+		this.model.getWorldQuaternion(this.trailQuaternion)
+		this.trailForward.set(0, 0, 1).applyQuaternion(this.quaternion)
+		this.trailWing.set(1, 0, 0).applyQuaternion(this.trailQuaternion)
+		this.trailCenter.copy(this.position).addScaledVector(this.trailForward, -1.2)
+		this.trailCenter.y -= 0.15
+
+		getTrailWidths(
+			this.cursor.x,
+			this.speed,
+			this.baseSpeed,
+			this.trailWidths,
+		)
+		this.trailHistory.push(
+			this.trailCenter,
+			this.trailForward,
+			this.trailWing,
+			this.trailWidths[0],
+			this.trailWidths[1],
+			TRAIL_LENGTH,
+		)
+
+		const geometry = this.trails.geometry
+		const positions = geometry.attributes.position.array
+		const widths = geometry.attributes.trailWidths.array
+		for (let row = 0; row <= TRAIL_SEGMENTS; row++) {
+			this.trailHistory.sample(row * TRAIL_LENGTH / TRAIL_SEGMENTS, this.trailRow)
+			const x = this.trailRow[0]
+			const y = this.trailRow[1]
+			const z = this.trailRow[2]
+			const wingLength = Math.hypot(
+				this.trailRow[6],
+				this.trailRow[7],
+				this.trailRow[8],
+			)
+			const wingScale = wingLength > 0
+				? this.params.trails.ribbonWidth * 0.5 / wingLength
+				: 0
+			const wingX = this.trailRow[6] * wingScale
+			const wingY = this.trailRow[7] * wingScale
+			const wingZ = this.trailRow[8] * wingScale
+			const i = row * 6
+			positions[i] = x - wingX
+			positions[i + 1] = y - wingY
+			positions[i + 2] = z - wingZ
+			positions[i + 3] = x + wingX
+			positions[i + 4] = y + wingY
+			positions[i + 5] = z + wingZ
+			const widthOffset = row * 4
+			widths[widthOffset] = this.trailRow[9]
+			widths[widthOffset + 1] = this.trailRow[10]
+			widths[widthOffset + 2] = this.trailRow[9]
+			widths[widthOffset + 3] = this.trailRow[10]
+		}
+		geometry.setDrawRange(
+			0,
+			Math.min(TRAIL_SEGMENTS, Math.ceil(this.trailHistory.availableDistance / 2)) * 6,
+		)
+		geometry.attributes.position.needsUpdate = true
+		geometry.attributes.trailWidths.needsUpdate = true
 	}
 
 	updateSpeedEffect(progress) {
@@ -385,6 +514,7 @@ export default class Plane extends Object3D {
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
 		this.uniforms.uAcceleration.value = Math.max(visualSpeedEffect, 0)
 		this.acceleration = MathUtils.lerp(this.acceleration, 0, dt * 0.6)
+		this.updateTrails()
 	}
 
 	addCamera(camera) {

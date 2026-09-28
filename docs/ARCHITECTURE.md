@@ -30,7 +30,7 @@ Importing `main.js` performs the following work:
 3. Start loading the soundtrack and airplane model through a shared `THREE.LoadingManager`. The terrain normal map loads independently from `src/chunk.js`; tree and boat asset requests are skipped while their feature flags are disabled.
 4. Create the scene, camera, renderer, post-processing pipeline, lights, fog, and timer while those asynchronous requests are in flight.
 5. When the loading manager completes, fade out the loader and call `init(assets)`.
-6. `init()` creates `Plane` and `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane above the terrain, adds it to the scene, and schedules `tic()`.
+6. `init()` creates `Plane` and `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane and its world-space trail mesh in the scene, and schedules `tic()`.
 7. The play action starts audio, accelerates the plane, moves the camera backward, and enables the flight effect.
 
 Rendering begins after assets load, before the user presses the play action. The play action starts movement and audio; it is not the application bootstrap.
@@ -54,6 +54,7 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 - `worldFeatures` in `main.js` is the frozen runtime switch for trees, clouds, and boats. All three are currently `false` so chunk work is terrain-only.
 - `uniforms` in `main.js` is shared with chunks, instanced scenery, and boat materials. `Chunk` adds `uCurvature` to that object.
 - The perspective camera becomes a child of `Plane` through `Plane.addCamera()`.
+- `Plane` owns and updates the trail geometry, but the trail mesh is a direct scene child so older sections remain in world space as the plane moves.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
 - Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the tree normal map and boat model are loaded only when their corresponding feature is enabled.
 - `ChunkManager` owns `Map` registries for desired, live, pending, and in-flight chunks. A monotonically increasing revision invalidates obsolete work before any worker result becomes a Three.js object.

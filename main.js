@@ -190,6 +190,13 @@ const params = {
 		blur: { strength: 0.015, start: 0.05, end: 1, curve: 1.5 },
 		aberration: { strength: 0.02, start: 0.1, end: 1, curve: 2 },
 	},
+	trails: {
+		ribbonWidth: 9.6,
+		lineWidth: 0.98,
+		borderWidth: 0.065,
+		outerEdge: { frequency: 2.7, amplitude: 0.475 },
+		innerEdge: { frequency: 2.1, amplitude: 0.325 },
+	},
 }
 
 const uniforms = {
@@ -290,6 +297,21 @@ if (gui) {
 	aberrationFolder
 		.add(params.postProcessing.aberration, 'curve', 0.1, 5, 0.05)
 		.onChange(updatePost)
+
+	const trailsFolder = gui.addFolder('Trails')
+	trailsFolder
+		.add(params.trails, 'ribbonWidth', 7.5, 12, 0.1)
+		.name('Ribbon width')
+	trailsFolder.add(params.trails, 'lineWidth', 0, 1.5, 0.01).name('Line width')
+	trailsFolder
+		.add(params.trails, 'borderWidth', 0, 0.15, 0.005)
+		.name('Black border width')
+	const outerEdgeFolder = trailsFolder.addFolder('Outer edge')
+	outerEdgeFolder.add(params.trails.outerEdge, 'frequency', 0.1, 8, 0.1)
+	outerEdgeFolder.add(params.trails.outerEdge, 'amplitude', 0, 0.5, 0.005)
+	const innerEdgeFolder = trailsFolder.addFolder('Inner edge')
+	innerEdgeFolder.add(params.trails.innerEdge, 'frequency', 0.1, 8, 0.1)
+	innerEdgeFolder.add(params.trails.innerEdge, 'amplitude', 0, 0.5, 0.005)
 }
 
 /**
@@ -412,6 +434,7 @@ function init(assets) {
 	plane.position.y =
 		Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
 	scene.add(plane)
+	scene.add(plane.trails)
 	if (debugFeatures.terrainSamples) {
 		terrainSampleDebug = new TerrainSampleDebug(uniforms)
 		scene.add(terrainSampleDebug)

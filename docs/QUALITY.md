@@ -33,7 +33,7 @@ A successful Vite build proves that modules and assets can be bundled. It does n
 
 Run narrower checks first when a task introduces them, but do not skip the production build for source, shader, dependency, or configuration changes.
 
-The test suite covers symmetric desktop/mobile desired sets, negative centers, the current LOD rule, deterministic terrain buffers, topology counts, sea clamping, adjacent chunk-edge heights, signed speed effects, vertical-input bands, topography-based safety-climb scaling, four-point terrain flight corridors, fixed clearance, collision-gated terrain slowdown and brake impulses, stable descent constraints at minimum altitude, and asymmetric minimum-altitude smoothing.
+The test suite covers symmetric desktop/mobile desired sets, negative centers, the current LOD rule, deterministic terrain buffers, topology counts, sea clamping, adjacent chunk-edge heights, signed speed effects, vertical-input bands, topography-based safety-climb scaling, four-point terrain flight corridors, fixed clearance, collision-gated terrain slowdown and brake impulses, stable descent constraints at minimum altitude, asymmetric minimum-altitude smoothing, and world-space trail history interpolation, width response to speed and curvature, bank, turns, and bounded retention.
 
 Browser lifecycle checks can read `window.__INFINITE_WORLD__.getChunkStats()`. After the queue drains, `live` must equal `desired`, `pending`, `queued`, and `inFlight` must return to zero, `created - disposed` must equal `live`, `generated` must be at least `created`, and `failed` must remain zero. Desktop should report up to two workers; mobile reports one.
 
@@ -47,13 +47,14 @@ Use a fresh page load and check:
 2. The canvas renders nonblank terrain with no console errors or failed requests.
 3. The play action starts movement and soundtrack playback.
 4. Pointer movement turns and rolls the airplane; above `45%` it climbs, from `45%` through `65%` it settles at the reached altitude, and below `65%` it descends. Repeat with touch in a mobile viewport.
-5. Scrolling down produces temporary acceleration, camera movement, FOV expansion, trails, and an edge blur with chromatic aberration that leaves the center sharp. Scrolling up produces gentler braking and the opposite camera/FOV response without an acceleration trail or post-processing effect. Once the boost fades, `getPostProcessingStats().active` returns to `false`.
-6. The sound control mutes and restores volume.
-7. New terrain chunks appear during traversal without obvious long stalls. When a scenery feature is re-enabled, repeat this check for its trees, clouds, or boats.
-8. Fog, distance fades, curvature, water movement, and biome bands remain visually coherent.
-9. Resize preserves canvas framing and control layout.
-10. During low flight, upcoming terrain raises the safety floor smoothly without a visible altitude snap; the plane neither enters terrain nor exceeds Y `95`. Keep commanding descent at the floor and confirm that altitude and pitch do not bounce. While boosted, a sudden high obstacle must produce an obvious but sub-wheel brake response in speed, camera Z, and FOV and suppress the acceleration trail. Repeat above the sampled target minimum and confirm that no automatic deceleration occurs.
-11. The experience remains usable at a viewport below `768px`, including the very narrow play-action layout.
+5. Scrolling down produces temporary acceleration, camera movement, FOV expansion, wider trails, and an edge blur with chromatic aberration that leaves the center sharp. At cruise speed, make a moderate turn and confirm no trail appears, then turn sharply in both directions and confirm both trails follow the wing tips, the outer wing's trail is wider, and turn-only width remains below the full-boost width. At maximum boost the trails should reach full width. The flown path should remain without visible stepping for about `60` world units. Each stripe should grow from zero thickness, reach its maximum near the middle, then narrow to zero at the tail; both edges should be visibly irregular near the middle but gradually smoother toward both ends, with a thin dark outline and fully opaque visible pixels. Scrolling up produces gentler braking and the opposite camera/FOV response without a new acceleration trail or post-processing effect. Once the boost fades, `getPostProcessingStats().active` returns to `false`.
+6. With `?gui=1`, change all **Trails** sliders while a trail is visible. Ribbon width must move both stripes, line and border width must change their respective thicknesses, and each edge's frequency and amplitude must change that edge independently without a shader error.
+7. The sound control mutes and restores volume.
+8. New terrain chunks appear during traversal without obvious long stalls. When a scenery feature is re-enabled, repeat this check for its trees, clouds, or boats.
+9. Fog, distance fades, curvature, water movement, and biome bands remain visually coherent.
+10. Resize preserves canvas framing and control layout.
+11. During low flight, upcoming terrain raises the safety floor smoothly without a visible altitude snap; the plane neither enters terrain nor exceeds Y `95`. Keep commanding descent at the floor and confirm that altitude and pitch do not bounce. While boosted, a sudden high obstacle must produce an obvious but sub-wheel brake response in speed, camera Z, and FOV and suppress the acceleration trail. Repeat above the sampled target minimum and confirm that no automatic deceleration occurs.
+12. The experience remains usable at a viewport below `768px`, including the very narrow play-action layout.
 
 For worker changes, use a fixed URL seed, confirm a separate worker network request, and compare terrain scale, water, bands, seams, and the nonblank canvas against the same seed before the change.
 

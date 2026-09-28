@@ -46,7 +46,7 @@ Scene materials do not use `ShaderMaterial`. They start with built-in Three.js m
 | Boats                     | [`src/chunk.js`](../src/chunk.js)   | Materials from the glTF model      | `common`, `project_vertex`                                           |
 | Trees                     | [`src/trees.js`](../src/trees.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`                         |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
-| Plane trails              | [`src/plane.js`](../src/plane.js)   | Transparent `MeshBasicMaterial`    | `common`, `project_vertex`, `color_fragment`                         |
+| Plane trails              | [`src/plane.js`](../src/plane.js)   | Cutout `MeshBasicMaterial`         | `common`, `project_vertex`, `color_fragment`                         |
 
 Each replacement string must match the corresponding Three.js shader include exactly. A Three.js upgrade can rename or reorganize those includes while the JavaScript build still succeeds.
 
@@ -66,7 +66,9 @@ The tree, cloud, and boat shader paths are currently dormant because all three `
 
 The terrain geometry also provides a custom scalar `height` attribute. Its value is the raw procedural height, including underwater values that differ from the CPU-clamped visible vertex position. Position, normal, UV, height, and index arrays are generated in a worker, transferred, and wrapped in `BufferGeometry` on the main thread before rendering.
 
-The plane trail injects `uRotation`, `uAcceleration`, and `vUV` inline because they are specific to that material path.
+The plane trail uses dynamic world-space positions and a per-vertex `trailWidths` vector containing separate left and right widths. `Plane` updates both attributes every frame from recent flight poses; the mesh is attached to the scene rather than the airplane. Its default `8.8`-unit-wide ribbon uses `30` lengthwise segments. Actual speed above cruise and path curvature widen the stripes; the outer wing is wider in a turn. The turn contribution starts at normalized curvature `0.65` and caps at `0.75` width, while maximum boosted speed can reach `1`. The trail shader passes UV, both widths, and world position to the fragment stage. Each stripe tapers from zero at the wing, broadens near the middle, and tapers to zero at the tail. Stable world-space simplex noise roughens both boundaries. Noise amplitude follows the square of the width taper so the edges become progressively smoother toward both ends. Fragments outside the white core and its narrower black outline are discarded; visible fragments remain fully opaque.
+
+`params.trails` in `main.js` is the live tuning source. Ribbon width controls the CPU geometry span and the shader's world-unit-to-UV conversion. Line width, border width, and independent inner/outer edge amplitudes are world units; edge frequencies scale the world-space noise coordinates. The debug GUI (`?gui=1`) updates all seven values without recompiling the material. The stripe center remains at its default ribbon-relative offset unless larger widths require moving it inward to avoid clipping at the ribbon edge.
 
 ## Shader Paths
 
@@ -85,15 +87,16 @@ The plane trail injects `uRotation`, `uAcceleration`, and `vUV` inline because t
 ### Boats And Trails
 
 - [`project-vertex-boat.glsl`](../src/shaders/project-vertex-boat.glsl) transforms cloned boat meshes in world space and applies curvature around the moving reference point.
-- [`project-vertex-plane.glsl`](../src/shaders/project-vertex-plane.glsl) bends trails from the airplane model's roll.
-- Trail alpha is assembled inline in `Plane.addTrails()` from UV, roll, and acceleration.
+- [`project-vertex-plane.glsl`](../src/shaders/project-vertex-plane.glsl) preserves Three.js projection and forwards the world-space trail attributes.
+- Trail cutout and color are assembled inline in `Plane.addTrails()` from UV, the stored width, and world-space edge noise. Speed and curvature are captured per pose on the CPU rather than applied to the entire ribbon at render time.
 
 ## Uniform Update Timing
 
 - `main.js` updates `uTime` and `uCamera` once per frame after `plane.update()` and before rendering.
 - `Chunk` adds `uCurvature` to the shared uniform object during construction.
 - Biome colors are initialized from `params.colors`; the disabled GUI can mutate them.
-- `Plane.update()` writes `uAcceleration` before the frame renders.
+- `Plane.update()` writes `uAcceleration` and updates the trail buffer before the frame renders.
+- `Plane.updateTrails()` copies `params.trails` into stable trail-uniform wrappers every frame; changing a GUI slider affects already emitted sections as well as new ones.
 - `main.js` passes `uAcceleration` to `PostProcessing.setSpeedEffect()` immediately before `PostProcessing.render()`.
 - Shader callbacks merge custom uniform entries with Three.js-generated uniforms at compilation time.
 

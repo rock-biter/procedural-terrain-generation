@@ -37,7 +37,7 @@ Do not edit or commit generated files under `dist/`.
 - `postprocessing` (pmndrs) provides the effect composer; its `three` peer range must include the installed Three.js version.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
-- Node's built-in test runner covers pure chunk-policy, flight-policy, and deterministic terrain-buffer behavior under `test/`.
+- Node's built-in test runner covers pure chunk-policy, flight-policy, trail-history, and deterministic terrain-buffer behavior under `test/`.
 - Vite bundles `src/chunkGeometry.worker.js` as a module worker; no separate worker build command is required.
 - The repository currently has no formatter, linter, browser test suite, or CI workflow.
 
@@ -72,7 +72,7 @@ When updating dependencies, keep `package.json` and `pnpm-lock.yaml` in sync and
 - The scene starts rendering only after the loading manager completes and `init()` schedules the first animation frame.
 - Browser console errors and failed network requests are the first checks when the page remains on the loader.
 - Shader compilation failures appear in the browser console, not necessarily during `pnpm build`.
-- The optional `lil-gui` setup in `main.js` is enabled only with `?gui=1`. It includes terrain, color, light, and speed-effect controls; the **Speed effect > preview** slider holds the blur and chromatic aberration on while tuning. With the GUI enabled, the play action does not start the soundtrack.
+- The optional `lil-gui` setup in `main.js` is enabled only with `?gui=1`. It includes terrain, color, light, speed-effect, and trail controls; the **Speed effect > preview** slider holds the blur and chromatic aberration on while tuning. The **Trails** folder changes ribbon width, line and black-border thickness, and separate frequency and amplitude for the inner and outer edges. With the GUI enabled, the play action does not start the soundtrack.
 
 ## Open Questions
 
