@@ -44,7 +44,7 @@ Rendering begins after assets load, before the user presses the play action. The
 1. Update `THREE.Timer` and clamp the movement delta to at most `0.016` seconds.
 2. Call `plane.update(deltaTime)`, or call `flightPause.update()` instead while the debug flight pause is active. The latter updates the orbit controls and calls `plane.refreshTrails()`. Global time keeps advancing either way.
 3. Write elapsed time and plane position to `uTime` and `uCamera`.
-4. Call `dayNight.update(deltaTime)` with the unclamped delta. It advances the time of day, which keeps running during the debug pause, and updates lights, fog, `uAtmosphere`, and the sky. Its state then goes to `plane.setDayNight()` for the trail tint and navigation lights.
+4. Call `dayNight.update(deltaTime)` with the unclamped delta. It advances the time of day, which keeps running during the debug pause, and updates lights, fog, `uAtmosphere`, and the sky. It measures the curved-world horizon dip from the camera's world height. Its state then goes to `plane.setDayNight()` for the trail tint.
 5. Call `chunkManager.updateChunks()` to reconcile on boundary changes or process bounded keyed work.
 6. Pass `uAcceleration` (or `0` while paused) to `postProcessing.setSpeedEffect()`, render through `postProcessing.render(deltaTime)`, and schedule the next frame.
 
@@ -58,14 +58,14 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 - `uniforms` in `main.js` is shared with chunks, instanced scenery, and boat materials. It includes `uCurvature`, whose value is `CURVATURE` exported by `src/chunk.js`, so materials compiled before the first chunk arrives, such as the `?debug=1` terrain-sample markers, still receive a valid uniform.
 - The perspective camera becomes a child of `Plane` through `Plane.addCamera()`. During the debug flight pause, `FlightPauseDebug` temporarily moves it into the scene for `OrbitControls` and re-parents it on resume.
 - `Plane` owns and updates the trail geometry, but the trail mesh is a direct scene child so older sections remain in world space as the plane moves.
-- `DayNight` owns the sky dome mesh and writes into the lights, `scene.fog`, `scene.background`, and `uniforms.uAtmosphere` created by `main.js`. It never touches `Plane`; `main.js` forwards its state.
+- `DayNight` owns the sky dome mesh and writes into the ambient, sun, and moon lights, `scene.fog`, `scene.background`, and `uniforms.uAtmosphere` created by `main.js`. It never touches `Plane`; `main.js` forwards its state.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
 - Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the tree normal map and boat model are loaded only when their corresponding feature is enabled.
 - `ChunkManager` owns `Map` registries for desired, live, pending, and in-flight chunks. A monotonically increasing revision invalidates obsolete work before any worker result becomes a Three.js object.
 - The worker pool uses up to two workers on desktop and one on mobile. Workers cache their seeded simplex functions and transfer typed-array buffers instead of cloning them.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry and local decorations.
 
-`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, and seed diagnostics. `getFlightStats()` exposes position, speed effect, pointer input, vertical velocity, camera state, and the current terrain corridor. `getPostProcessingStats()` exposes whether the effect pass is active, the speed-effect intensity, and the MSAA sample count. `getDebugStats()` returns `{ paused, canPause }` with `?debug=1`, and `null` otherwise. `getDayNightStats()` returns time of day, pause state, cycle duration, the `night` factor, and the current key-light body and intensity. None of these APIs exposes mutable runtime state.
+`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, and seed diagnostics. `getFlightStats()` exposes position, speed effect, pointer input, vertical velocity, camera state, and the current terrain corridor. `getPostProcessingStats()` exposes whether the effect pass is active, the speed-effect intensity, and the MSAA sample count. `getDebugStats()` returns `{ paused, canPause }` with `?debug=1`, and `null` otherwise. `getDayNightStats()` returns time of day, palette time, horizon dip, pause state, cycle duration, the `night` factor, and the apparent elevation and intensity of the sun and moon. None of these APIs exposes mutable runtime state.
 
 Do not create a second render loop, terrain-parameter store, or chunk registry without an architectural reason documented here.
 
@@ -77,7 +77,7 @@ DOM and asset requests
         v
 main.js: LoadingManager -> init(assets)
         |                    |
-        |                    +-> Plane -> flightPolicy, camera, controls, trails, nav lights
+        |                    +-> Plane -> flightPolicy, camera, controls, trails
         |                    |
         |                    +-> ChunkManager -> worker pool
         |                           |                |

@@ -50,7 +50,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
 - [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
 - [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
-- [`src/dayNight.js`](src/dayNight.js) owns the sky dome and applies time of day to lights, fog, and `uAtmosphere`; [`src/dayNightPolicy.js`](src/dayNightPolicy.js) owns the pure keyframes, celestial directions, and `?time=` parsing.
+- [`src/dayNight.js`](src/dayNight.js) owns the sky dome and applies time of day to lights, fog, and `uAtmosphere`; [`src/dayNightPolicy.js`](src/dayNightPolicy.js) owns the pure keyframes, celestial directions, curved-horizon dip and palette time, and `?time=` parsing.
 - [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer and idle bypass; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
 - [`src/trees.js`](src/trees.js) and [`src/clouds.js`](src/clouds.js) own instanced scenery meshes.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.

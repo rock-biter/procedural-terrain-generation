@@ -13,7 +13,7 @@ This document defines the contracts between Three.js materials, shared uniforms,
 - The perspective camera uses near/far planes of `0.1` and `10000`.
 - Desktop starts at a `60` degree FOV and zoom `1`; mobile starts at `80` degrees and zoom `0.8`.
 - The scene background and fog share the day/night horizon color, rewritten every frame by `DayNight`. Fog currently spans `250` to `900` world units.
-- Ambient and directional lights are driven by the day/night cycle. `params.ambientLight` and `params.directionalLight` are peak intensities that the cycle scales every frame.
+- An ambient light and two directional lights (sun and moon) are driven by the day/night cycle. `params.ambientLight` and `params.directionalLight` are peak intensities that the cycle scales every frame; the moon's keyframed intensity is also relative to `params.directionalLight`.
 - No tone mapping is configured; the renderer uses Three.js defaults (`NoToneMapping`, sRGB output).
 - The camera is attached to `Plane`, so its transform is relative to the moving player object.
 
@@ -41,11 +41,13 @@ Resize changes the camera aspect, projection matrix, capped pixel ratio, and the
 
 [`src/dayNight.js`](../src/dayNight.js) owns the sky dome and applies the cycle state. [`src/dayNightPolicy.js`](../src/dayNightPolicy.js) computes that state as pure data (sRGB triplets and scalars) without Three.js.
 
-- **Time convention:** `params.dayNight.timeOfDay` is in `[0, 1)`: `0` midnight, `0.25` sunrise, `0.5` noon, `0.75` sunset. It advances by `deltaTime / cycleDuration` (default `240` seconds) unless `paused` is set. `?time=<0..1>` sets the starting value.
-- **Keyframes:** `DAY_NIGHT_DEFAULTS.keyframes` interpolates zenith, horizon, key-light color and intensity, ambient color and intensity, the atmosphere ceiling, trail tint, star visibility, and a `night` factor with smoothstep blends that wrap across midnight. The `t = 0.8` dusk keyframe reproduces the original static look (fog `#191362`, linear atmosphere `(0.1, 0.015, 0.02)`, full peak intensities).
-- **Celestial arc:** the sun rises at +X, sets at -X, and is tilted `0.5` radians toward +Z; the moon is always opposite. The directional light follows whichever body is above the horizon. Its intensity fades to zero within `0.1` direction-Y units of the horizon, so the direction switches only while the light is off. No shadows are used; only the light position (direction) matters.
-- **Sky dome:** a `SphereGeometry` of radius `5000` (inside the camera far plane) with a `ShaderMaterial` ([`sky.vert.glsl`](../src/shaders/sky.vert.glsl), [`sky.frag.glsl`](../src/shaders/sky.frag.glsl)), `BackSide`, no depth test or write, no fog, `renderOrder = -1`, and frustum culling disabled. It follows the camera's world position every frame, including the debug orbit camera. Below the horizon it keeps the horizon color, so fogged terrain and sky meet without a seam. It draws a sun disc and halo, a moon disc, and hashed twinkling stars only while `uStarVisibility > 0`.
-- **Per-frame writes:** fog color, background, light colors, intensities and direction, `uAtmosphere`, and the sky uniforms. Colors go through `Color.setRGB(..., SRGBColorSpace)`, and the state object and colors are reused without per-frame allocation.
+- **Time convention:** `params.dayNight.timeOfDay` is in `[0, 1)`: `0` midnight, `0.5` noon; on a flat horizon `0.25` is sunrise and `0.75` sunset. It advances by `deltaTime / cycleDuration` (default `240` seconds) unless `paused` is set. `?time=<0..1>` sets the starting value.
+- **Curved horizon:** the terrain shader bends the world onto a sphere of radius `CURVATURE` (`3000`) centered below the plane (see [Curved-World Lighting](#curved-world-lighting)). From camera height `h` above sea level, the visible edge of the world sits `dip = acos(R / (R + h))` below the horizontal (about `0.21` rad at cruise height). `DayNight` recomputes the dip every frame from the camera's world Y, including the debug orbit camera. The **apparent elevation** `asin(direction.y) + dip` is the single reference for the sky gradient, disc visibility, palette timing, and light fades.
+- **Palette time:** keyframes are authored for a flat horizon. `getPaletteTime()` computes the apparent sunrise and sunset (`0.25 ∓ δ`, `0.75 ± δ`, with `δ = asin(sin(dip) / cos(tilt)) / 2π`) and stretches that apparent day onto `[0.25, 0.75]` and the night onto the rest. The mapping is piecewise linear, continuous across midnight, monotonic, and the identity when `dip = 0`, so sunrise and sunset colors coincide with the sun meeting the curved edge at any altitude.
+- **Keyframes:** `DAY_NIGHT_DEFAULTS.keyframes` interpolates zenith, horizon, sun and moon color and intensity, ambient color and intensity, the atmosphere ceiling, trail tint, star visibility, and a `night` factor with smoothstep blends that wrap across midnight. The `t = 0.8` dusk keyframe reproduces the original static look (fog `#191362`, linear atmosphere `(0.1, 0.015, 0.02)`, full white moon light at peak intensity).
+- **Celestial arc and lights:** the sun rises at +X, sets at -X, and is tilted `0.5` radians toward +Z; the moon is always opposite. Each body drives its own `DirectionalLight`, whose intensity fades in over apparent elevation `[-0.03, 0.05]` rad. In the twilight band where `|asin(y)| < dip`, both are lit, as seen from altitude. No light switches direction. No shadows are used; only the light position (direction) matters.
+- **Sky dome:** a `SphereGeometry` of radius `5000` (inside the camera far plane) with a `ShaderMaterial` ([`sky.vert.glsl`](../src/shaders/sky.vert.glsl), [`sky.frag.glsl`](../src/shaders/sky.frag.glsl)), `BackSide`, no depth test or write, no fog, `renderOrder = -1`, and frustum culling disabled. It follows the camera's world position every frame. The gradient starts at the dipped horizon (`uHorizonDip = sin(dip)`) and keeps the horizon color below it, so fogged terrain and sky meet without a seam. It draws a sun disc and halo and a moon disc faded by apparent elevation; terrain hides them once they pass behind the curved edge. Hashed twinkling stars are drawn only while `uStarVisibility > 0`.
+- **Per-frame writes:** fog color, background, sun and moon light colors, intensities and directions, ambient light, `uAtmosphere`, and the sky uniforms. Colors go through `Color.setRGB(..., SRGBColorSpace)`, and the state object and colors are reused without per-frame allocation.
 
 ## Shader Injection Pattern
 
@@ -53,7 +55,7 @@ Scene materials other than the sky dome do not use `ShaderMaterial`. They start 
 
 | Rendered content          | JavaScript owner                    | Base material                      | Replacements                                                         |
 | ------------------------- | ----------------------------------- | ---------------------------------- | -------------------------------------------------------------------- |
-| Terrain and water surface | [`src/chunk.js`](../src/chunk.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
+| Terrain and water surface | [`src/chunk.js`](../src/chunk.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps`, `lights_fragment_begin` |
 | Boats                     | [`src/chunk.js`](../src/chunk.js)   | Materials from the glTF model      | `common`, `project_vertex`                                           |
 | Trees                     | [`src/trees.js`](../src/trees.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`                         |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
@@ -89,6 +91,15 @@ The plane trail uses dynamic world-space positions, a per-vertex `trailWidths` v
 - [`project-vertex.glsl`](../src/shaders/project-vertex.glsl) applies water movement, distance-based curvature, and the final projection.
 - [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) keeps five elevation-based land bands and switches between their existing palette and a sand-to-dark-brown desert palette. A very-low-frequency signed simplex-noise sample in world XZ coordinates selects the desert biome below zero and the existing biome above zero; two denser samples fray the boundary at different scales. An antialiased black separator hides the hard palette transition on land only, leaving water colors and wave highlights independent.
 - [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) attenuates tangent-space normal-map strength with distance.
+- [`curved-light-terminator.glsl`](../src/shaders/curved-light-terminator.glsl) is inserted into `lights_fragment_begin` (see below).
+
+### Curved-World Lighting
+
+The curvature in `project-vertex.glsl` moves vertices down by `R * (1 - cos(dist / R))` but used to leave normals flat, so distant terrain was lit as if the world were flat. Terrain now shades as the sphere it is drawn on:
+
+- **Bent normal (vertex):** after the curvature distance is known, `objectNormal` is rotated about `cross(up, awayDirection)` by `dist / uCurvature`, the same angle the surface tilts away from `uCamera`. The result overwrites `vNormal`. Chunk meshes are only translated, so object-space normals are world-space and `normalMatrix` applies. The derivative-based normal-map TBN uses the already curved positions and stays consistent. The unperturbed sphere normal is passed in the terrain-only varying `vSphereNormal`, which is declared in the injected code rather than in `common.glsl`.
+- **Terminator (fragment):** `chunk.js` builds a copy of Three.js's `lights_fragment_begin` with the terminator appended after the exact r186 line `getDirectionalLightInfo( directionalLight, directLight );`. For every directional light, `directLight.color` is scaled by `smoothstep(-0.02, 0.06, dot(directLight.direction, vSphereNormal))`. The sun or moon therefore contributes nothing where it is below that fragment's local horizon, even on slopes facing it. At sunset, distant terrain toward the sun stays lit while nearby terrain is already dark. `chunk.js` warns in the console if a Three.js upgrade removes the hook line.
+- Ambient light is unaffected. The airplane, trails, and the dormant tree, cloud, and boat materials still use flat lighting; align them when those features return.
 
 ### Instanced Scenery
 
@@ -102,7 +113,6 @@ The plane trail uses dynamic world-space positions, a per-vertex `trailWidths` v
 - [`project-vertex-plane.glsl`](../src/shaders/project-vertex-plane.glsl) preserves Three.js projection and forwards the trail attributes (UV, widths, traveled distance, bank).
 - Trail cutout and color are assembled inline in `Plane.addTrails()` from UV, the stored width, and edge noise driven by traveled distance. Speed and curvature are captured per pose on the CPU rather than applied to the entire ribbon at render time.
 - The trail's white core is multiplied by `uTrailTint`, which `Plane.setDayNight()` sets from the cycle so the unlit ribbon dims at night.
-- Navigation lights are additive `Sprite` children of the airplane mesh: red at the +X wingtip (the aircraft's left), green at -X, and a white strobe at the tail. They use a generated radial `CanvasTexture`, ignore fog, and are hidden unless the cycle's `night` factor exceeds about `0.3`. No `PointLight` is added.
 
 ## Uniform Update Timing
 
