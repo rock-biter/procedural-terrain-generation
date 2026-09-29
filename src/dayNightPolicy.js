@@ -14,6 +14,8 @@ const TWO_PI = Math.PI * 2
 // ambient intensities are relative to their params peaks; moon intensity is
 // relative to params.moonLight. At night the moon stays at full strength and
 // ambient light is kept very low so directional moonlight reveals the relief.
+// Trail tints color the unlit wing trails: pink at dawn, orange at sunset, and
+// blue at night, bright enough to stay readable against the sky.
 const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
 		t: 0,
@@ -26,7 +28,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.45, 0.5, 0.85],
 		ambientIntensity: 0.06,
 		atmosphere: [0.1, 0.11, 0.2],
-		trailTint: [0.55, 0.6, 0.8],
+		trailTint: [0.45, 0.6, 1],
 		stars: 1,
 		night: 1,
 	}),
@@ -41,7 +43,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.55, 0.5, 0.8],
 		ambientIntensity: 0.12,
 		atmosphere: [0.3, 0.22, 0.34],
-		trailTint: [0.7, 0.65, 0.8],
+		trailTint: [0.75, 0.6, 0.95],
 		stars: 0.5,
 		night: 0.8,
 	}),
@@ -56,7 +58,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.9, 0.7, 0.65],
 		ambientIntensity: 0.8,
 		atmosphere: [0.6, 0.42, 0.38],
-		trailTint: [1, 0.9, 0.85],
+		trailTint: [1, 0.62, 0.7],
 		stars: 0,
 		night: 0.2,
 	}),
@@ -71,7 +73,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.85, 0.9, 1],
 		ambientIntensity: 1,
 		atmosphere: [0.55, 0.66, 0.8],
-		trailTint: [1, 1, 1],
+		trailTint: [1, 0.93, 0.9],
 		stars: 0,
 		night: 0,
 	}),
@@ -101,7 +103,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.9, 0.88, 0.95],
 		ambientIntensity: 1,
 		atmosphere: [0.6, 0.64, 0.76],
-		trailTint: [1, 1, 1],
+		trailTint: [1, 0.95, 0.88],
 		stars: 0,
 		night: 0,
 	}),
@@ -116,7 +118,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.9, 0.6, 0.6],
 		ambientIntensity: 0.8,
 		atmosphere: [0.55, 0.3, 0.25],
-		trailTint: [1, 0.85, 0.8],
+		trailTint: [1, 0.6, 0.35],
 		stars: 0,
 		night: 0.2,
 	}),
@@ -131,7 +133,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientColor: [0.75, 0.75, 0.95],
 		ambientIntensity: 0.15,
 		atmosphere: [0.349, 0.128, 0.152],
-		trailTint: [0.8, 0.8, 0.9],
+		trailTint: [0.55, 0.62, 1],
 		stars: 0.6,
 		night: 0.7,
 	}),

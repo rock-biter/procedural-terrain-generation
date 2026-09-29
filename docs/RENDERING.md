@@ -112,7 +112,7 @@ The curvature in `project-vertex.glsl` moves vertices down by `R * (1 - cos(dist
 - [`project-vertex-boat.glsl`](../src/shaders/project-vertex-boat.glsl) transforms cloned boat meshes in world space and applies curvature around the moving reference point.
 - [`project-vertex-plane.glsl`](../src/shaders/project-vertex-plane.glsl) preserves Three.js projection and forwards the trail attributes (UV, widths, traveled distance, bank).
 - Trail cutout and color are assembled inline in `Plane.addTrails()` from UV, the stored width, and edge noise driven by traveled distance. Speed and curvature are captured per pose on the CPU rather than applied to the entire ribbon at render time.
-- The trail's white core is multiplied by `uTrailTint`, which `Plane.setDayNight()` sets from the cycle so the unlit ribbon dims at night.
+- The trail's white core is multiplied by `uTrailTint`, which `Plane.setDayNight()` sets from the cycle's `trailTint` keyframes. The unlit ribbon turns pink at dawn (`[1, 0.62, 0.7]`) and orange at sunset (`[1, 0.6, 0.35]`), stays white by day, and turns blue at night (`[0.45, 0.6, 1]`). The tints stay bright so the trail remains readable against the sky. The dark outline is unaffected.
 
 ## Uniform Update Timing
 
