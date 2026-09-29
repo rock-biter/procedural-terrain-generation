@@ -89,6 +89,7 @@ export default class SpeedEffect extends Effect {
 			['intensity', new Uniform(0)],
 			['blurParams', new Uniform(new Vector4())],
 			['aberrationParams', new Uniform(new Vector4())],
+			['verticalScale', new Uniform(1)],
 		])
 		blurPyramid.levels.forEach((target, index) => {
 			uniforms.set(`blurLevel${index + 1}`, new Uniform(target.texture))
@@ -112,9 +113,10 @@ export default class SpeedEffect extends Effect {
 		this.uniforms.get('intensity').value = value
 	}
 
-	setParams({ blur, aberration }) {
+	setParams({ blur, aberration, verticalScale }) {
 		setMaskParams(this.uniforms.get('blurParams').value, blur)
 		setMaskParams(this.uniforms.get('aberrationParams').value, aberration)
+		this.uniforms.get('verticalScale').value = verticalScale
 	}
 
 	// Renders only the pyramid levels the current maximum blur can reach.

@@ -8,6 +8,8 @@ uniform float intensity;
 // x = strength, y = start radius, z = end radius, w = curve exponent.
 uniform vec4 blurParams;
 uniform vec4 aberrationParams;
+// Scales the vertical distance from the center: < 1 weakens the effect toward the top and bottom edges.
+uniform float verticalScale;
 
 // Cubic B-spline reconstruction from 4 bilinear taps; hides the blockiness of low-resolution levels.
 vec3 sampleBSpline(sampler2D levelMap, vec2 uv) {
@@ -64,8 +66,9 @@ float getMask(vec4 params, float radius) {
 
 void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
   vec2 fromCenter = uv - 0.5;
-	// 0 at the center and 1 at the corners; elliptical so every edge gets the same falloff.
-  float radius = length(fromCenter) * 1.41421356;
+	// 0 at the center, ~0.71 at the left/right edges, and 1 at the corners when verticalScale is 1.
+	// Only the vertical component is scaled, so the horizontal falloff never changes.
+  float radius = length(vec2(fromCenter.x, fromCenter.y * verticalScale)) * 1.41421356;
 
 	// Level k of the pyramid blurs by roughly 2^k pixels.
   float blurPixels = blurParams.x * getMask(blurParams, radius) * resolution.y;

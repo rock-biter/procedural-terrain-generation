@@ -189,6 +189,8 @@ const params = {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
 		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
+		// verticalScale shrinks only the vertical distance (1 = circular falloff).
+		verticalScale: 0.5,
 		blur: { strength: 0.015, start: 0.05, end: 1, curve: 1.5 },
 		aberration: { strength: 0.02, start: 0.1, end: 1, curve: 2 },
 	},
@@ -275,6 +277,10 @@ if (gui) {
 		postProcessing.speedEffect.setParams(params.postProcessing)
 	const speedFolder = gui.addFolder('Speed effect')
 	speedFolder.add(params.postProcessing, 'preview', 0, 1, 0.01)
+	speedFolder
+		.add(params.postProcessing, 'verticalScale', 0, 1, 0.01)
+		.name('Vertical scale')
+		.onChange(updatePost)
 	const blurFolder = speedFolder.addFolder('Blur')
 	blurFolder
 		.add(params.postProcessing.blur, 'strength', 0, 0.15, 0.001)
