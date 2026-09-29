@@ -170,6 +170,7 @@ const params = {
 	speedEffect: 0,
 	// Peak intensities; the day/night cycle scales them every frame.
 	directionalLight: 6,
+	moonLight: 1.2,
 	ambientLight: 1.5,
 	dayNight: {
 		timeOfDay: parseTimeOfDay(urlParams) ?? DAY_NIGHT_DEFAULTS.startTimeOfDay,
@@ -271,6 +272,7 @@ if (gui) {
 		.onChange(() => chunkManager.onParamsChange())
 
 	gui.add(params, 'directionalLight', 0, 10, 0.1)
+	gui.add(params, 'moonLight', 0, 3, 0.05)
 	gui.add(params, 'ambientLight', 0, 10, 0.1)
 
 	const dayNightFolder = gui.addFolder('Day/night')

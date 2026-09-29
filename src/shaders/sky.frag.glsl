@@ -27,22 +27,23 @@ void main() {
 
 	// Discs fade with their elevation above the dipped horizon; terrain covers
 	// anything below it.
+	// Disc radii: sun about 1.3 degrees, moon about 0.9 degrees.
 	float sunVisibility = smoothstep(-0.15, 0.05, uSunDirection.y + uHorizonDip);
 	float sunDot = dot(direction, uSunDirection);
-	color += uSunColor * pow(max(sunDot, 0.0), 48.0) * 0.5 * sunVisibility;
+	color += uSunColor * pow(max(sunDot, 0.0), 120.0) * 0.5 * sunVisibility;
 	color = mix(
 		color,
 		uSunColor * 1.4 + 0.15,
-		smoothstep(0.9988, 0.9992, sunDot) * sunVisibility
+		smoothstep(0.99970, 0.99982, sunDot) * sunVisibility
 	);
 
 	float moonVisibility = smoothstep(-0.1, 0.05, uMoonDirection.y + uHorizonDip);
 	float moonDot = dot(direction, uMoonDirection);
-	color += vec3(0.5, 0.6, 0.85) * pow(max(moonDot, 0.0), 200.0) * 0.12 * moonVisibility;
+	color += vec3(0.5, 0.6, 0.85) * pow(max(moonDot, 0.0), 500.0) * 0.12 * moonVisibility;
 	color = mix(
 		color,
 		vec3(0.8, 0.84, 0.92),
-		smoothstep(0.9994, 0.9996, moonDot) * moonVisibility
+		smoothstep(0.99985, 0.99990, moonDot) * moonVisibility
 	);
 
 	if (uStarVisibility > 0.001) {

@@ -103,14 +103,14 @@ export default class DayNight {
 		setSRGB(this.uniforms.uAtmosphere.value, state.atmosphere)
 
 		// No shadows: only the light direction matters, targets stay at the origin.
-		// Both peaks scale with params.directionalLight.
+		// Peaks come from params.directionalLight (sun) and params.moonLight.
 		this.sunLight.position.fromArray(state.sunDirection)
 		setSRGB(this.sunLight.color, state.sunColor)
 		this.sunLight.intensity = this.params.directionalLight * state.sunIntensity
 		this.moonLight.position.fromArray(state.moonDirection)
 		setSRGB(this.moonLight.color, state.moonColor)
 		this.moonLight.intensity =
-			this.params.directionalLight * state.moonIntensity
+			this.params.moonLight * state.moonIntensity
 		setSRGB(this.ambientLight.color, state.ambientColor)
 		this.ambientLight.intensity =
 			this.params.ambientLight * state.ambientIntensity

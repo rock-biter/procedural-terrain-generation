@@ -9,8 +9,11 @@
 
 const TWO_PI = Math.PI * 2
 
-// The dusk keyframe reproduces the original static look (fog #191362,
-// atmosphere ceiling of linear (0.1, 0.015, 0.02), full white moon light).
+// The dusk keyframe keeps the original static sky (fog #191362, atmosphere
+// ceiling of linear (0.1, 0.015, 0.02)) with a cool moon light. Sun and
+// ambient intensities are relative to their params peaks; moon intensity is
+// relative to params.moonLight. At night the moon stays at full strength and
+// ambient light is kept very low so directional moonlight reveals the relief.
 const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
 		t: 0,
@@ -19,9 +22,9 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 0.6, 0.35],
 		sunIntensity: 0.7,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.2,
+		moonIntensity: 1,
 		ambientColor: [0.45, 0.5, 0.85],
-		ambientIntensity: 0.3,
+		ambientIntensity: 0.06,
 		atmosphere: [0.1, 0.11, 0.2],
 		trailTint: [0.55, 0.6, 0.8],
 		stars: 1,
@@ -34,9 +37,9 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 0.55, 0.35],
 		sunIntensity: 0.6,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.2,
+		moonIntensity: 0.8,
 		ambientColor: [0.55, 0.5, 0.8],
-		ambientIntensity: 0.55,
+		ambientIntensity: 0.12,
 		atmosphere: [0.3, 0.22, 0.34],
 		trailTint: [0.7, 0.65, 0.8],
 		stars: 0.5,
@@ -49,7 +52,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 0.65, 0.4],
 		sunIntensity: 0.7,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.15,
+		moonIntensity: 0.4,
 		ambientColor: [0.9, 0.7, 0.65],
 		ambientIntensity: 0.8,
 		atmosphere: [0.6, 0.42, 0.38],
@@ -64,7 +67,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 0.95, 0.85],
 		sunIntensity: 1,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.1,
+		moonIntensity: 0.3,
 		ambientColor: [0.85, 0.9, 1],
 		ambientIntensity: 1,
 		atmosphere: [0.55, 0.66, 0.8],
@@ -79,7 +82,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 1, 0.97],
 		sunIntensity: 1.1,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.1,
+		moonIntensity: 0.3,
 		ambientColor: [0.85, 0.92, 1],
 		ambientIntensity: 1.05,
 		atmosphere: [0.6, 0.72, 0.86],
@@ -94,7 +97,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 0.92, 0.8],
 		sunIntensity: 1,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.1,
+		moonIntensity: 0.3,
 		ambientColor: [0.9, 0.88, 0.95],
 		ambientIntensity: 1,
 		atmosphere: [0.6, 0.64, 0.76],
@@ -109,7 +112,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		sunColor: [1, 0.55, 0.3],
 		sunIntensity: 0.75,
 		moonColor: [0.6, 0.7, 1],
-		moonIntensity: 0.15,
+		moonIntensity: 0.4,
 		ambientColor: [0.9, 0.6, 0.6],
 		ambientIntensity: 0.8,
 		atmosphere: [0.55, 0.3, 0.25],
@@ -123,10 +126,10 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		horizon: [25 / 255, 19 / 255, 98 / 255],
 		sunColor: [1, 0.5, 0.3],
 		sunIntensity: 0.6,
-		moonColor: [1, 1, 1],
+		moonColor: [0.7, 0.78, 1],
 		moonIntensity: 1,
-		ambientColor: [1, 1, 1],
-		ambientIntensity: 1,
+		ambientColor: [0.75, 0.75, 0.95],
+		ambientIntensity: 0.15,
 		atmosphere: [0.349, 0.128, 0.152],
 		trailTint: [0.8, 0.8, 0.9],
 		stars: 0.6,
