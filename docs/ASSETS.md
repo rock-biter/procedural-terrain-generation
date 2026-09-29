@@ -31,7 +31,7 @@ Never delete, rename, or replace either license file without updating the corres
 
 `main.js` imports `/airplane/scene.gltf?url` and loads it through the shared `GLTFLoader`. Every mesh found during traversal is scaled to `0.005`; its geometry is centered and rotated by `-PI / 2` around X. The selected mesh is stored as `assets.planeModel` and passed to `Plane`.
 
-Changing model hierarchy, pivot, units, or orientation can affect steering, camera composition, and trail alignment.
+Changing model hierarchy, pivot, units, or orientation can affect steering, camera composition, and trail alignment. Navigation lights are placed at the airplane geometry's extreme ±X vertices (wingtips) and minimum-Z vertex (tail), so a different model or orientation moves them too.
 
 ### Boat
 

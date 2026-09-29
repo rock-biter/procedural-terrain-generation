@@ -67,4 +67,5 @@ onda *= smoothstep(d, d - 1.5, wPosition.y) - smoothstep(d - 3., d - 4., wPositi
 onda = mix(onda * 0.5, 0., sin(wPosition.y + wPosition.x * 0.2));
 diffuseColor.rgb = mix(vec3(onda), diffuseColor.rgb, 1. - onda);
 
-diffuseColor.rgb = mix(vec3(min(0.1, diffuseColor.r), min(0.015, diffuseColor.g), min(0.02, diffuseColor.b)), diffuseColor.rgb, smoothstep(700., 200., distanceFromCamera));
+// Distant terrain is capped by the day/night atmosphere color.
+diffuseColor.rgb = mix(min(uAtmosphere, diffuseColor.rgb), diffuseColor.rgb, smoothstep(700., 200., distanceFromCamera));

@@ -5,6 +5,7 @@ uniform float uCurvature;
 uniform vec3 uGrass;
 uniform vec3 uLand;
 uniform vec3 uRocks;
+uniform vec3 uAtmosphere;
 varying vec3 wPosition;
 varying float distanceFromCamera;
 

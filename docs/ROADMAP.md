@@ -386,6 +386,18 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; bypass restored after the boost. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
 - **Documentation:** [Rendering](RENDERING.md), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
 
+### `FEAT-002`: Day/Night Cycle
+
+- **Status:** In progress
+- **User value:** Gives the flight a sense of time and variety: sunrise, daylight, sunset, and a starry night over the same procedural world.
+- **Behavior:** Time of day advances continuously (default `240` seconds per day, start `0.3`). The sky dome shows a horizon-to-zenith gradient, sun and moon discs, and stars at night. Lights, fog, background, and the distant-terrain atmosphere follow keyframed palettes; shading follows the sun or moon. At night the trails dim and the airplane shows navigation lights. `?time=` sets the start, and the `?gui=1` **Day/night** folder scrubs, pauses, or changes the duration.
+- **Dependencies:** None blocking. Trees and clouds already share `uAtmosphere` for reactivation. Frame-time acceptance depends on `OBS-001`.
+- **Affected systems:** Rendering (sky `ShaderMaterial`, shared `uAtmosphere`, lights, fog), `Plane` (trail tint, navigation sprites), frame loop, debug GUI, tests.
+- **Performance budget:** One extra draw call for the sky (32×16 sphere, stars branch skipped by day), up to three additive sprites at night, no `PointLight`, no shadows, and no per-frame allocation in the policy or runtime.
+- **Options:** Palette interpolation with a gradient dome was chosen over the Three.js `Sky` addon (physically based but less stylized, and it needs tone mapping) and over flat background colors (no celestial bodies).
+- **Acceptance criteria:** No shader errors. The horizon has no seam between the sky and fogged terrain. The light direction never jumps while lit. The dusk keyframe matches the original static look. Stars and navigation lights appear only at night. Pure policy tests pass. Verified so far in headless Chrome (SwiftShader) on desktop and a 390 px mobile viewport. Remaining: real mobile devices, frame-time measurement (`OBS-001`), and art-direction tuning of the palettes, especially night water saturation without tone mapping.
+- **Documentation:** [Rendering](RENDERING.md#daynight-cycle), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), [Assets](ASSETS.md).
+
 Add further features with this template:
 
 ```markdown

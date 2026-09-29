@@ -1,6 +1,7 @@
 import {
 	BufferAttribute,
 	BufferGeometry,
+	Color,
 	DoubleSide,
 	DynamicDrawUsage,
 	MathUtils,
@@ -8,6 +9,7 @@ import {
 	MeshBasicMaterial,
 	Object3D,
 	Quaternion,
+	SRGBColorSpace,
 	Vector2,
 	Vector3,
 } from 'three'
@@ -93,6 +95,7 @@ export default class Plane extends Object3D {
 			uTrailInnerAmplitude: { value: this.params.trails.innerEdge.amplitude },
 			uTrailOscillationFrequency: { value: this.params.trails.oscillation.frequency },
 			uTrailOscillationAmplitude: { value: this.params.trails.oscillation.amplitude },
+			uTrailTint: { value: new Color(1, 1, 1) },
 		}
 
 		const positions = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 3)
@@ -174,6 +177,7 @@ export default class Plane extends Object3D {
 				uniform float uTrailInnerAmplitude;
 				uniform float uTrailOscillationFrequency;
 				uniform float uTrailOscillationAmplitude;
+				uniform vec3 uTrailTint;
 				`,
 			)
 
@@ -220,11 +224,20 @@ export default class Plane extends Object3D {
 				if (halfWidth <= 0.0001 || edge < outerEdge - outlineWidth
 					|| edge > innerEdge + outlineWidth) discard;
 				float core = step(outerEdge, edge) * step(edge, innerEdge);
-				diffuseColor.rgb *= mix(vec3(0.03), vec3(1.0), core);
+				diffuseColor.rgb *= mix(vec3(0.03), uTrailTint, core);
 				diffuseColor.a *= mix(0.65, 1.0, smoothstep(0.75, 2.5, widthInPixels));
 				`,
 			)
 		}
+	}
+
+	setDayNight({ trailTint }) {
+		this.trailUniforms.uTrailTint.value.setRGB(
+			trailTint[0],
+			trailTint[1],
+			trailTint[2],
+			SRGBColorSpace,
+		)
 	}
 
 	updateTrails() {

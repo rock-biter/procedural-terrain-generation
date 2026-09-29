@@ -3,6 +3,8 @@ import * as THREE from 'three'
 import * as dat from 'lil-gui'
 import Chunk, { CURVATURE } from './src/chunk'
 import ChunkManager from './src/chunkManager'
+import DayNight from './src/dayNight'
+import { DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './src/dayNightPolicy'
 import { getHeight } from './src/chunkGeometry'
 import { isDebugEnabled } from './src/debugPolicy'
 import FlightPauseDebug from './src/flightPauseDebug'
@@ -166,8 +168,14 @@ if (urlParams.get('gui') === '1') gui = new dat.GUI()
 
 const params = {
 	speedEffect: 0,
+	// Peak intensities; the day/night cycle scales them every frame.
 	directionalLight: 6,
 	ambientLight: 1.5,
+	dayNight: {
+		timeOfDay: parseTimeOfDay(urlParams) ?? DAY_NIGHT_DEFAULTS.startTimeOfDay,
+		cycleDuration: DAY_NIGHT_DEFAULTS.cycleDuration,
+		paused: false,
+	},
 	amplitude: 23,
 	frequency: {
 		x: 0.5,
@@ -179,7 +187,6 @@ const params = {
 	lacunarity: 2,
 	persistance: 0.5,
 	LOD: 0,
-	fog: 0x191362,
 	colors: {
 		uGrass: '#6d976d',
 		uLand: '#5e551d',
@@ -212,16 +219,13 @@ const uniforms = {
 	uLand: { value: new THREE.Color(params.colors.uLand) },
 	uGrass: { value: new THREE.Color(params.colors.uGrass) },
 	uRocks: { value: new THREE.Color(params.colors.uRocks) },
+	// Written by DayNight before the first render.
+	uAtmosphere: { value: new THREE.Color() },
 }
 
 if (gui) {
 	gui.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
 		plane.updateSpeedEffect(val)
-	})
-
-	gui.addColor(params, 'fog').onChange((val) => {
-		scene.background.set(val)
-		scene.fog.color.set(val)
 	})
 
 	gui.addColor(params.colors, 'uGrass').onChange((val) => {
@@ -266,12 +270,18 @@ if (gui) {
 		.add(params, 'zOffset', -10, 10, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
 
-	gui
-		.add(params, 'directionalLight', 0, 10, 0.1)
-		.onChange((val) => (directionalLight.intensity = val))
-	gui
-		.add(params, 'ambientLight', 0, 10, 0.1)
-		.onChange((val) => (ambientLight.intensity = val))
+	gui.add(params, 'directionalLight', 0, 10, 0.1)
+	gui.add(params, 'ambientLight', 0, 10, 0.1)
+
+	const dayNightFolder = gui.addFolder('Day/night')
+	dayNightFolder
+		.add(params.dayNight, 'timeOfDay', 0, 0.9999, 0.0001)
+		.name('Time of day')
+		.listen()
+	dayNightFolder
+		.add(params.dayNight, 'cycleDuration', 10, 1200, 1)
+		.name('Cycle duration (s)')
+	dayNightFolder.add(params.dayNight, 'paused').name('Paused')
 
 	const updatePost = () =>
 		postProcessing.speedEffect.setParams(params.postProcessing)
@@ -429,6 +439,7 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getFlightStats: () => plane?.getStats() ?? null,
 	getPostProcessingStats: () => postProcessing.getStats(),
 	getDebugStats: () => flightPause?.getStats() ?? null,
+	getDayNightStats: () => dayNight.getStats(),
 })
 
 function init(assets) {
@@ -479,12 +490,10 @@ function init(assets) {
  * Lights
  */
 const ambientLight = new THREE.AmbientLight(0xffffff, params.ambientLight)
-const directionalLight = new THREE.DirectionalLight(
-	0xffffff,
-	params.directionalLight,
-)
-directionalLight.position.set(1, 1, 1)
-scene.add(ambientLight, directionalLight)
+// DayNight drives color, intensity, and direction of both lights every frame.
+const sunLight = new THREE.DirectionalLight(0xffffff, params.directionalLight)
+const moonLight = new THREE.DirectionalLight(0xffffff, 0)
+scene.add(ambientLight, sunLight, moonLight)
 
 /**
  * Three js Timer
@@ -492,9 +501,20 @@ scene.add(ambientLight, directionalLight)
 const timer = new THREE.Timer()
 timer.connect(document)
 
-scene.fog = new THREE.Fog(params.fog, 250, 900)
-scene.background = new THREE.Color(params.fog)
+// Fog and background colors follow the day/night horizon color.
+scene.fog = new THREE.Fog(0x000000, 250, 900)
+scene.background = new THREE.Color()
 // scene.background = new THREE.Color('white')
+
+const dayNight = new DayNight({
+	scene,
+	camera,
+	ambientLight,
+	sunLight,
+	moonLight,
+	uniforms,
+	params,
+})
 
 /**
  * frame loop
@@ -524,6 +544,8 @@ function tic(timestamp) {
 	// update uniforms values
 	uniforms.uTime.value = time
 	uniforms.uCamera.value.copy(plane.position)
+
+	plane.setDayNight(dayNight.update(deltaTime))
 
 	chunkManager.updateChunks()
 

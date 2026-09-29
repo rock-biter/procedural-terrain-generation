@@ -9,6 +9,7 @@ import {
 	MultiplyBlending,
 	RepeatWrapping,
 	Scene,
+	ShaderChunk,
 	TextureLoader,
 	Vector2,
 	Vector3,
@@ -19,6 +20,7 @@ import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
+import curvedLightTerminator from './shaders/curved-light-terminator.glsl'
 import Trees from './trees'
 import Clouds from './clouds'
 import { getHeight } from './chunkGeometry'
@@ -41,6 +43,16 @@ const material = new MeshStandardMaterial({
 
 // Shared with GLSL through the `uCurvature` uniform created in main.js.
 export const CURVATURE = 3000
+
+// Three.js r186 include text; an upgrade that renames it disables the terminator.
+const DIRECTIONAL_LIGHT_INFO = 'getDirectionalLightInfo( directionalLight, directLight );'
+if (!ShaderChunk.lights_fragment_begin.includes(DIRECTIONAL_LIGHT_INFO)) {
+	console.warn('Curved light terminator: lights_fragment_begin hook not found')
+}
+const curvedLightsFragment = ShaderChunk.lights_fragment_begin.replace(
+	DIRECTIONAL_LIGHT_INFO,
+	`${DIRECTIONAL_LIGHT_INFO}\n${curvedLightTerminator}`,
+)
 const V2 = new Vector2(0, 0)
 const DEFAULT_FEATURES = Object.freeze({
 	trees: true,
@@ -114,6 +126,7 @@ export default class Chunk extends Mesh {
 				common +
 					`
 				attribute float height;
+				varying vec3 vSphereNormal;
 				`,
 			)
 			shader.vertexShader = shader.vertexShader.replace(
@@ -122,11 +135,18 @@ export default class Chunk extends Mesh {
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <common>',
-				common,
+				common +
+					`
+				varying vec3 vSphereNormal;
+				`,
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <color_fragment>',
 				colorFragment,
+			)
+			shader.fragmentShader = shader.fragmentShader.replace(
+				'#include <lights_fragment_begin>',
+				curvedLightsFragment,
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <normal_fragment_maps>',
