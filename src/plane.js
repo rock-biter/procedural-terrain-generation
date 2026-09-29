@@ -53,6 +53,7 @@ export default class Plane extends Object3D {
 	intialTan
 	RATIO
 	acceleration = 0
+	inputEnabled = true
 	uniforms = {
 		uAcceleration: { value: 0 },
 	}
@@ -148,8 +149,7 @@ export default class Plane extends Object3D {
 				varying vec2 vTrailWidths;
 				varying float vTrailDistance;
 				varying float vTrailBank;
-				varying vec2 vUV;
-				varying vec3 vTrailWorldPosition;`,
+				varying vec2 vUV;`,
 			)
 
 			shader.vertexShader = shader.vertexShader.replace(
@@ -165,7 +165,6 @@ export default class Plane extends Object3D {
 				varying float vTrailDistance;
 				varying float vTrailBank;
 				varying vec2 vUV;
-				varying vec3 vTrailWorldPosition;
 				uniform float uTrailRibbonWidth;
 				uniform float uTrailLineWidth;
 				uniform float uTrailBorderWidth;
@@ -184,9 +183,12 @@ export default class Plane extends Object3D {
 				#include <color_fragment>
 				float side = step(0.5, vUV.x);
 				float widthFactor = side > 0.5 ? vTrailWidths.y : vTrailWidths.x;
+				// Trail space: arc length along the flown path, so the edge noise keeps
+				// the same frequency in turns and stays attached to emitted sections.
+				// The 0.5 scale keeps the existing GUI frequencies close to their old look.
 				vec2 noisePosition = vec2(
-					vTrailWorldPosition.x * 0.35 + vTrailWorldPosition.z * 0.5 + side * 19.0,
-					vTrailWorldPosition.z * 0.35 + vTrailWorldPosition.y * 0.5 + side * 31.0
+					vTrailDistance * 0.5 + side * 19.0,
+					side * 31.0
 				);
 				float taper = max(0.0, sin(3.14159265 * vUV.y));
 				float noiseFade = taper * taper;
@@ -226,15 +228,11 @@ export default class Plane extends Object3D {
 	}
 
 	updateTrails() {
-		this.trailUniforms.uTrailRibbonWidth.value = this.params.trails.ribbonWidth
-		this.trailUniforms.uTrailLineWidth.value = this.params.trails.lineWidth
-		this.trailUniforms.uTrailBorderWidth.value = this.params.trails.borderWidth
-		this.trailUniforms.uTrailOuterFrequency.value = this.params.trails.outerEdge.frequency
-		this.trailUniforms.uTrailOuterAmplitude.value = this.params.trails.outerEdge.amplitude
-		this.trailUniforms.uTrailInnerFrequency.value = this.params.trails.innerEdge.frequency
-		this.trailUniforms.uTrailInnerAmplitude.value = this.params.trails.innerEdge.amplitude
-		this.trailUniforms.uTrailOscillationFrequency.value = this.params.trails.oscillation.frequency
-		this.trailUniforms.uTrailOscillationAmplitude.value = this.params.trails.oscillation.amplitude
+		this.recordTrailPose()
+		this.refreshTrails()
+	}
+
+	recordTrailPose() {
 		this.updateWorldMatrix(true, false)
 		this.model.getWorldQuaternion(this.trailQuaternion)
 		this.trailForward.set(0, 0, 1).applyQuaternion(this.quaternion)
@@ -257,6 +255,20 @@ export default class Plane extends Object3D {
 			getTrailBankFactor(this.model.rotation.z),
 			TRAIL_LENGTH,
 		)
+	}
+
+	// Applies params.trails to the uniforms and rebuilds the ribbon from the
+	// recorded history without adding a pose, so it is safe while flight is paused.
+	refreshTrails() {
+		this.trailUniforms.uTrailRibbonWidth.value = this.params.trails.ribbonWidth
+		this.trailUniforms.uTrailLineWidth.value = this.params.trails.lineWidth
+		this.trailUniforms.uTrailBorderWidth.value = this.params.trails.borderWidth
+		this.trailUniforms.uTrailOuterFrequency.value = this.params.trails.outerEdge.frequency
+		this.trailUniforms.uTrailOuterAmplitude.value = this.params.trails.outerEdge.amplitude
+		this.trailUniforms.uTrailInnerFrequency.value = this.params.trails.innerEdge.frequency
+		this.trailUniforms.uTrailInnerAmplitude.value = this.params.trails.innerEdge.amplitude
+		this.trailUniforms.uTrailOscillationFrequency.value = this.params.trails.oscillation.frequency
+		this.trailUniforms.uTrailOscillationAmplitude.value = this.params.trails.oscillation.amplitude
 
 		const geometry = this.trails.geometry
 		const positions = geometry.attributes.position.array
@@ -559,6 +571,10 @@ export default class Plane extends Object3D {
 		this.updateTrails()
 	}
 
+	setInputEnabled(enabled) {
+		this.inputEnabled = enabled
+	}
+
 	addCamera(camera) {
 		if (!camera) return
 
@@ -594,6 +610,7 @@ export default class Plane extends Object3D {
 
 	initCursor() {
 		window.addEventListener('mousemove', (e) => {
+			if (!this.inputEnabled) return
 			const x = (e.clientX / innerWidth) * 2 - 1
 			this.pointerYRatio = e.clientY / innerHeight
 			const y = 1 - this.pointerYRatio * 2
@@ -602,7 +619,7 @@ export default class Plane extends Object3D {
 		})
 
 		window.addEventListener('wheel', (e) => {
-			if (e.deltaY === 0) return
+			if (!this.inputEnabled || e.deltaY === 0) return
 			gsap.to(this, {
 				acceleration: e.deltaY > 0 ? 1 : -1,
 				duration: 0.2,
@@ -614,6 +631,7 @@ export default class Plane extends Object3D {
 		})
 
 		window.addEventListener('touchmove', (e) => {
+			if (!this.inputEnabled) return
 			const touch = e.touches[0]
 			const x = (touch.clientX / innerWidth) * 2 - 1
 			this.pointerYRatio = touch.clientY / innerHeight

@@ -50,7 +50,20 @@ Keep audio playback behind a user gesture to comply with browser autoplay polici
 - Scrolling down animates the speed effect toward `1`, boosting speed up to three times cruise speed. Scrolling up animates it toward `-1`, braking to no less than `95%` of cruise speed.
 - `touchmove` applies the same vertical bands to the first touch and reduces horizontal input by dividing it by `1.5`.
 
-There are no keyboard controls. Do not document or expose a control until it is implemented and manually verified.
+- Every flight listener returns early while `Plane.inputEnabled` is `false`, which is the case during the debug flight pause.
+
+There are no player keyboard controls. The only keyboard shortcut is the debug flight pause below. Do not document or expose a control until it is implemented and manually verified.
+
+## Debug Flight Pause
+
+With `?debug=1`, [`src/flightPauseDebug.js`](../src/flightPauseDebug.js) registers a `keydown` listener. Without the flag, neither the listener nor the controls exist.
+
+- The physical **P** key (`KeyP`, so every keyboard layout uses the same key) toggles the pause. Repeated key events, Ctrl/Meta/Alt chords, and presses inside text inputs, selects, or editable elements are ignored ([`src/debugPolicy.js`](../src/debugPolicy.js)).
+- Pausing is possible only after the play intro finishes, because the intro tweens the camera and speed.
+- The pause freezes only the flight: `Plane.update()` is skipped, so movement, altitude, and camera follow stop, and no new trail poses are recorded. Each paused frame still calls `Plane.refreshTrails()`, so the **Trails** GUI sliders (`?gui=1`) change the frozen trail in real time. The global timer, `uTime`, chunk streaming, and rendering keep running. The speed effect is forced to `0`, so post-processing uses its idle bypass.
+- On pause, the plane's pointer, wheel, and touch input is disabled, any running `acceleration` tween is killed, and the camera is detached into world space with `scene.attach()`. `OrbitControls` then orbits, pans, and zooms around the plane's world position, from `2` to `600` units. The controls are created on the first pause, not at startup, because the `OrbitControls` constructor calls `lookAt()` and would otherwise rotate the follow camera while it is still a child of the plane.
+- On resume, the camera is re-parented to the plane and its saved local position, orientation, and FOV are restored, so the flight view continues without a jump.
+- Chunk streaming and curvature stay centered on the plane, not on the orbit camera. Moving far from the plane therefore shows the edge of the loaded world and curvature that is not centered on the view.
 
 ## Movement And Camera
 

@@ -39,7 +39,8 @@ const material = new MeshStandardMaterial({
 	// flatShading: true,
 })
 
-const CURVATURE = 3000
+// Shared with GLSL through the `uCurvature` uniform created in main.js.
+export const CURVATURE = 3000
 const V2 = new Vector2(0, 0)
 const DEFAULT_FEATURES = Object.freeze({
 	trees: true,
@@ -73,7 +74,6 @@ export default class Chunk extends Mesh {
 		this.LOD = LOD
 		this.params = params
 		this.uniforms = uniforms
-		this.uniforms.uCurvature = { value: CURVATURE }
 		this.boat = assets.boatModel
 		this.assets = assets
 		this.features = features

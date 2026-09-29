@@ -73,6 +73,7 @@ When updating dependencies, keep `package.json` and `pnpm-lock.yaml` in sync and
 - Browser console errors and failed network requests are the first checks when the page remains on the loader.
 - Shader compilation failures appear in the browser console, not necessarily during `pnpm build`.
 - The optional `lil-gui` setup in `main.js` is enabled only with `?gui=1`. It includes terrain, color, light, speed-effect, and trail controls; the **Speed effect > preview** slider holds the blur and chromatic aberration on while tuning. The **Trails** folder changes ribbon width, line and black-border thickness, separate frequency and amplitude for the inner and outer edges, and frequency and amplitude of the stripe oscillation. With the GUI enabled, the play action does not start the soundtrack.
+- `?debug=1` enables the terrain-sample markers and the flight pause. After the play intro, **P** freezes the airplane while global time keeps running and switches the camera to `OrbitControls`. See [Experience](EXPERIENCE.md#debug-flight-pause). `window.__INFINITE_WORLD__.getDebugStats()` reports the pause state.
 
 ## Open Questions
 

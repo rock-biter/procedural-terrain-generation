@@ -1,11 +1,11 @@
 import './style.css'
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import { FlyControls } from 'three/examples/jsm/controls/FlyControls'
 import * as dat from 'lil-gui'
-import Chunk from './src/chunk'
+import Chunk, { CURVATURE } from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import { getHeight } from './src/chunkGeometry'
+import { isDebugEnabled } from './src/debugPolicy'
+import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
 import TerrainSampleDebug from './src/terrainSampleDebug'
@@ -30,7 +30,8 @@ const worldFeatures = Object.freeze({
 	boats: false,
 })
 const debugFeatures = Object.freeze({
-	terrainSamples: urlParams.get('debug') === '1',
+	terrainSamples: isDebugEnabled(urlParams),
+	flightPause: isDebugEnabled(urlParams),
 })
 
 const assets = {
@@ -86,6 +87,7 @@ loaderManager.onLoad = () => {
 								// x: 0,
 								onComplete: () => {
 									plane.addEffect()
+									if (flightPause) flightPause.canPause = true
 								},
 							},
 						)
@@ -192,10 +194,10 @@ const params = {
 	},
 	trails: {
 		ribbonWidth: 9.6,
-		lineWidth: 0.98,
-		borderWidth: 0.065,
-		outerEdge: { frequency: 2.7, amplitude: 0.475 },
-		innerEdge: { frequency: 2.1, amplitude: 0.325 },
+		lineWidth: 0.65,
+		borderWidth: 0.08,
+		outerEdge: { frequency: 1.8, amplitude: 0.5 },
+		innerEdge: { frequency: 1.6, amplitude: 0.5 },
 		oscillation: { frequency: 0.03, amplitude: 0.3 },
 	},
 }
@@ -204,6 +206,7 @@ const uniforms = {
 	uTime: { value: 0 },
 	uRocksColor: { value: new THREE.Color('brown') },
 	uCamera: { value: new THREE.Vector3() },
+	uCurvature: { value: CURVATURE },
 	uLand: { value: new THREE.Color(params.colors.uLand) },
 	uGrass: { value: new THREE.Color(params.colors.uGrass) },
 	uRocks: { value: new THREE.Color(params.colors.uRocks) },
@@ -413,12 +416,13 @@ const chunkSize = 256
 // scene.add(plane)
 // plane.camera = camera
 // plane.add(camera)
-let chunkManager, plane, terrainSampleDebug
+let chunkManager, plane, terrainSampleDebug, flightPause
 
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
 	getFlightStats: () => plane?.getStats() ?? null,
 	getPostProcessingStats: () => postProcessing.getStats(),
+	getDebugStats: () => flightPause?.getStats() ?? null,
 })
 
 function init(assets) {
@@ -448,6 +452,14 @@ function init(assets) {
 	if (debugFeatures.terrainSamples) {
 		terrainSampleDebug = new TerrainSampleDebug(uniforms)
 		scene.add(terrainSampleDebug)
+	}
+	if (debugFeatures.flightPause) {
+		flightPause = new FlightPauseDebug({
+			plane,
+			camera,
+			scene,
+			domElement: renderer.domElement,
+		})
 	}
 	// plane.addCamera(camera)
 	// plane.camera = camera
@@ -493,7 +505,10 @@ function tic(timestamp) {
 	 */
 	const time = timer.getElapsed()
 
-	plane.update(Math.min(deltaTime, 0.016))
+	// The debug pause freezes only the flight; global time keeps advancing.
+	const isFlightPaused = flightPause?.paused ?? false
+	if (isFlightPaused) flightPause.update()
+	else plane.update(Math.min(deltaTime, 0.016))
 	terrainSampleDebug?.update(plane.flightCorridor?.samples)
 	// camera.position.copy(plane.position.clone())
 	// camera.position.z += -20
@@ -508,7 +523,9 @@ function tic(timestamp) {
 
 	// controls.update(deltaTime)
 
-	postProcessing.setSpeedEffect(plane.uniforms.uAcceleration.value)
+	postProcessing.setSpeedEffect(
+		isFlightPaused ? 0 : plane.uniforms.uAcceleration.value,
+	)
 	postProcessing.render(deltaTime)
 
 	requestAnimationFrame(tic)
