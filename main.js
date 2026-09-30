@@ -223,6 +223,17 @@ const params = {
 		uLand: '#5e551d',
 		uRocks: '#521f00',
 	},
+	// Soft lighter patches on land from a world-space noise: frequency (per world
+	// unit), intensity (0.3 = up to 30% brighter), threshold (noise value in
+	// [0, 1] where lightening starts), softness (transition half-width), and
+	// speed (noise drift per second).
+	terrainColorNoise: {
+		frequency: 0.012,
+		intensity: 0.75,
+		threshold: 0.61,
+		softness: 0.3,
+		speed: 0.25,
+	},
 	// Normal map, tile size (world units), and strength per terrain layer;
 	// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
 	terrainNormals: createTerrainNormalSettings(),
@@ -275,6 +286,11 @@ const uniforms = {
 	// Written by DayNight before the first render.
 	uAtmosphere: { value: new THREE.Color() },
 	uBiomeOffset: { value: new THREE.Vector2(...createBiomeOffset(worldSeed)) },
+	uColorNoiseFrequency: { value: params.terrainColorNoise.frequency },
+	uColorNoiseIntensity: { value: params.terrainColorNoise.intensity },
+	uColorNoiseThreshold: { value: params.terrainColorNoise.threshold },
+	uColorNoiseSoftness: { value: params.terrainColorNoise.softness },
+	uColorNoiseSpeed: { value: params.terrainColorNoise.speed },
 	...createTerrainNormalUniforms(params.terrainNormals),
 }
 // Uniforms shared with the impostor material; amount is indexed by type.
@@ -332,6 +348,23 @@ if (gui) {
 	terrainFolder
 		.add(params, 'zOffset', -10, 10, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
+
+	const colorNoiseFolder = terrainFolder.addFolder('Color noise')
+	const colorNoiseControls = [
+		['frequency', 'Frequency', 0.0005, 0.05, 0.0005, 'uColorNoiseFrequency'],
+		['intensity', 'Intensity', 0, 1, 0.01, 'uColorNoiseIntensity'],
+		['threshold', 'Threshold', 0, 1, 0.01, 'uColorNoiseThreshold'],
+		['softness', 'Softness', 0.01, 0.5, 0.01, 'uColorNoiseSoftness'],
+		['speed', 'Speed', 0, 0.3, 0.005, 'uColorNoiseSpeed'],
+	]
+	for (const [key, label, min, max, step, uniform] of colorNoiseControls) {
+		colorNoiseFolder
+			.add(params.terrainColorNoise, key, min, max, step)
+			.name(label)
+			.onChange((value) => {
+				uniforms[uniform].value = value
+			})
+	}
 
 	const desertFolder = terrainFolder.addFolder('Desert topography')
 	desertFolder

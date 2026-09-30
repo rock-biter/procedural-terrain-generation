@@ -73,6 +73,8 @@ pctLine = step(wPosition.y + sin(wPosition.x * 0.15) * 5. + cos(wPosition.z * 0.
 float pct3 = step(wPosition.y + sin(wPosition.x * 0.15) * 5. + cos(wPosition.z * 0.15) * 5., 40.2);
 diffuseColor.rgb = mix(vec3(0., 0., 0.), diffuseColor.rgb, pctLine);
 diffuseColor.rgb = mix(snowBiomes, diffuseColor.rgb, pct3);
+// Soft lighter patches on land only; the sea keeps its depth colors.
+diffuseColor.rgb *= mix(1.0, getTerrainColorShade(biomeXZ), step(0.1, wPosition.y));
 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.0), biomeBoundary * step(0.1, wPosition.y));
 
 // Layer for normal-fragment-map.glsl, indexed like TERRAIN_BANDS in

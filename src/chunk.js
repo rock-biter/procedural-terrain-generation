@@ -17,6 +17,7 @@ import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
+import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
 import { getTerrainNormalTexture, TERRAIN_NORMAL_LAYERS } from './terrainNormals'
 import { curvedLightsFragment } from './curvedLights'
 import { createImpostorMesh } from './impostors/impostorMaterial'
@@ -125,6 +126,8 @@ export default class Chunk extends Mesh {
 				common +
 					'\n' +
 					terrainNormalPars +
+					'\n' +
+					terrainColorNoisePars +
 					`
 				varying vec3 vSphereNormal;
 				`,
