@@ -3,15 +3,28 @@ import { createBiomeOffset } from './biome'
 import Chunk from './chunk'
 import { createChunkGeometry, createTerrainNoises } from './chunkGeometry'
 import {
+	CHUNK_STREAMING,
 	getChunkKey,
-	getChunkLOD,
 	getDesiredChunks,
-	hasSceneryAtLOD,
+	getHeadingSector,
+	getSectorDirection,
 	needsSceneryPlacement,
 } from './chunkPolicy'
 import ChunkWorkerPool from './chunkWorkerPool'
 
 const isMobile = window.innerWidth < 768
+
+// Work already running for a target stays valid across a reconcile when it
+// produces exactly what the new target asks for.
+function canAdoptJob(job, target, chunk) {
+	if (job.scenery !== target.scenery || job.LOD !== target.LOD) return false
+	if (!chunk) return job.type === 'create'
+	if (job.type === 'updateLOD') return !job.forceLOD
+	return (
+		(job.type === 'regenerate' || job.type === 'scenery') &&
+		chunk.LOD === target.LOD
+	)
+}
 
 export default class ChunkManager {
 	chunks = new Map()
@@ -19,13 +32,16 @@ export default class ChunkManager {
 	pending = new Map()
 	inFlight = new Map()
 	lastChunkVisited = null
+	headingSector = null
+	forward = new Vector3()
 	revision = 0
 	created = 0
 	disposed = 0
 	generated = 0
 	stale = 0
 	failed = 0
-	maxDistance = isMobile ? 4 : 5
+	streaming = isMobile ? CHUNK_STREAMING.mobile : CHUNK_STREAMING.desktop
+	maxDistance = this.streaming.maxDistance
 	jobsPerFrame = isMobile ? 2 : 3
 	density = isMobile ? 4 : 2
 
@@ -64,14 +80,17 @@ export default class ChunkManager {
 	}
 
 	getLODbyCoords(k, w) {
-		const [i, j] = this.getCoordsByCamera()
-
-		return getChunkLOD(Math.hypot(k - i, w - j))
+		return this.desired.get(getChunkKey(k, w))?.LOD
 	}
 
 	reconcileChunks(i, j) {
+		const previousRevision = this.revision
 		this.revision++
-		this.desired = getDesiredChunks(i, j, this.maxDistance)
+		this.desired = getDesiredChunks(i, j, this.maxDistance, {
+			heading: getSectorDirection(this.headingSector),
+			lookAhead: this.streaming.lookAhead,
+			rearDistance: this.streaming.rearDistance,
+		})
 
 		for (const key of this.chunks.keys()) {
 			if (!this.desired.has(key)) this.disposeChunk(key)
@@ -84,12 +103,31 @@ export default class ChunkManager {
 		for (const target of this.desired.values()) {
 			const chunk = this.chunks.get(target.key)
 			const pending = this.pending.get(target.key)
-			// A scenery refresh must survive the new revision, whether its job is
-			// still queued or in flight (an in-flight result is now stale).
-			const sceneryWork = [pending, this.inFlight.get(target.key)].find(
+			const inFlight = this.inFlight.get(target.key)
+
+			// Heading changes reconcile often; keep a current in-flight result
+			// instead of discarding it and generating the same data again.
+			if (
+				!pending &&
+				inFlight?.revision === previousRevision &&
+				canAdoptJob(inFlight, target, chunk)
+			) {
+				inFlight.revision = this.revision
+				inFlight.distance = target.distance
+				inFlight.priority = target.priority
+				continue
+			}
+
+			// Scenery refreshes and parameter regenerations must survive the new
+			// revision, whether queued or in flight (an in-flight result is now
+			// stale).
+			const sceneryWork = [pending, inFlight].find(
 				(job) => job?.type === 'scenery' || job?.refreshScenery,
 			)
 			const refreshScenery = Boolean(sceneryWork)
+			const regenerate = [pending, inFlight].some(
+				(job) => job?.type === 'regenerate',
+			)
 
 			if (!chunk) {
 				this.pending.set(target.key, {
@@ -104,13 +142,18 @@ export default class ChunkManager {
 					revision: this.revision,
 					refreshScenery,
 				})
-			} else if (pending?.type === 'regenerate') {
+			} else if (regenerate) {
 				this.pending.set(target.key, {
-					...pending,
-					distance: target.distance,
+					...target,
+					type: 'regenerate',
 					revision: this.revision,
+					refreshScenery,
 				})
-			} else if (refreshScenery && hasSceneryAtLOD(chunk.LOD)) {
+			} else if (
+				this.features.scenery &&
+				target.scenery &&
+				(refreshScenery || !chunk.hasScenery)
+			) {
 				this.pending.set(target.key, {
 					...target,
 					type: 'scenery',
@@ -118,6 +161,8 @@ export default class ChunkManager {
 				})
 			} else {
 				this.pending.delete(target.key)
+				// Scenery range is radial and can end without a LOD change.
+				if (!target.scenery) chunk.clearScenery()
 			}
 		}
 	}
@@ -146,7 +191,7 @@ export default class ChunkManager {
 
 	processPendingJobs() {
 		const jobs = [...this.pending.values()].sort(
-			(a, b) => a.distance - b.distance,
+			(a, b) => a.priority - b.priority,
 		)
 		let processed = 0
 
@@ -163,6 +208,8 @@ export default class ChunkManager {
 			if (!generation) break
 
 			this.pending.delete(job.key)
+			// An adopted job gets a newer revision; the response echoes this one.
+			job.requestRevision = job.revision
 			this.inFlight.set(job.key, job)
 			generation.then(
 				(data) => this.commitWorkerResult(job, data),
@@ -180,7 +227,7 @@ export default class ChunkManager {
 			this.features.scenery &&
 			needsSceneryPlacement(
 				job.type,
-				job.LOD,
+				job.scenery,
 				this.chunks.get(job.key)?.hasScenery ?? false,
 				job.refreshScenery,
 			)
@@ -223,7 +270,7 @@ export default class ChunkManager {
 
 		if (
 			response.key !== job.key ||
-			response.revision !== job.revision ||
+			response.revision !== job.requestRevision ||
 			!this.isJobCurrent(job)
 		) {
 			this.stale++
@@ -260,7 +307,7 @@ export default class ChunkManager {
 		}
 
 		if (response.scenery) chunk.setScenery(response.scenery)
-		else if (!hasSceneryAtLOD(job.LOD)) chunk.clearScenery()
+		else if (!job.scenery) chunk.clearScenery()
 
 		this.generated++
 	}
@@ -298,9 +345,14 @@ export default class ChunkManager {
 	updateChunks() {
 		const [i, j] = this.getCoordsByCamera()
 		const currentChunkKey = getChunkKey(i, j)
+		const headingSector = this.getHeadingSector()
 
-		if (currentChunkKey !== this.lastChunkVisited) {
+		if (
+			currentChunkKey !== this.lastChunkVisited ||
+			headingSector !== this.headingSector
+		) {
 			this.lastChunkVisited = currentChunkKey
+			this.headingSector = headingSector
 			this.reconcileChunks(i, j)
 			return
 		}
@@ -371,7 +423,7 @@ export default class ChunkManager {
 					type: 'create',
 					revision: this.revision,
 				})
-			} else if (hasSceneryAtLOD(chunk.LOD)) {
+			} else if (target.scenery) {
 				this.pending.set(key, {
 					...target,
 					LOD: chunk.LOD,
@@ -404,10 +456,17 @@ export default class ChunkManager {
 			failed: this.failed,
 			workers: this.workerPool.size,
 			revision: this.revision,
+			headingSector: this.headingSector,
 			seed: this.seed,
 			sceneryChunks,
 			sceneryInstances,
 		}
+	}
+
+	// The tracked object is the Plane, whose local +Z is its flight direction.
+	getHeadingSector() {
+		this.camera.getWorldDirection(this.forward)
+		return getHeadingSector(this.forward.x, this.forward.z, this.headingSector)
 	}
 
 	getCoordsByCamera() {

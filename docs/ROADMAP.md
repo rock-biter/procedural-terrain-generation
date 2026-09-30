@@ -54,7 +54,7 @@ Time estimates from unmeasured hardware are intentionally excluded. Static opera
 main.js: tic()
   -> Plane.update()
   -> ChunkManager.updateChunks()
-     -> on a chunk boundary, build a symmetric desired Map
+     -> on a chunk boundary or heading-sector change, build a heading-biased desired Map
      -> dispose every live chunk outside the desired set
      -> cancel obsolete work and enqueue one keyed job per coordinate
      -> on later frames, sort pending jobs and dispatch into a bounded pool
@@ -66,7 +66,7 @@ main.js: tic()
             -> main thread validates key + revision
                  -> wrap buffers in BufferGeometry
                  -> create Chunk or replace its geometry
-                 -> scenery placement when LOD <= 2 (transferred Float32Array)
+                 -> scenery placement within the radial range (transferred Float32Array)
             -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk
                  -> [disabled] clouds / boats
   -> renderer.render()
@@ -81,30 +81,30 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 - Chunk size: `256`.
 - Default octaves: `3`.
 - `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and three biome-field samples. Near a biome border the two detail octaves are evaluated twice, for seven terrain samples.
-- Desktop uses `maxDistance = 5`, terrain density divisor `2`, and tree step `5`.
-- Mobile uses `maxDistance = 4`, terrain density divisor `4`, and tree step `8`.
-- Counts model the symmetric desired-set policy. Keyed pending work prevents duplicate jobs for one coordinate.
+- Desktop uses `maxDistance = 6`, `lookAhead = 2`, `rearDistance = 3`, terrain density divisor `2`, and a `4`-unit scenery cell.
+- Mobile uses `maxDistance = 5`, `lookAhead = 1`, `rearDistance = 2.5`, terrain density divisor `4`, and an `8`-unit scenery cell.
+- Counts model the heading-biased desired set with a northward heading; diagonal headings differ by a few chunks. Keyed pending work prevents duplicate jobs for one coordinate.
 
 ### Desired Window At Startup
 
-| Metric                         |                                           Desktop |                               Mobile |
-| ------------------------------ | ------------------------------------------------: | -----------------------------------: |
-| Desired chunks                 |                                                81 |                                   49 |
-| LOD distribution               | 9 at LOD 0, 16 at LOD 1, 36 at LOD 2, 20 at LOD 3 | 9 at LOD 0, 16 at LOD 1, 24 at LOD 2 |
-| Terrain vertices               |                                           262,353 |                               62,385 |
-| Terrain triangles              |                                           509,952 |                              118,784 |
-| Terrain noise evaluations      |                                         1,311,765 |                              311,925 |
-| Scenery chunks (LOD <= 2)      |                                                61 |                                   49 |
-| Scenery candidates             |                                           249,856 |                               50,176 |
-| Scenery height evaluations     |                                         1,249,280 |                              250,880 |
-| Cloud candidates               |                                         5,308,416 |                            3,211,264 |
-| Cloud noise evaluations        |                                        10,616,832 |                            6,422,528 |
+| Metric                        |                                                         Desktop |                                             Mobile |
+| ----------------------------- | --------------------------------------------------------------: | -------------------------------------------------: |
+| Desired chunks                |                                                             110 |                                                 73 |
+| LOD distribution              | 15 at LOD 0, 20 at LOD 1, 35 at LOD 2, 29 at LOD 3, 11 at LOD 4 | 12 at LOD 0, 18 at LOD 1, 30 at LOD 2, 13 at LOD 3 |
+| Terrain vertices              |                                                         381,502 |                                             80,025 |
+| Terrain triangles             |                                                         743,296 |                                            152,192 |
+| Terrain noise evaluations     |                                                       1,907,510 |                                            400,125 |
+| Scenery chunks (radial range) |                                                              52 |                                                 51 |
+| Scenery candidates            |                                                         212,992 |                                             52,224 |
+| Scenery height evaluations    |                                                       1,064,960 |                                            261,120 |
+| Cloud candidates              |                                                       7,208,960 |                                          4,784,128 |
+| Cloud noise evaluations       |                                                      14,417,920 |                                          9,568,256 |
 
-Terrain startup performs about **1.31 million** noise evaluations on desktop and **312 thousand** on mobile, distributed across up to two desktop workers or one mobile worker.
+Terrain startup performs about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile, distributed across up to two desktop workers or one mobile worker.
 
 Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations. Land candidates add three biome and two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
 
-The former tree path would have needed 1.15 million main-thread evaluations on desktop. With the default settings, the new path measured about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node, with at most about 550 and 120 instances per chunk. Enabling the dormant clouds would still add about **10.6 million** desktop and **6.4 million** mobile main-thread evaluations.
+The former tree path would have needed 1.15 million main-thread evaluations on desktop. With the default settings, the new path measured about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node, with at most about 550 and 120 instances per chunk. Enabling the dormant clouds would still add about **14.4 million** desktop and **9.6 million** mobile main-thread evaluations.
 
 ### Terrain Cost Per Chunk
 
@@ -114,6 +114,7 @@ The former tree path would have needed 1.15 million main-thread evaluations on d
 | 1   |                      64 / 4,225 / 8,192 |                     32 / 1,089 / 2,048 |
 | 2   |                      32 / 1,089 / 2,048 |                         16 / 289 / 512 |
 | 3   |                          16 / 289 / 512 |                           8 / 81 / 128 |
+| 4   |                             8 / 81 / 128 |                                    n/a |
 
 Normals are sampled from the height function inside the worker with four extra `getHeight()` calls per vertex, so a job costs about five height samples per vertex. LOD changes still allocate, resample, transfer, and replace complete geometry; the work is asynchronous but not cached.
 
@@ -152,7 +153,7 @@ Each chunk creates new copies of the cloud base geometry. Instance transforms an
 | `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter changes revision jobs, rebuild seeded noises, and regenerate scenery; dormant clouds and boats would retain old placement.              |
 | `DET-001`   | P1       | In progress | Dormant cloud and boat placement is not deterministic.                                  | `?seed=` drives terrain, biomes, and hashed scenery placement; dormant clouds and boats still use `Math.random()`.                               |
 | `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity; cancellation and disposal remain browser-only.     |
-| `STRM-003`  | P2       | Observed    | Priority uses distance only and has no hysteresis.                                      | Work is not biased by movement direction, camera visibility, or recent LOD state.                                                                |
+| `STRM-003`  | P2       | In progress | Priority is biased by heading only and LOD has no hysteresis.                           | The set and LOD follow a quantized heading with sector hysteresis; camera visibility and recent LOD state are ignored, so turns re-generate many chunks. |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
 | `FRAME-001` | P2       | Observed    | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
 | `LOAD-001`  | P3       | Done        | Re-enabling trees loaded the normal map through two independent paths.                  | The tree path was removed; `normal.jpg` now loads once from `chunk.js`.                                                                          |
@@ -178,6 +179,7 @@ Resolved on 2026-09-26. `chunkPolicy.js` computes a pure symmetric Euclidean set
 Verified behavior:
 
 - Automated tests prove symmetric `81` desktop and `49` mobile sets, including a negative center.
+- On 2026-09-30 the runtime adopted the heading-biased set described in [Terrain](TERRAIN.md#chunk-lifecycle); the symmetric set remains the policy's no-heading case. A desktop turn kept `live = desired = 110` after each sector change with `stale = 0` and `failed = 0`; mobile kept `73` or `68` depending on the sector.
 - Desktop and mobile browser startup converged to `live = desired` and `pending = 0` without console or network errors.
 - Retirement is still synchronous on a boundary frame; measuring that cost remains part of `OBS-001` and `PERF-002`.
 
@@ -290,7 +292,7 @@ Acceptance criteria:
 - The queue contains at most one operation per chunk key.
 - After long traversal, live and pending counts remain bounded by documented limits.
 - No callback or worker result mutates a retired chunk.
-- The chosen symmetric radius produces 81 desktop and 49 mobile coordinates, unless a different shape is explicitly adopted.
+- The adopted heading-biased shape produces 110 desktop and 73 mobile coordinates heading north (see [Terrain](TERRAIN.md#chunk-lifecycle)).
 - Repeated create/retire cycles reach a stable renderer-memory plateau.
 - Scenery, clouds, and boats remain inside their documented ownership region.
 

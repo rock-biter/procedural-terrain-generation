@@ -49,29 +49,45 @@ The worker transfers position, normal, UV, height, and index buffers. The main t
 
 `ChunkManager.updateChunks()` drives streaming:
 
-- Desktop keeps chunks within `maxDistance = 5`; mobile uses `4`.
-- [`src/chunkPolicy.js`](../src/chunkPolicy.js) computes a symmetric Euclidean desired set: `81` coordinates on desktop and `49` on mobile.
-- Entering a new chunk increments the desired-set revision and diffs every live chunk against the new set.
+- [`src/chunkPolicy.js`](../src/chunkPolicy.js) computes a desired set biased toward the flight direction. `CHUNK_STREAMING` sets its shape in chunks:
+
+  | Setting        | Desktop | Mobile | Meaning                                                  |
+  | -------------- | ------: | -----: | -------------------------------------------------------- |
+  | `maxDistance`  |     `6` |    `5` | Reach to the sides and beyond the look-ahead segment.    |
+  | `lookAhead`    |     `2` |    `1` | Length of the segment ahead of the current chunk center. |
+  | `rearDistance` |     `3` |  `2.5` | Reach straight behind; the rear is a half ellipse.        |
+
+  Ahead of the current chunk, a coordinate is desired when its distance to the segment from the chunk center to `lookAhead` chunks along the heading is at most `maxDistance`. Behind it, the set is a half ellipse with semi-axes `rearDistance` (behind) and `maxDistance` (sideways), so the outline stays continuous at the sides. Heading north, this gives `110` coordinates on desktop and `73` on mobile; diagonal headings give slightly different counts.
+- The heading is the tracked Plane's world +Z axis, projected on XZ and quantized by `getHeadingSector()` into `8` sectors of 45°. The sector changes only when the heading passes a boundary by more than `0.15` sector (about 7°), so small oscillations do not rebuild the set. A vertical heading keeps the previous sector.
+- Entering a new chunk or a new heading sector increments the desired-set revision and diffs every live chunk against the new set.
 - Out-of-range chunks are immediately disposed and deleted from the live `Map`; pending jobs outside the set are deleted as well.
 - Missing chunks and changed LODs become keyed jobs in a pending `Map`, so each coordinate has at most one queued operation.
-- Jobs carry key, desired-set revision, LOD, seed, biome offset, and a snapshot of terrain parameters (including `desert`). Workers echo key and revision; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
+- Jobs carry key, desired-set revision, LOD, scenery range, seed, biome offset, and a snapshot of terrain parameters (including `desert`). Workers echo key and the revision the job was dispatched with; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
+- On a reconcile, an in-flight job from the previous revision is adopted when it still produces exactly what the new target asks for: a `create` or `updateLOD` with the same LOD and scenery range, or a `regenerate` or `scenery` job on a chunk whose LOD is unchanged. Its revision moves to the new one and its result is committed. Other in-flight results become stale. Jobs from before a parameter or scenery change are never adopted.
+- A `regenerate` job, queued or in flight, is queued again after a reconcile, so a parameter change is not lost when the plane crosses a chunk or turns.
 - While the tracked position remains in the same chunk, the manager processes up to three jobs per frame on desktop or two on mobile. Near LOD 0/1 work remains limited to one job in that frame.
-- Pending jobs are sorted by distance so nearer work runs first.
+- Pending jobs are sorted by `priority`, the LOD distance described below, so chunks ahead run before chunks equally far behind.
 - Generation is bounded by a pool of up to two workers on desktop and one on mobile. Only one request per chunk key may be in flight.
 - A new `Chunk` is added directly to the scene and registered in the live `Map`.
 
-`ChunkManager.getStats()` additionally reports queued/in-flight work, generated/stale/failed results, worker count, and seed. The browser exposes it through `window.__INFINITE_WORLD__.getChunkStats()`.
+`ChunkManager.getStats()` additionally reports queued/in-flight work, generated/stale/failed results, worker count, the current `headingSector`, and seed. The browser exposes it through `window.__INFINITE_WORLD__.getChunkStats()`.
 
 The worker pool removes height sampling and normal computation from the rendering thread. Scenery placement also runs in the worker. Main-thread geometry wrapping, GPU upload, scene insertion, and disposal remain synchronous and require profiling.
 
 ## Level Of Detail
 
-LOD is distance-based:
+LOD is distance-based, but the distance is measured to the look-ahead segment instead of to the current chunk:
 
 ```text
-LOD = floor(distanceInChunks * 0.7)
-segments = max(floor(size * 0.5 ** LOD), density) / density
+along       = offset · heading
+lodDistance = distance(offset, heading * clamp(along, 0, lookAhead))
+LOD         = floor(lodDistance * 0.7)
+segments    = max(floor(size * 0.5 ** LOD), density) / density
 ```
+
+Offsets are in chunks from the current chunk. Straight ahead, the LOD rings move forward by `lookAhead` chunks: on desktop, LOD `0` reaches three chunks ahead, so LOD seams stay far from a plane flying high. Behind and beside the current chunk, `lodDistance` is the plain radial distance and the rings are unchanged. Desktop can reach LOD `4` (`8` segments); mobile stops at LOD `3`.
+
+A heading change can change the LOD of many chunks at once: in a continuous desktop turn, each new sector re-generates about 40 to 60 chunks, mostly as `updateLOD` jobs.
 
 The density divisor is `2` on desktop and `4` on mobile. An LOD job generates a complete replacement buffer set in a worker. `Chunk.replaceGeometry()` then disposes the previous geometry and installs the result on the main thread.
 
@@ -121,10 +137,11 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 ### Scenery LOD And Jobs
 
-- Only chunks with LOD `≤ SCENERY_MAX_LOD` (`2`) carry scenery. Farther chunks sit inside the fog.
+- Scenery range is radial and does not follow the forward LOD shift: `hasSceneryAtDistance()` keeps scenery on chunks whose radial LOD, `floor(distance * 0.7)`, is at most `SCENERY_MAX_LOD` (`2`). Impostors shrink into the fog by `950` units whatever the heading, so scenery farther ahead would never be visible. Each desired target carries this result as `scenery`.
 - `needsSceneryPlacement()` in `chunkPolicy.js` asks the worker for placement on every `create`, `regenerate`, and `scenery` job within range, and on any job flagged `refreshScenery`. An ordinary `updateLOD` job requests it only when the chunk has none.
+- When a live chunk enters the range without a LOD change, the reconcile queues a `scenery` job for it. When it leaves the range without a LOD change, the reconcile clears its scenery directly on the main thread.
 - A `scenery` job sends `terrain: false`: the worker skips terrain generation and returns only instances, and the manager replaces the chunk's scenery without touching its geometry. Scenery jobs do not count toward the one-near-job-per-frame limit.
-- When a committed job's LOD leaves the range, the scenery is cleared. It is regenerated identically when the chunk comes back into range.
+- When a committed job's target is outside the range, the scenery is cleared. It is regenerated identically when the chunk comes back into range.
 - `getStats()` reports `sceneryChunks` and `sceneryInstances`.
 
 ### Scenery Settings
@@ -153,7 +170,7 @@ Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacem
 - Missing chunks get `create` jobs, and other live chunks in scenery range get `scenery` jobs.
 - Terrain is never regenerated.
 
-`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing, so a change made just before crossing is not lost. The desktop default cell of `4` gives 4,096 candidates per chunk, four times as many as a cell of `8`; measure before using it on mobile.
+`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing or heading change, so a change made just before it is not lost. The desktop default cell of `4` gives 4,096 candidates per chunk, four times as many as a cell of `8`; measure before using it on mobile.
 
 ### Clouds (Dormant)
 
