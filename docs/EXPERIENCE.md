@@ -19,7 +19,7 @@ Changing an ID requires updating both files. UI classes are Tailwind utilities i
 
 ## Loading Flow
 
-1. The module starts soundtrack, airplane, and wood-grain texture requests with a shared `THREE.LoadingManager`. The terrain normal map loads independently; the boat request is disabled by `worldFeatures`.
+1. The module starts soundtrack, airplane, and wood-grain texture requests with a shared `THREE.LoadingManager`. The terrain normal maps load independently; the boat request is disabled by `worldFeatures`.
 2. `onStart` reveals the loader.
 3. `onProgress` animates the progress width from loaded item count divided by total item count.
 4. `onLoad` hides the canvas, registers the sound toggle, and fades out the loader.

@@ -48,6 +48,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling and transferable terrain buffers shared by tests and workers.
 - [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
 - [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
+- [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.
 - [`src/biome.js`](src/biome.js) owns the seeded CPU twin of the shader biome field; [`src/sceneryPlacement.js`](src/sceneryPlacement.js) owns deterministic scenery placement, run in the chunk worker.
 - [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, and per-chunk quad meshes; [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.

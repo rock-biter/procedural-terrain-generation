@@ -13,7 +13,7 @@ This document defines the contracts between Three.js materials, shared uniforms,
 - The perspective camera uses near/far planes of `0.1` and `10000`.
 - Desktop starts at a `60` degree FOV and zoom `1`; mobile starts at `80` degrees and zoom `0.8`.
 - The scene background and fog share the day/night horizon color, rewritten every frame by `DayNight`. Fog currently spans `250` to `900` world units.
-- An ambient light and two directional lights (sun and moon) are driven by the day/night cycle. `params.ambientLight`, `params.directionalLight` (sun), and `params.moonLight` (default `1.2`) are peak intensities that the cycle scales every frame. All three are GUI sliders.
+- An ambient light and two directional lights (sun and moon) are driven by the day/night cycle. `params.ambientLight`, `params.directionalLight` (sun), and `params.moonLight` (default `1.2`) are peak intensities that the cycle scales every frame. All three are sliders in the **Lights** GUI folder.
 - No tone mapping is configured; the renderer uses Three.js defaults (`NoToneMapping`, sRGB output).
 - The camera is attached to `Plane`, so its transform is relative to the moving player object.
 
@@ -62,7 +62,7 @@ Scene materials other than the sky dome do not use `ShaderMaterial`. They start 
 
 | Rendered content          | JavaScript owner                    | Base material                      | Replacements                                                         |
 | ------------------------- | ----------------------------------- | ---------------------------------- | -------------------------------------------------------------------- |
-| Terrain and water surface | [`src/chunk.js`](../src/chunk.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps`, `lights_fragment_begin` |
+| Terrain and water surface | [`src/chunk.js`](../src/chunk.js)   | `MeshStandardMaterial`             | `common` (fragment also gets `terrain-normal-pars.glsl`), `project_vertex`, `color_fragment`, `normal_fragment_maps`, `lights_fragment_begin` |
 | Boats                     | [`src/chunk.js`](../src/chunk.js)   | Materials from the glTF model      | `common`, `project_vertex`                                           |
 | Scenery impostors         | [`src/impostors/impostorMaterial.js`](../src/impostors/impostorMaterial.js) | `MeshStandardMaterial` (`alphaTest`, `alphaToCoverage`) | `common`, `project_vertex`, `color_fragment`, `normal_fragment_begin`, `lights_fragment_begin` |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
@@ -98,7 +98,8 @@ The plane trail uses dynamic world-space positions, a per-vertex `trailWidths` v
 
 - [`project-vertex.glsl`](../src/shaders/project-vertex.glsl) applies water movement, distance-based curvature, and the final projection.
 - [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) keeps five elevation-based land bands and switches between their existing palette and a sand-to-dark-brown desert palette. A very-low-frequency signed simplex-noise sample in world XZ coordinates, shifted by `uBiomeOffset`, selects the desert biome below zero and the existing biome above zero; two denser samples fray the boundary at different scales. The formula lives in `getBiomeValue()` in [`common.glsl`](../src/shaders/common.glsl). An antialiased black separator hides the hard palette transition on land only, leaving water colors and wave highlights independent. The separator has a constant world-space width (`BIOME_LINE_HALF_WIDTH`, `0.6` units on each side), so it keeps its size on the ground at any distance from the plane: the shader divides `|biomeValue|` by the field gradient, measured with world-space forward differences (`BIOME_GRADIENT_STEP`). The gradient costs six extra simplex samples, so it only runs where `|biomeValue|` is below `BIOME_LINE_HALF_WIDTH * BIOME_MAX_GRADIENT` plus one pixel of `fwidth()`. `BIOME_MAX_GRADIENT` (`0.014`) must stay above the steepest slope of the field. `fwidth()` only sets the antialiasing edge, so far away the line becomes thinner than a pixel and fades. `getBiomeValue()` in `src/biome.js` is the exact CPU twin of this formula; change both together.
-- [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) attenuates tangent-space normal-map strength with distance from `uCamera`: full within `30` units, gone beyond `150`. The earlier `400`-unit fade let the fine fabric pattern alias into moiré at mid distance.
+- `color-fragment.glsl` also writes `terrainBand`, the layer index read by the normal map: `0` sea (height at or below `0.1`), then `1` sand, `2` grass, `3` land, `4` rocks, `5` snow. It uses the same noisy thresholds and priority as the color bands, so both biomes share the five land layers.
+- [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) samples the layer's normal map through `sampleTerrainNormal()` from [`terrain-normal-pars.glsl`](../src/shaders/terrain-normal-pars.glsl). The UV is world `(x, -z)` divided by the layer tile size, so tiles continue across chunks and LODs. The V axis runs along `-Z` like the chunk UV, so Three's tangent frame, built from `vNormalMapUv`, still matches. Only the selected layer is fetched. `textureGrad()` takes gradients computed outside the branch, because GLSL ES 3.00 only indexes sampler arrays with constants and derivatives are undefined in non-uniform branches. Strength is then faded with distance from `uCamera`: full within `20` units, gone beyond `120`. The earlier `400`-unit fade let the fine fabric patterns alias into moiré at mid distance.
 - [`curved-light-terminator.glsl`](../src/shaders/curved-light-terminator.glsl) is inserted into `lights_fragment_begin` (see below).
 
 ### Curved-World Lighting
@@ -169,6 +170,7 @@ Trees, cacti, and rocks are octahedral impostors: each instance is one camera-fa
 - `main.js` creates `uCurvature` in the shared uniform object from `CURVATURE` in `src/chunk.js`, the same constant used by the CPU curvature helper. Do not recreate it per chunk: materials that compile before the first chunk exists read it immediately.
 - Biome colors are initialized from `params.colors`; the disabled GUI can mutate them.
 - `uBiomeOffset` is set once from the world seed and never changes at runtime.
+- `uTerrainNormalMaps`, `uTerrainNormalScale`, and `uTerrainNormalStrength` are arrays indexed by `TERRAIN_BANDS` in [`src/terrainNormals.js`](../src/terrainNormals.js). `main.js` adds them to the shared uniform object from `params.terrainNormals`. The **Terrain > Normal maps** GUI calls `updateTerrainNormalUniforms()`, which writes the values in place. `uTerrainNormalStrength` is a `vec2` per layer, and its Y includes the texture's `invertGreen` sign.
 - The impostor material adds its own atlas uniforms (`uImpostorAlbedo`, `uImpostorNormal`, and `uImpostorTypes` with per-type frame radius and center height) next to the shared uniforms at compile time.
 - `Plane.update()` writes `uAcceleration` and updates the trail buffer before the frame renders.
 - `Plane.updateTrails()` calls `recordTrailPose()`, which pushes the current pose into the history, and then `refreshTrails()`, which copies `params.trails` into stable trail-uniform wrappers and rebuilds the ribbon from the history. Changing a GUI slider affects already emitted sections as well as new ones. During the debug flight pause only `refreshTrails()` runs, so tuning stays live without extending the trail.
@@ -179,8 +181,9 @@ Do not replace the shared uniform wrapper objects each frame. Update their `.val
 
 ## Materials And Textures
 
-- Terrain uses `normal.jpg` with repeat wrapping, a `6` by `6` repeat, and normal scale `(2, -2)`.
-- When enabled, clouds receive the terrain normal map after construction.
+- Terrain assigns one normal map per layer in `TERRAIN_NORMAL_LAYERS` ([`src/terrainNormals.js`](../src/terrainNormals.js)). Each entry has a `texture` (a `TERRAIN_NORMAL_TEXTURES` key), a `scale` (tile size in world units), and a `strength`. The sea keeps `normal.jpg` with its former look: a tile of `256 / 12` units and strength `2`, with the green channel inverted. The five land bands use the fabric maps (hessian, ribbed corduroy, waffle piqué, dirty carpet, fabric pattern), assigned arbitrarily, with a `12`-unit tile and strength `1`. Swap the `texture` keys to reassign them.
+- The material's `normalMap` is the sea layer's texture. It only enables Three's tangent-space path; the terrain shader samples `uTerrainNormalMaps` instead, and `normalScale` is unused.
+- When enabled, clouds receive the sea layer's normal map after construction.
 - Terrain and cloud materials are module-level shared instances. Their shader hooks and mutable properties therefore affect every instance using that material.
 - The impostor material is created once in `init()` and shared through `assets.impostorMaterial`. It owns the atlas render target. Chunks dispose only their own scenery geometry.
 - Boats originate from cloned glTF scene nodes; verify whether geometry and material resources remain shared before disposing or mutating them.
@@ -195,7 +198,7 @@ See [Assets](ASSETS.md) for load paths, transforms, and licensing.
 4. Run `pnpm build` to validate imports and bundling.
 5. Load the scene and check the browser console for shader compile or link errors.
 6. Inspect terrain, water, scenery impostors, clouds, boats, and trails as applicable.
-7. For post-processing changes, hold the effect with `?gui=1` and the top-level **speedEffect** slider (same smoothstep mapping as a real boost) or **Speed effect > preview** (raw intensity), and check the center, edges, and corners, and that the idle bypass returns (`getPostProcessingStats().active === false`).
+7. For post-processing changes, hold the effect with `?gui=1` and the **Speed effect > speedEffect** slider (same smoothstep mapping as a real boost) or **Speed effect > preview** (raw intensity), and check the center, edges, and corners, and that the idle bypass returns (`getPostProcessingStats().active === false`).
 8. Move far enough to exercise distance fades, curvature, new chunks, and multiple LODs.
 9. Repeat at a narrow/mobile viewport because geometry density and camera settings differ.
 

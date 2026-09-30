@@ -75,6 +75,15 @@ diffuseColor.rgb = mix(vec3(0., 0., 0.), diffuseColor.rgb, pctLine);
 diffuseColor.rgb = mix(snowBiomes, diffuseColor.rgb, pct3);
 diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.0), biomeBoundary * step(0.1, wPosition.y));
 
+// Layer for normal-fragment-map.glsl, indexed like TERRAIN_BANDS in
+// src/terrainNormals.js. Same priority as the color mixes above.
+int terrainBand = 0;
+if (pctSand < 0.5) terrainBand = 1;
+if (pct < 0.5) terrainBand = 2;
+if (pct2 < 0.5) terrainBand = 3;
+if (pctRock < 0.5) terrainBand = 4;
+if (pct3 < 0.5) terrainBand = 5;
+
 float onda = sin(wPosition.y * 8. - uTime * 4. + sin(wPosition.x * 0.5) + sin(wPosition.z * 0.5)) * 0.5 + 0.5;
 onda *= onda * onda * onda;
 float d = - 3.5;

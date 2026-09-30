@@ -7,34 +7,31 @@ import {
 	MeshNormalMaterial,
 	MeshStandardMaterial,
 	MultiplyBlending,
-	RepeatWrapping,
 	Scene,
-	TextureLoader,
 	Vector2,
 	Vector3,
 } from 'three'
-import fabricSrc from './textures/normal.jpg'
 import projectVertex from './shaders/project-vertex.glsl'
 import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
+import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
+import { getTerrainNormalTexture, TERRAIN_NORMAL_LAYERS } from './terrainNormals'
 import { curvedLightsFragment } from './curvedLights'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import Clouds from './clouds'
 import { getHeight } from './chunkGeometry'
 
 const isMobile = window.innerWidth < 768
-const loader = new TextureLoader()
-const normalMap = loader.load(fabricSrc)
-normalMap.repeat.set(12, 12)
-normalMap.wrapS = RepeatWrapping
-normalMap.wrapT = RepeatWrapping
+// The terrain samples its per-layer maps from uTerrainNormalMaps
+// (terrain-normal-pars.glsl). normalMap only enables Three's tangent-space
+// path, whose tangent frame comes from the chunk uv.
+const normalMap = getTerrainNormalTexture(TERRAIN_NORMAL_LAYERS.sea.texture)
 const material = new MeshStandardMaterial({
 	// wireframe: true,
 	color: 'lightblue',
 	normalMap,
-	normalScale: new Vector2(2, -2),
 	// transparent: true,
 	// opacity: 0.8,
 	// flatShading: true,
@@ -126,6 +123,8 @@ export default class Chunk extends Mesh {
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <common>',
 				common +
+					'\n' +
+					terrainNormalPars +
 					`
 				varying vec3 vSphereNormal;
 				`,

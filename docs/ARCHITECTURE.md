@@ -33,7 +33,7 @@ Importing `main.js` performs the following work:
 
 1. Resolve the loader, progress, play, and sound-toggle elements from `index.html`.
 2. Create the shared `assets`, `params`, and `uniforms` objects.
-3. Start loading the soundtrack, the airplane model, and (with scenery enabled) the wood-grain detail texture through a shared `THREE.LoadingManager`. The terrain normal map loads independently from `src/chunk.js`; the boat request is skipped while its feature flag is disabled.
+3. Start loading the soundtrack, the airplane model, and (with scenery enabled) the wood-grain detail texture through a shared `THREE.LoadingManager`. The terrain normal maps load independently through `src/terrainNormals.js`; the boat request is skipped while its feature flag is disabled.
 4. Create the scene, camera, renderer, post-processing pipeline, lights, fog, timer, and `DayNight` (which adds the sky dome and applies the starting time of day) while those asynchronous requests are in flight.
 5. When the loading manager completes, fade out the loader and call `init(assets)`.
 6. `init()` creates `Plane`, bakes the impostor atlas and creates the shared impostor material when `worldFeatures.scenery` is enabled, creates `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane and its world-space trail mesh in the scene, creates `FlightPauseDebug` when `?debug=1` is set, and schedules `tic()`.
@@ -56,7 +56,7 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 
 ## Shared State And Ownership
 
-- `params` in `main.js` is the mutable source for terrain generation, colors, peak light intensity, the day/night settings (`params.dayNight`: `timeOfDay`, `cycleDuration`, `paused`), post-processing, scenery placement settings (`params.scenery`, snapshotted into every placement request), and the optional debug GUI. Fog and background colors are no longer parameters; `DayNight` derives them from the time of day.
+- `params` in `main.js` is the mutable source for terrain generation, colors, terrain normal-map tile size and strength (`params.terrainNormals`), peak light intensity, the day/night settings (`params.dayNight`: `timeOfDay`, `cycleDuration`, `paused`), post-processing, scenery placement settings (`params.scenery`, snapshotted into every placement request), and the optional debug GUI. Fog and background colors are no longer parameters; `DayNight` derives them from the time of day.
 - `worldSeed` comes from `?seed=<value>` or a random per-load fallback. The same value seeds main-thread height queries and every worker.
 - `worldFeatures` in `main.js` is the frozen runtime switch for scenery, clouds, and boats. Scenery is `true`; clouds and boats are `false`.
 - `uniforms` in `main.js` is shared with chunks, the impostor material, and boat materials. It includes `uBiomeOffset`, derived from `worldSeed`; `ChunkManager` derives the same offset for its workers. It also includes `uCurvature`, whose value is `CURVATURE` exported by `src/chunk.js`, so materials compiled before the first chunk arrives, such as the `?debug=1` terrain-sample markers, still receive a valid uniform.

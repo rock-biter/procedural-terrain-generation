@@ -7,6 +7,12 @@ import DayNight from './src/dayNight'
 import { DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './src/dayNightPolicy'
 import { getHeight } from './src/chunkGeometry'
 import { createBiomeOffset } from './src/biome'
+import {
+	createTerrainNormalSettings,
+	createTerrainNormalUniforms,
+	TERRAIN_BANDS,
+	updateTerrainNormalUniforms,
+} from './src/terrainNormals'
 import { bakeImpostorAtlas } from './src/impostors/impostorBaker'
 import {
 	createImpostorMaterial,
@@ -213,6 +219,9 @@ const params = {
 		uLand: '#5e551d',
 		uRocks: '#521f00',
 	},
+	// Normal map, tile size (world units), and strength per terrain layer;
+	// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
+	terrainNormals: createTerrainNormalSettings(),
 	postProcessing: {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
@@ -260,6 +269,7 @@ const uniforms = {
 	// Written by DayNight before the first render.
 	uAtmosphere: { value: new THREE.Color() },
 	uBiomeOffset: { value: new THREE.Vector2(...createBiomeOffset(worldSeed)) },
+	...createTerrainNormalUniforms(params.terrainNormals),
 }
 // Uniforms shared with the impostor material; amount is indexed by type.
 const impostorVariation = {
@@ -275,55 +285,70 @@ function updateImpostorVariation() {
 updateImpostorVariation()
 
 if (gui) {
-	gui.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
-		plane.updateSpeedEffect(val)
-	})
-
-	gui.addColor(params.colors, 'uGrass').onChange((val) => {
+	const terrainFolder = gui.addFolder('Terrain')
+	terrainFolder.addColor(params.colors, 'uGrass').onChange((val) => {
 		uniforms.uGrass.value.set(val)
 	})
 
-	gui.addColor(params.colors, 'uLand').onChange((val) => {
+	terrainFolder.addColor(params.colors, 'uLand').onChange((val) => {
 		uniforms.uLand.value.set(val)
 	})
 
-	gui.addColor(params.colors, 'uRocks').onChange((val) => {
+	terrainFolder.addColor(params.colors, 'uRocks').onChange((val) => {
 		uniforms.uRocks.value.set(val)
 	})
-
-	gui
+	terrainFolder
 		.add(params, 'amplitude', 0, 100, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
 	// gui.add(params, 'LOD', 0, 4, 1).onChange((val) => chunk.updateLOD(val))
-	gui
+	terrainFolder
 		.add(params, 'octaves', 1, 10, 1)
 		.onChange(() => chunkManager.onParamsChange())
-	gui
+	terrainFolder
 		.add(params, 'persistance', 0, 1, 0.05)
 		.onChange(() => chunkManager.onParamsChange())
 
-	gui
+	terrainFolder
 		.add(params, 'lacunarity', 1, 5, 0.5)
 		.onChange(() => chunkManager.onParamsChange())
 
-	gui
+	terrainFolder
 		.add(params.frequency, 'x', 0.01, 2, 0.01)
 		.onChange(() => chunkManager.onParamsChange())
 		.onChange(() => chunkManager.onParamsChange())
-	gui
+	terrainFolder
 		.add(params.frequency, 'z', 0.01, 2, 0.01)
 		.onChange(() => chunkManager.onParamsChange())
-	gui
+	terrainFolder
 		.add(params, 'xOffset', -10, 10, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
 		.onChange(() => chunkManager.onParamsChange())
-	gui
+	terrainFolder
 		.add(params, 'zOffset', -10, 10, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
 
-	gui.add(params, 'directionalLight', 0, 10, 0.1)
-	gui.add(params, 'moonLight', 0, 3, 0.05)
-	gui.add(params, 'ambientLight', 0, 10, 0.1)
+	const updateTerrainNormals = () =>
+		updateTerrainNormalUniforms(uniforms, params.terrainNormals)
+	const terrainNormalsFolder = terrainFolder.addFolder('Normal maps')
+	for (const band of TERRAIN_BANDS) {
+		const layer = params.terrainNormals[band]
+		const folder = terrainNormalsFolder.addFolder(
+			`${band[0].toUpperCase()}${band.slice(1)} (${layer.texture})`,
+		)
+		folder
+			.add(layer, 'scale', 1, 100, 0.1)
+			.name('Tile size (units)')
+			.onChange(updateTerrainNormals)
+		folder
+			.add(layer, 'strength', 0, 5, 0.01)
+			.name('Strength')
+			.onChange(updateTerrainNormals)
+	}
+
+	const lightsFolder = gui.addFolder('Lights')
+	lightsFolder.add(params, 'directionalLight', 0, 10, 0.1)
+	lightsFolder.add(params, 'moonLight', 0, 3, 0.05)
+	lightsFolder.add(params, 'ambientLight', 0, 10, 0.1)
 
 	const dayNightFolder = gui.addFolder('Day/night')
 	dayNightFolder
@@ -343,6 +368,9 @@ if (gui) {
 	const updatePost = () =>
 		postProcessing.speedEffect.setParams(params.postProcessing)
 	const speedFolder = gui.addFolder('Speed effect')
+	speedFolder.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
+		plane.updateSpeedEffect(val)
+	})
 	speedFolder.add(params.postProcessing, 'preview', 0, 1, 0.01)
 	speedFolder
 		.add(params.postProcessing, 'verticalScale', 0, 1, 0.01)
@@ -452,6 +480,9 @@ if (gui) {
 		0.005,
 	)
 	oscillationFolder.add(params.trails.oscillation, 'amplitude', 0, 0.5, 0.005)
+
+	// Every panel starts closed.
+	for (const folder of gui.foldersRecursive()) folder.close()
 }
 
 /**
