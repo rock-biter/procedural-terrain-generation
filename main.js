@@ -230,7 +230,7 @@ const params = {
 		preview: 0,
 		// Static screen-space grain; intensity is the maximum brightness change
 		// (0.05 = ±5%). 0 skips the overlay pass.
-		grain: { intensity: 0.025 },
+		grain: { intensity: 0.035 },
 		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
 		// verticalScale shrinks only the vertical distance (1 = circular falloff).
 		verticalScale: 0.78,
