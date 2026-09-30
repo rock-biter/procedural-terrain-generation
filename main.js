@@ -198,9 +198,9 @@ const params = {
 		preview: 0,
 		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
 		// verticalScale shrinks only the vertical distance (1 = circular falloff).
-		verticalScale: 0.5,
-		blur: { strength: 0.015, start: 0.05, end: 1, curve: 1.5 },
-		aberration: { strength: 0.02, start: 0.1, end: 1, curve: 2 },
+		verticalScale: 0.78,
+		blur: { strength: 0.09, start: 0.35, end: 1.5, curve: 1.2 },
+		aberration: { strength: 0.02, start: 0.28, end: 0.9, curve: 2.2 },
 	},
 	trails: {
 		ribbonWidth: 9.6,

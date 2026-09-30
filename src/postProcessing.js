@@ -7,7 +7,10 @@ export default class PostProcessing {
 
 	constructor(renderer, scene, camera, params) {
 		this.params = params
-		this.composer = new EffectComposer(renderer, { multisampling: 4 })
+		// Only used while the effect is active; idle frames keep the canvas MSAA.
+		// 2x instead of 4x: without multisampled render-to-texture the whole MSAA
+		// buffer is written to memory and resolved, the largest cost of the effect.
+		this.composer = new EffectComposer(renderer, { multisampling: 2 })
 
 		this.renderPass = new RenderPass(scene, camera)
 		this.speedEffect = new SpeedEffect(params)
