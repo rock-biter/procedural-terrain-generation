@@ -206,8 +206,8 @@ const params = {
 		ribbonWidth: 9.6,
 		lineWidth: 0.65,
 		borderWidth: 0.08,
-		outerEdge: { frequency: 1.8, amplitude: 0.5 },
-		innerEdge: { frequency: 1.6, amplitude: 0.5 },
+		outerEdge: { frequency: 1.4, amplitude: 0.47 },
+		innerEdge: { frequency: 1.4, amplitude: 0.43 },
 		oscillation: { frequency: 0.03, amplitude: 0.3 },
 	},
 }
