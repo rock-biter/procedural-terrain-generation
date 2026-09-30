@@ -4,11 +4,13 @@ uniform vec3 uCenter;
 uniform float uFrameRadius;
 varying vec3 vColor;
 varying vec3 vNormal;
+varying vec3 vPosition;
 varying float vDepth;
 
 void main() {
 	vColor = color;
 	vNormal = normal;
+	vPosition = position;
 	vDepth = dot(position - uCenter, uForward) / uFrameRadius;
 	gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
 }

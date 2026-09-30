@@ -62,6 +62,10 @@ export function createImpostorMaterial(
 		},
 	}
 
+	// Lets a re-bake swap the atlas without recompiling the material.
+	material.userData.impostorUniforms = impostorUniforms
+	material.userData.atlas = atlas
+
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms = {
 			...shader.uniforms,
@@ -83,6 +87,21 @@ export function createImpostorMaterial(
 	}
 
 	return material
+}
+
+// Installs a newly baked atlas (same frame count) and disposes the old one.
+export function setImpostorAtlas(material, atlas) {
+	const uniforms = material.userData.impostorUniforms
+	if (material.defines.IMPOSTOR_FRAMES !== atlas.frames) {
+		throw new Error('A re-bake must keep the impostor frame count')
+	}
+	uniforms.uImpostorAlbedo.value = atlas.albedo
+	uniforms.uImpostorNormal.value = atlas.normal
+	atlas.types.forEach(({ frameRadius, centerY }, type) =>
+		uniforms.uImpostorTypes.value[type].set(frameRadius, centerY),
+	)
+	material.userData.atlas.dispose()
+	material.userData.atlas = atlas
 }
 
 // Builds a chunk's scenery mesh. The geometry (a 4-vertex quad plus the

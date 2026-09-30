@@ -415,7 +415,7 @@ See the owning guides for current behavior and constraints. Promote an item into
   - Each instance is one camera-facing quad. It blends three frames and is lit from its baked normals with the terrain's curvature bend and terminator.
   - Placement is deterministic per seed. A world-space jittered grid runs in the chunk worker and applies biome, height band, slope, snow, and cluster rules.
   - Only chunks at LOD `≤ 2` carry scenery.
-  - The `?gui=1` **Scenery** folder tunes the grid cell, the per-chunk cap, density per category (trees, cacti, rocks), and size per type. Changes use scenery-only worker jobs. The folder also sets a position-based brightness variation per type (shader uniforms, live).
+  - The `?gui=1` **Scenery** folder tunes the grid cell, the per-chunk cap, density per category (trees, cacti, rocks), and size per type. Changes use scenery-only worker jobs. The folder also sets a position-based brightness variation per type (shader uniforms, live) and the baked wood-grain detail (re-bake on release).
   - The seed now also moves the biome field (`uBiomeOffset`).
 - **Dependencies:** `STRM-001` and `STRM-002` (keyed jobs and revisions carry the scenery result). The feature resolves the tree parts of `PERF-004`, `CORR-001`, `DET-001`, `LIFE-001`, and `LOAD-001`. Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:**

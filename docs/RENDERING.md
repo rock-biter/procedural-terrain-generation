@@ -115,9 +115,15 @@ Trees, cacti, and rocks are octahedral impostors: each instance is one camera-fa
 
 - **Sources:** [`src/impostors/impostorArchetypes.js`](../src/impostors/impostorArchetypes.js) builds the six types from Three.js primitives. They are merged, smooth-shaded, lightly noise-deformed, and carry vertex colors with a baked vertical occlusion. Bounding spheres are recentered on the Y axis so yaw rotates around the base. These meshes exist only during the bake, so their vertex counts have no runtime cost.
 - **Types:** the type indices, atlas layout, and instance stride live in [`src/impostors/impostorTypes.js`](../src/impostors/impostorTypes.js).
-- **Bake:** [`src/impostors/impostorBaker.js`](../src/impostors/impostorBaker.js) runs once in `init()`, before chunks exist.
+- **Bake:** [`src/impostors/impostorBaker.js`](../src/impostors/impostorBaker.js) runs in `init()`, before chunks exist, and again when a **Scenery > Wood detail** control is released. `setImpostorAtlas()` swaps the new atlas into the shared material's uniforms and disposes the old one without recompiling.
   - It renders every type from a grid of `frames × frames` hemi-octahedral directions (see [`src/impostors/octahedral.js`](../src/impostors/octahedral.js)) with an orthographic camera framed on the bounding sphere plus a `4%` margin.
   - `main.js` passes `IMPOSTOR_FRAMES_DESKTOP` (`16`, 256 views per type) or `IMPOSTOR_FRAMES_MOBILE` (`12`, 144 views). The count must be even. The atlas records it, and the material turns it into the `IMPOSTOR_FRAMES` define, so the bake and the shader always agree.
+  - **Wood detail:** with a `detail` texture (`USE_DETAIL`), the bake fragment shader ([`impostor-bake-fragment.glsl`](../src/shaders/impostor-bake-fragment.glsl)) samples [`wood-grain.png`](../src/textures/wood-grain.png) triplanarly in object space.
+    - The side projections keep the grain vertical.
+    - It scales the part color by `1 ± color`.
+    - It bumps the object normal with derivative bump mapping (as Three.js `perturbNormalArb`) by `bump` world units.
+    - `params.impostorDetail` defaults to `scale 0.18` repeats per unit, `color 0.45`, and `bump 0.18`.
+    - The detail is baked, so it costs nothing per frame and rotates and scales with each instance. Its finest visible scale is limited by the `64` px frames.
   - It renders one type at a time into a `2×` supersampled MRT target (`count: 2`) the size of one type block: at most `2048` px, which stays inside mobile texture limits. The target holds sRGB-encoded albedo with coverage in alpha, and object-space normal with normalized depth in alpha. Depth is currently unused.
   - A resolve pass writes that type's block of the atlas (`uBlockOrigin`). It box-downsamples to fractional coverage and dilates the color and normal of the nearest covered texel into empty texels of the same frame, so bilinear filtering and mipmaps do not pull in dark halos.
   - The result is two mipmapped RGBA8 atlases, laid out as `3 × 2` type blocks of `64` px frames:

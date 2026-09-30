@@ -8,7 +8,10 @@ import { DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './src/dayNightPolicy'
 import { getHeight } from './src/chunkGeometry'
 import { createBiomeOffset } from './src/biome'
 import { bakeImpostorAtlas } from './src/impostors/impostorBaker'
-import { createImpostorMaterial } from './src/impostors/impostorMaterial'
+import {
+	createImpostorMaterial,
+	setImpostorAtlas,
+} from './src/impostors/impostorMaterial'
 import {
 	IMPOSTOR_FRAMES_DESKTOP,
 	IMPOSTOR_FRAMES_MOBILE,
@@ -28,6 +31,7 @@ import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import gsap from 'gsap'
+import woodGrainSrc from './src/textures/wood.jpg'
 
 const loadingEl = document.getElementById('loader')
 const progressEl = document.getElementById('progress')
@@ -52,6 +56,7 @@ const assets = {
 	planeModel: null,
 	boatModel: null,
 	impostorMaterial: null,
+	woodTexture: null,
 	soundtrack: null,
 }
 
@@ -125,6 +130,14 @@ loaderManager.onStart = () => {
 
 const gltfLoader = new GLTFLoader(loaderManager)
 const audioLoader = new THREE.AudioLoader(loaderManager)
+const textureLoader = new THREE.TextureLoader(loaderManager)
+
+if (worldFeatures.scenery) {
+	// Grayscale detail baked into every impostor (scripts/generate-wood-texture.mjs).
+	assets.woodTexture = textureLoader.load(woodGrainSrc)
+	assets.woodTexture.wrapS = THREE.RepeatWrapping
+	assets.woodTexture.wrapT = THREE.RepeatWrapping
+}
 
 audioLoader.load(audioSrc, (buffer) => {
 	const listener = new THREE.AudioListener()
@@ -216,6 +229,10 @@ const params = {
 	scenery: createScenerySettings({ isMobile }),
 	// Shader-side, applied live: brightness change per type in stops (1 = half
 	// to double brightness) and the world frequency of the noise that drives it.
+	// Wood grain baked into every impostor: repeats per world unit, brightness
+	// strength (0.45 = ±45%), and bump height in world units. Changing them
+	// re-bakes the atlas.
+	impostorDetail: { scale: 0.18, color: 0.45, bump: 0.18 },
 	impostorVariation: {
 		frequency: 0.01,
 		amount: Object.fromEntries(
@@ -370,6 +387,24 @@ if (gui) {
 		.add(params.scenery, 'maxPerChunk', 0, 4096, 1)
 		.name('Max per chunk')
 		.onFinishChange(updateScenery)
+	const rebakeImpostors = () => {
+		if (assets.impostorMaterial) {
+			setImpostorAtlas(assets.impostorMaterial, bakeImpostors())
+		}
+	}
+	const detailFolder = sceneryFolder.addFolder('Wood detail')
+	detailFolder
+		.add(params.impostorDetail, 'scale', 0.02, 1, 0.01)
+		.name('Repeats per unit')
+		.onFinishChange(rebakeImpostors)
+	detailFolder
+		.add(params.impostorDetail, 'color', 0, 1, 0.01)
+		.name('Color strength')
+		.onFinishChange(rebakeImpostors)
+	detailFolder
+		.add(params.impostorDetail, 'bump', 0, 0.5, 0.005)
+		.name('Bump height')
+		.onFinishChange(rebakeImpostors)
 	sceneryFolder
 		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
 		.name('Variation frequency')
@@ -518,19 +553,24 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getDayNightStats: () => dayNight.getStats(),
 })
 
+// Bakes every scenery type into the impostor atlas, with the wood detail.
+function bakeImpostors() {
+	return bakeImpostorAtlas(renderer, {
+		frames: isMobile ? IMPOSTOR_FRAMES_MOBILE : IMPOSTOR_FRAMES_DESKTOP,
+		frameSize: 64,
+		detail: { texture: assets.woodTexture, ...params.impostorDetail },
+	})
+}
+
 function init(assets) {
 	plane = new Plane(assets.planeModel, null, params, camera)
 
 	if (worldFeatures.scenery) {
-		// Bakes every scenery type into the shared impostor atlas once.
-		const impostorAtlas = bakeImpostorAtlas(renderer, {
-			frames: isMobile ? IMPOSTOR_FRAMES_MOBILE : IMPOSTOR_FRAMES_DESKTOP,
-			frameSize: 64,
-		})
-		assets.impostorMaterial = createImpostorMaterial(impostorAtlas, uniforms, {
-			singleFrame: isMobile,
-			variation: impostorVariation,
-		})
+		assets.impostorMaterial = createImpostorMaterial(
+			bakeImpostors(),
+			uniforms,
+			{ singleFrame: isMobile, variation: impostorVariation },
+		)
 	}
 
 	// Terrain

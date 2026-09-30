@@ -11,7 +11,8 @@
     "dev": "vite --host",
     "test": "node --test",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+		"texture:wood": "node scripts/generate-wood-texture.mjs"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.3.3",

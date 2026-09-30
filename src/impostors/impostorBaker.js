@@ -35,10 +35,12 @@ const DILATION_RADIUS = 4
 const SUPERSAMPLE = 2
 
 // Renders every impostor type from frames x frames hemi-octahedral directions
-// into one albedo and one normal/depth atlas.
+// into one albedo and one normal/depth atlas. `detail` optionally adds a
+// tileable grayscale texture as brightness and bump:
+// { texture, scale (repeats per unit), color, bump }.
 export function bakeImpostorAtlas(
 	renderer,
-	{ frames = IMPOSTOR_FRAMES_DESKTOP, frameSize = 64 } = {},
+	{ frames = IMPOSTOR_FRAMES_DESKTOP, frameSize = 64, detail = null } = {},
 ) {
 	if (frames < 2 || frames % 2 !== 0) {
 		throw new Error(`Impostor frame count ${frames} must be even`)
@@ -72,10 +74,15 @@ export function bakeImpostorAtlas(
 	const bakeMaterial = new ShaderMaterial({
 		glslVersion: GLSL3,
 		vertexColors: true,
+		defines: detail?.texture ? { USE_DETAIL: '' } : {},
 		uniforms: {
 			uForward: { value: new Vector3() },
 			uCenter: { value: new Vector3() },
 			uFrameRadius: { value: 1 },
+			uDetail: { value: detail?.texture ?? null },
+			uDetailScale: { value: detail?.scale ?? 1 },
+			uDetailColor: { value: detail?.color ?? 0 },
+			uDetailBump: { value: detail?.bump ?? 0 },
 		},
 		vertexShader: bakeVertexShader,
 		fragmentShader: bakeFragmentShader,

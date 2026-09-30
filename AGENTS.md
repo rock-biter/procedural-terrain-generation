@@ -35,6 +35,7 @@ pnpm dev
 pnpm test
 pnpm build
 pnpm preview
+pnpm texture:wood
 ```
 
 Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. Do not introduce another lockfile or edit generated `dist/` output.

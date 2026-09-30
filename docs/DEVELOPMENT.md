@@ -20,12 +20,14 @@ pnpm dev
 pnpm test
 pnpm build
 pnpm preview
+pnpm texture:wood
 ```
 
 - `pnpm dev` starts Vite with network access through `--host`.
 - `pnpm test` runs the dependency-free Node test suite.
 - `pnpm build` creates the production bundle in `dist/`.
 - `pnpm preview` serves the production bundle locally.
+- `pnpm texture:wood` regenerates `src/textures/wood-grain.png`. It is deterministic and has no dependencies. Commit the regenerated image.
 - Use the URL printed by Vite; the default port may change when it is already occupied.
 
 Do not edit or commit generated files under `dist/`.
@@ -73,7 +75,7 @@ When updating dependencies, keep `package.json` and `pnpm-lock.yaml` in sync and
 - The scene starts rendering only after the loading manager completes and `init()` schedules the first animation frame.
 - Browser console errors and failed network requests are the first checks when the page remains on the loader.
 - Shader compilation failures appear in the browser console, not necessarily during `pnpm build`.
-- The optional `lil-gui` setup in `main.js` is enabled only with `?gui=1`. It includes terrain, color, peak light intensity (sun, moon, ambient), day/night, speed-effect, and trail controls. The **Day/night** folder scrubs **Time of day** (live-updating), changes **Cycle duration (s)**, and **Paused** freezes the cycle; the top-level **speedEffect** slider applies a camera FOV kick and holds the blur and chromatic aberration at the matching boost intensity (also during the debug pause), the **Speed effect > preview** slider holds the post-processing at a raw minimum intensity while tuning, and **Vertical scale** weakens both toward the top and bottom edges without changing them horizontally. The **Scenery** folder sets the grid cell, the instance cap per chunk, and, under **Trees**, **Cacti**, and **Rocks**, a density per category and a size per type. Changes apply when a control is released and re-place scenery without rebuilding terrain. The same folders hold a brightness **variation** per type and a shared **Variation frequency**. These are shader uniforms and update live. The **Film grain** folder sets the static grain **Intensity** (`0` disables it). The **Trails** folder changes ribbon width, line and black-border thickness, separate frequency and amplitude for the inner and outer edges, and frequency and amplitude of the stripe oscillation. With the GUI enabled, the play action does not start the soundtrack.
+- The optional `lil-gui` setup in `main.js` is enabled only with `?gui=1`. It includes terrain, color, peak light intensity (sun, moon, ambient), day/night, speed-effect, and trail controls. The **Day/night** folder scrubs **Time of day** (live-updating), changes **Cycle duration (s)**, and **Paused** freezes the cycle; the top-level **speedEffect** slider applies a camera FOV kick and holds the blur and chromatic aberration at the matching boost intensity (also during the debug pause), the **Speed effect > preview** slider holds the post-processing at a raw minimum intensity while tuning, and **Vertical scale** weakens both toward the top and bottom edges without changing them horizontally. The **Scenery** folder sets the grid cell, the instance cap per chunk, and, under **Trees**, **Cacti**, and **Rocks**, a density per category and a size per type. Changes apply when a control is released and re-place scenery without rebuilding terrain. The same folders hold a brightness **variation** per type and a shared **Variation frequency**. **Scenery > Wood detail** sets the grain **Repeats per unit**, **Color strength**, and **Bump height**; releasing a control re-bakes the impostor atlas. These are shader uniforms and update live. The **Film grain** folder sets the static grain **Intensity** (`0` disables it). The **Trails** folder changes ribbon width, line and black-border thickness, separate frequency and amplitude for the inner and outer edges, and frequency and amplitude of the stripe oscillation. With the GUI enabled, the play action does not start the soundtrack.
 - `?time=<0..1>` sets the starting time of day (`0` midnight, `0.25` sunrise, `0.5` noon, `0.75` sunset); invalid or out-of-range values fall back to `0.3`. Combine it with `?seed=` for reproducible visual checks.
 - `?debug=1` enables the terrain-sample markers and the flight pause. After the play intro, **P** freezes the airplane while global time keeps running and switches the camera to `OrbitControls`. See [Experience](EXPERIENCE.md#debug-flight-pause). `window.__INFINITE_WORLD__.getDebugStats()` reports the pause state.
 
