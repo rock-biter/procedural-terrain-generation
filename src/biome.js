@@ -1,6 +1,6 @@
 import alea from 'alea'
 
-// CPU twin of the biome field in src/shaders/color-fragment.glsl. The shader
+// CPU twin of getBiomeValue() in src/shaders/common.glsl. The shader
 // decides terrain colors per pixel; this copy lets placement code ask which
 // biome a world point belongs to. Keep the frequencies, weights, and the
 // snoise port below identical to the GLSL, including uBiomeOffset.

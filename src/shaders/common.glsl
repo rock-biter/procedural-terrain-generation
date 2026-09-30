@@ -56,3 +56,11 @@ float snoise(vec2 v){
   g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
 }
+
+// Mirrored by getBiomeValue() in src/biome.js; keep both in sync.
+// biomeXZ is the world XZ position already shifted by uBiomeOffset.
+float getBiomeValue(vec2 biomeXZ) {
+  return snoise(biomeXZ * 0.00035)
+    + snoise(biomeXZ * 0.0035) * 0.22
+    + snoise(biomeXZ * 0.012) * 0.06;
+}

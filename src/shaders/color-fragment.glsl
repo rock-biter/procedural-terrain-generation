@@ -1,14 +1,29 @@
 #include <color_fragment>
 
-// Mirrored by getBiomeValue() in src/biome.js; keep both in sync.
 vec2 biomeXZ = wPosition.xz + uBiomeOffset;
-float biomeNoise = snoise(biomeXZ * 0.00035);
-float biomeEdgeNoise = snoise(biomeXZ * 0.0035) * 0.22;
-biomeEdgeNoise += snoise(biomeXZ * 0.012) * 0.06;
-float biomeValue = biomeNoise + biomeEdgeNoise;
+float biomeValue = getBiomeValue(biomeXZ);
 float biomeBlend = step(0.0, biomeValue);
-float biomePixelWidth = max(fwidth(biomeValue), 0.00001);
-float biomeBoundary = 1.0 - smoothstep(biomePixelWidth, biomePixelWidth * 2.0, abs(biomeValue));
+
+// Biome separator with a constant world-space width. The distance to the
+// border is |value| / |gradient|; the gradient comes from world-space forward
+// differences, evaluated only near the border. fwidth() stays in uniform
+// control flow and only widens the antialiasing edge.
+const float BIOME_LINE_HALF_WIDTH = 0.6;
+// Upper bound of |gradient(getBiomeValue)| per world unit.
+const float BIOME_MAX_GRADIENT = 0.014;
+const float BIOME_GRADIENT_STEP = 0.5;
+float biomeValueWidth = fwidth(biomeValue);
+float biomeBoundary = 0.0;
+if (abs(biomeValue) < BIOME_LINE_HALF_WIDTH * BIOME_MAX_GRADIENT + biomeValueWidth) {
+	vec2 biomeGradient = vec2(
+		getBiomeValue(biomeXZ + vec2(BIOME_GRADIENT_STEP, 0.0)),
+		getBiomeValue(biomeXZ + vec2(0.0, BIOME_GRADIENT_STEP))
+	) - biomeValue;
+	float biomeGradientLength = max(length(biomeGradient) / BIOME_GRADIENT_STEP, 1e-6);
+	float biomeDistance = abs(biomeValue) / biomeGradientLength;
+	float biomeAntialias = max(biomeValueWidth / biomeGradientLength, 1e-4) * 0.5;
+	biomeBoundary = 1.0 - smoothstep(BIOME_LINE_HALF_WIDTH - biomeAntialias, BIOME_LINE_HALF_WIDTH + biomeAntialias, biomeDistance);
+}
 float currentBiomeVariation = snoise(biomeXZ * 0.001) * 0.3 + 0.6 + snoise(biomeXZ * 0.01) * 0.3;
 
 vec3 currentSand = vec3(0.9, 0.8, 0.5);

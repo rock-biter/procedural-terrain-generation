@@ -71,7 +71,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ### Biome Field
 
-[`src/biome.js`](../src/biome.js) is the CPU twin of the biome selector in `color-fragment.glsl`.
+[`src/biome.js`](../src/biome.js) is the CPU twin of the GLSL `getBiomeValue()` in `common.glsl`, which `color-fragment.glsl` uses to select biomes.
 
 - It ports the GLSL Ashima `snoise` exactly, using a floor-based `mod`, and applies the same three-frequency formula.
 - `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `main.js` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers, so the seed now moves biomes as well.
@@ -177,7 +177,7 @@ Record and test ownership before changing disposal; shared resources must not be
 - Test negative world coordinates because chunk indexing uses `Math.floor()`.
 - Validate desktop and narrow/mobile paths because density and streaming radius differ.
 - Check terrain, scenery, clouds, and boats after changing height bands. Scenery thresholds in `SCENERY_CONFIG` and `isSnow()` mirror `color-fragment.glsl`.
-- Keep `getBiomeValue()` in `src/biome.js` identical to the biome formula in `color-fragment.glsl`, including `uBiomeOffset`.
+- Keep `getBiomeValue()` in `src/biome.js` identical to `getBiomeValue()` in `common.glsl`, including `uBiomeOffset`. If the formula can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
 - Treat changes to `params.octaves` as changes to both the height loop and the number of available noise functions.
 
 ## Open Questions
