@@ -203,6 +203,9 @@ const params = {
 	postProcessing: {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
+		// Static screen-space grain; intensity is the maximum brightness change
+		// (0.05 = ±5%). 0 skips the overlay pass.
+		grain: { intensity: 0.025 },
 		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
 		// verticalScale shrinks only the vertical distance (1 = circular falloff).
 		verticalScale: 0.78,
@@ -294,6 +297,11 @@ if (gui) {
 		.add(params.dayNight, 'cycleDuration', 10, 1200, 1)
 		.name('Cycle duration (s)')
 	dayNightFolder.add(params.dayNight, 'paused').name('Paused')
+
+	const grainFolder = gui.addFolder('Film grain')
+	grainFolder
+		.add(params.postProcessing.grain, 'intensity', 0, 0.3, 0.005)
+		.name('Intensity')
 
 	const updatePost = () =>
 		postProcessing.speedEffect.setParams(params.postProcessing)
