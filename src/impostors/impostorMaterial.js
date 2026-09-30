@@ -26,7 +26,13 @@ import {
 
 // One shared material for every scenery chunk. It owns the atlas uniforms and
 // must not be disposed by chunks.
-export function createImpostorMaterial(atlas, uniforms, { singleFrame = false } = {}) {
+// `variation` holds { amount, frequency } uniforms owned by the caller so the
+// GUI can tune them live: `amount.value` is one float per type index.
+export function createImpostorMaterial(
+	atlas,
+	uniforms,
+	{ singleFrame = false, variation } = {},
+) {
 	const material = new MeshStandardMaterial({
 		roughness: 0.9,
 		metalness: 0,
@@ -44,6 +50,9 @@ export function createImpostorMaterial(atlas, uniforms, { singleFrame = false } 
 	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
 
 	const impostorUniforms = {
+		uImpostorVariationAmount:
+			variation?.amount ?? { value: new Array(IMPOSTOR_TYPE_COUNT).fill(0) },
+		uImpostorVariationFrequency: variation?.frequency ?? { value: 1 },
 		uImpostorAlbedo: { value: atlas.albedo },
 		uImpostorNormal: { value: atlas.normal },
 		uImpostorTypes: {

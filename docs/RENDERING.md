@@ -24,6 +24,11 @@ Resize changes the camera aspect, projection matrix, capped pixel ratio, and the
 [`src/postProcessing.js`](../src/postProcessing.js) owns a `postprocessing` `EffectComposer` with 2x MSAA buffers (clamped to the device limit), a `RenderPass`, and one `EffectPass` containing `SpeedEffect`. `main.js` calls `postProcessing.render(deltaTime)` instead of `renderer.render()`; the composer disables `renderer.autoClear` and clears through the render pass.
 
 - **Idle bypass:** when the speed-effect intensity is `0`, the effect pass is disabled and the render pass draws straight to the antialiased canvas. No offscreen buffer, blur pyramid, or fullscreen pass runs. The first frame always runs the full chain so the effect shader compiles before the first boost.
+- **Film grain:** after the composer, `PostProcessing.renderGrain()` draws one fullscreen quad straight onto the canvas ([`film-grain-fragment.glsl`](../src/shaders/film-grain-fragment.glsl)). It is not a composer pass, so the idle bypass keeps working.
+  - The grain is static: a per-pixel hash of `gl_FragCoord` with no time input, so the pattern stays fixed on screen.
+  - It blends as `2 × src × dst`, which scales each canvas pixel by a factor in `[1 − intensity, 1 + intensity]`.
+  - `params.postProcessing.grain.intensity` (default `0.025`) is read every frame; `0` skips the pass.
+  - The grain has no texture reads and no offscreen target.
 - **MSAA cost:** without `WEBGL_multisampled_render_to_texture` (absent in desktop Chrome on Apple M1), the composer writes its whole multisampled scene target to memory and resolves it with a blit, while the canvas MSAA of the idle path is almost free. This is the largest cost of the active effect, larger than blur and aberration together (see `FEAT-001` in [Roadmap](ROADMAP.md)). The composer therefore uses 2x MSAA, so edges are slightly less smooth only while the effect is active.
 - **Intensity:** `main.js` passes the larger of the positive visual speed effect (`uAcceleration`, `0` during the debug pause) and the GUI `params.speedEffect`; `setSpeedEffect()` maps it through `smoothstep(0.1, 1)`, raised to at least `params.postProcessing.preview`.
 - **Future passes:** add them to `PostProcessing`; keep the bypass condition in sync so a new always-on pass disables it.
@@ -126,6 +131,7 @@ Trees, cacti, and rocks are octahedral impostors: each instance is one camera-fa
   4. Converts the camera and each vertex into the baked local frame by undoing the bend, yaw, scale, and stretch.
   5. Picks the three frames around the view direction with barycentric weights, the same triangle blend as `getFrameBlend()`. Each frame UV comes from intersecting the view ray with that frame's image plane.
   6. Scales instances to zero between `950` and `800` units from `uCamera`, inside the fog.
+  7. Multiplies the tint by a position-based brightness variation: two octaves of `snoise` at the flat world base, scaled by `uImpostorVariationFrequency` (default `0.01`). The noise is stretched by `1.6` and clamped to `±1`. The tint is multiplied by `exp2(noise × uImpostorVariationAmount[type])`, so the amount is in stops, one float per type. The default `0.8` spans about `×0.57` to `×1.74`, and the GUI allows up to `2`. Neighbouring instances share a shade while distant groups differ, on top of the per-instance random tint from placement. The uniforms live in `main.js` (`params.impostorVariation`) and update live, with no placement job.
 - **Fragment:**
   - `impostor-color-fragment.glsl` blends the three frames weighted by coverage, decodes sRGB, and multiplies by the instance tint. It then applies the `uAtmosphere` clamp (`700`→`400`).
   - `IMPOSTOR_SINGLE_FRAME`, set on mobile, samples only the dominant frame.

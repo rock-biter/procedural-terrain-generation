@@ -214,6 +214,14 @@ const params = {
 	},
 	// Placement settings sent to the chunk workers; see createScenerySettings().
 	scenery: createScenerySettings({ isMobile }),
+	// Shader-side, applied live: brightness change per type in stops (1 = half
+	// to double brightness) and the world frequency of the noise that drives it.
+	impostorVariation: {
+		frequency: 0.01,
+		amount: Object.fromEntries(
+			Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8]),
+		),
+	},
 	trails: {
 		ribbonWidth: 9.6,
 		lineWidth: 0.65,
@@ -236,6 +244,18 @@ const uniforms = {
 	uAtmosphere: { value: new THREE.Color() },
 	uBiomeOffset: { value: new THREE.Vector2(...createBiomeOffset(worldSeed)) },
 }
+// Uniforms shared with the impostor material; amount is indexed by type.
+const impostorVariation = {
+	amount: { value: new Array(Object.keys(SCENERY_TYPE_KEYS).length).fill(0) },
+	frequency: { value: params.impostorVariation.frequency },
+}
+function updateImpostorVariation() {
+	for (const [type, key] of Object.entries(SCENERY_TYPE_KEYS)) {
+		impostorVariation.amount.value[type] = params.impostorVariation.amount[key]
+	}
+	impostorVariation.frequency.value = params.impostorVariation.frequency
+}
+updateImpostorVariation()
 
 if (gui) {
 	gui.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
@@ -350,6 +370,10 @@ if (gui) {
 		.add(params.scenery, 'maxPerChunk', 0, 4096, 1)
 		.name('Max per chunk')
 		.onFinishChange(updateScenery)
+	sceneryFolder
+		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
+		.name('Variation frequency')
+		.onChange(updateImpostorVariation)
 	const sceneryLabels = { trees: 'Trees', cacti: 'Cacti', rocks: 'Rocks' }
 	for (const [category, types] of Object.entries(SCENERY_CATEGORIES)) {
 		const folder = sceneryFolder.addFolder(sceneryLabels[category])
@@ -363,6 +387,10 @@ if (gui) {
 				.add(params.scenery.size, key, 0.1, 4, 0.01)
 				.name(`${key} size`)
 				.onFinishChange(updateScenery)
+			folder
+				.add(params.impostorVariation.amount, key, 0, 2, 0.01)
+				.name(`${key} variation`)
+				.onChange(updateImpostorVariation)
 		}
 	}
 
@@ -501,6 +529,7 @@ function init(assets) {
 		})
 		assets.impostorMaterial = createImpostorMaterial(impostorAtlas, uniforms, {
 			singleFrame: isMobile,
+			variation: impostorVariation,
 		})
 	}
 

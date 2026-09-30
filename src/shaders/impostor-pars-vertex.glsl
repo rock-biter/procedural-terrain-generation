@@ -4,6 +4,10 @@ attribute vec4 aInstanceA;
 attribute vec4 aInstanceB;
 // x: frame radius, y: bounding-sphere center height, per impostor type.
 uniform vec2 uImpostorTypes[IMPOSTOR_TYPE_COUNT];
+// Position-based brightness variation: amount per type and a shared world
+// frequency for the noise that drives it.
+uniform float uImpostorVariationAmount[IMPOSTOR_TYPE_COUNT];
+uniform float uImpostorVariationFrequency;
 // xy: atlas cell of the frame (in frames), zw: UV inside the frame.
 varying vec4 vFrame0;
 varying vec4 vFrame1;

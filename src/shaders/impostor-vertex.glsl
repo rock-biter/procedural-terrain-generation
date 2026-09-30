@@ -82,6 +82,16 @@ vTint = vec3(
 	floor(packedTint / 65536.0)
 ) * (2.0 / 255.0);
 
+// Neighbouring instances share a similar shade while distant groups differ.
+// Sampled at the flat world base so the shade never shifts as the plane moves.
+vec2 variationPosition = impostorBase.xz * uImpostorVariationFrequency;
+float variationNoise = snoise(variationPosition) * 0.7
+	+ snoise(variationPosition * 4.3 + 17.0) * 0.3;
+// The summed octaves rarely exceed ±0.7; stretch them so groups reach the
+// extremes. The amount is in stops: 1 spans half to double brightness.
+variationNoise = clamp(variationNoise * 1.6, -1.0, 1.0);
+vTint *= exp2(variationNoise * uImpostorVariationAmount[impostorType]);
+
 wPosition = impostorVertex;
 vec4 mvPosition = viewMatrix * vec4(impostorVertex, 1.0);
 gl_Position = projectionMatrix * mvPosition;
