@@ -553,8 +553,13 @@ function tic(timestamp) {
 
 	// controls.update(deltaTime)
 
+	// The GUI speedEffect slider holds post-processing at least at that level,
+	// even while the flight is paused.
 	postProcessing.setSpeedEffect(
-		isFlightPaused ? 0 : plane.uniforms.uAcceleration.value,
+		Math.max(
+			isFlightPaused ? 0 : plane.uniforms.uAcceleration.value,
+			params.speedEffect,
+		),
 	)
 	postProcessing.render(deltaTime)
 

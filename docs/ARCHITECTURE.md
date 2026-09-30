@@ -46,7 +46,7 @@ Rendering begins after assets load, before the user presses the play action. The
 3. Write elapsed time and plane position to `uTime` and `uCamera`.
 4. Call `dayNight.update(deltaTime)` with the unclamped delta. It advances the time of day, which keeps running during the debug pause, and updates lights, fog, `uAtmosphere`, and the sky. It measures the curved-world horizon dip from the camera's world height. Its state then goes to `plane.setDayNight()` for the trail tint.
 5. Call `chunkManager.updateChunks()` to reconcile on boundary changes or process bounded keyed work.
-6. Pass `uAcceleration` (or `0` while paused) to `postProcessing.setSpeedEffect()`, render through `postProcessing.render(deltaTime)`, and schedule the next frame.
+6. Pass the larger of `uAcceleration` (or `0` while paused) and the GUI `params.speedEffect` to `postProcessing.setSpeedEffect()`, render through `postProcessing.render(deltaTime)`, and schedule the next frame.
 
 Keep frame-sensitive behavior in this order unless a change explicitly depends on a different update sequence.
 

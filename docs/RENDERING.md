@@ -24,7 +24,7 @@ Resize changes the camera aspect, projection matrix, capped pixel ratio, and the
 [`src/postProcessing.js`](../src/postProcessing.js) owns a `postprocessing` `EffectComposer` with 4x MSAA buffers (clamped to the device limit), a `RenderPass`, and one `EffectPass` containing `SpeedEffect`. `main.js` calls `postProcessing.render(deltaTime)` instead of `renderer.render()`; the composer disables `renderer.autoClear` and clears through the render pass.
 
 - **Idle bypass:** when the speed-effect intensity is `0`, the effect pass is disabled and the render pass draws straight to the antialiased canvas. No offscreen buffer, blur pyramid, or fullscreen pass runs. The first frame always runs the full chain so the effect shader compiles before the first boost.
-- **Intensity:** `setSpeedEffect()` maps the positive visual speed effect (`uAcceleration`) through `smoothstep(0.1, 1)`, raised to at least `params.postProcessing.preview`.
+- **Intensity:** `main.js` passes the larger of the positive visual speed effect (`uAcceleration`, `0` during the debug pause) and the GUI `params.speedEffect`; `setSpeedEffect()` maps it through `smoothstep(0.1, 1)`, raised to at least `params.postProcessing.preview`.
 - **Future passes:** add them to `PostProcessing`; keep the bypass condition in sync so a new always-on pass disables it.
 
 ### `SpeedEffect`
@@ -122,7 +122,7 @@ The curvature in `project-vertex.glsl` moves vertices down by `R * (1 - cos(dist
 - Biome colors are initialized from `params.colors`; the disabled GUI can mutate them.
 - `Plane.update()` writes `uAcceleration` and updates the trail buffer before the frame renders.
 - `Plane.updateTrails()` calls `recordTrailPose()`, which pushes the current pose into the history, and then `refreshTrails()`, which copies `params.trails` into stable trail-uniform wrappers and rebuilds the ribbon from the history. Changing a GUI slider affects already emitted sections as well as new ones. During the debug flight pause only `refreshTrails()` runs, so tuning stays live without extending the trail.
-- `main.js` passes `uAcceleration` to `PostProcessing.setSpeedEffect()` immediately before `PostProcessing.render()`.
+- `main.js` passes `max(uAcceleration, params.speedEffect)` to `PostProcessing.setSpeedEffect()` immediately before `PostProcessing.render()`.
 - Shader callbacks merge custom uniform entries with Three.js-generated uniforms at compilation time.
 
 Do not replace the shared uniform wrapper objects each frame. Update their `.value` fields so compiled materials retain the same references.
@@ -145,7 +145,7 @@ See [Assets](ASSETS.md) for load paths, transforms, and licensing.
 4. Run `pnpm build` to validate imports and bundling.
 5. Load the scene and check the browser console for shader compile or link errors.
 6. Inspect terrain, water, trees, clouds, boats, and trails as applicable.
-7. For post-processing changes, hold the effect with `?gui=1` and **Speed effect > preview**, and check the center, edges, and corners, and that the idle bypass returns (`getPostProcessingStats().active === false`).
+7. For post-processing changes, hold the effect with `?gui=1` and the top-level **speedEffect** slider (same smoothstep mapping as a real boost) or **Speed effect > preview** (raw intensity), and check the center, edges, and corners, and that the idle bypass returns (`getPostProcessingStats().active === false`).
 8. Move far enough to exercise distance fades, curvature, new chunks, and multiple LODs.
 9. Repeat at a narrow/mobile viewport because geometry density and camera settings differ.
 
