@@ -6,35 +6,24 @@ varying vec3 vPosition;
 varying float vDepth;
 
 #ifdef USE_DETAIL
-// Tileable grayscale detail (src/textures/wood-grain.png), mapped
-// triplanarly in object space so the grain follows each source mesh.
+// Tileable wood color map (src/textures/olive_veneer/olive_veneer_diff_1k.jpg),
+// mapped triplanarly in object space so the grain follows each source mesh.
+// The texture is sRGB, so samples arrive linear.
 uniform sampler2D uDetail;
 // Texture repeats per world unit.
 uniform float uDetailScale;
-// Brightness change: the color is scaled by [1 - strength, 1 + strength].
+// 0 keeps the vertex color, 1 multiplies it by the texture color.
 uniform float uDetailColor;
-// Bump height in world units for a full black-to-white step.
-uniform float uDetailBump;
 
-float sampleDetail(vec3 position, vec3 normal) {
+vec3 sampleDetail(vec3 position, vec3 normal) {
 	vec3 weights = pow(abs(normal), vec3(4.0));
 	weights /= weights.x + weights.y + weights.z;
-	// Side projections keep the grain vertical.
-	float side = texture(uDetail, position.zy * uDetailScale).r;
-	float top = texture(uDetail, position.xz * uDetailScale).r;
-	float front = texture(uDetail, position.xy * uDetailScale).r;
+	// The texture grain runs along U; side projections map U to height to keep
+	// it vertical.
+	vec3 side = texture(uDetail, position.yz * uDetailScale).rgb;
+	vec3 top = texture(uDetail, position.xz * uDetailScale).rgb;
+	vec3 front = texture(uDetail, position.yx * uDetailScale).rgb;
 	return side * weights.x + top * weights.y + front * weights.z;
-}
-
-// Derivative bump mapping (as Three.js perturbNormalArb), in object space.
-vec3 perturbNormal(vec3 position, vec3 normal, float height) {
-	vec3 sigmaX = dFdx(position);
-	vec3 sigmaY = dFdy(position);
-	vec3 r1 = cross(sigmaY, normal);
-	vec3 r2 = cross(normal, sigmaX);
-	float determinant = dot(sigmaX, r1);
-	vec3 gradient = sign(determinant) * (dFdx(height) * r1 + dFdy(height) * r2);
-	return normalize(abs(determinant) * normal - gradient);
 }
 #endif
 
@@ -52,9 +41,7 @@ void main() {
 	vec3 normal = normalize(vNormal);
 
 #ifdef USE_DETAIL
-	float detail = sampleDetail(vPosition, normal);
-	color *= 1.0 + (detail - 0.5) * 2.0 * uDetailColor;
-	normal = perturbNormal(vPosition, normal, detail * uDetailBump);
+	color *= mix(vec3(1.0), sampleDetail(vPosition, normal), uDetailColor);
 #endif
 
 	gAlbedo = vec4(linearToSRGB(color), 1.0);

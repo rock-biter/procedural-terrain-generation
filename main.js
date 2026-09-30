@@ -37,7 +37,7 @@ import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import gsap from 'gsap'
-import woodGrainSrc from './src/textures/wood.jpg'
+import woodGrainSrc from './src/textures/white_oak/white_oak_veneer_diff_1k.jpg'
 
 const loadingEl = document.getElementById('loader')
 const progressEl = document.getElementById('progress')
@@ -139,8 +139,9 @@ const audioLoader = new THREE.AudioLoader(loaderManager)
 const textureLoader = new THREE.TextureLoader(loaderManager)
 
 if (worldFeatures.scenery) {
-	// Grayscale detail baked into every impostor (scripts/generate-wood-texture.mjs).
+	// Olive veneer color map, baked into every impostor's albedo.
 	assets.woodTexture = textureLoader.load(woodGrainSrc)
+	assets.woodTexture.colorSpace = THREE.SRGBColorSpace
 	assets.woodTexture.wrapS = THREE.RepeatWrapping
 	assets.woodTexture.wrapT = THREE.RepeatWrapping
 }
@@ -243,10 +244,10 @@ const params = {
 	scenery: createScenerySettings({ isMobile }),
 	// Shader-side, applied live: brightness change per type in stops (1 = half
 	// to double brightness) and the world frequency of the noise that drives it.
-	// Wood grain baked into every impostor: repeats per world unit, brightness
-	// strength (0.45 = ±45%), and bump height in world units. Changing them
-	// re-bakes the atlas.
-	impostorDetail: { scale: 0.18, color: 0.45, bump: 0.18 },
+	// Wood color baked into every impostor: repeats per world unit and color
+	// strength (0 = vertex color only, 1 = vertex color × texture). Changing
+	// them re-bakes the atlas.
+	impostorDetail: { scale: 0.01, color: 0.1 },
 	impostorVariation: {
 		frequency: 0.01,
 		amount: Object.fromEntries(
@@ -491,10 +492,6 @@ if (gui) {
 	detailFolder
 		.add(params.impostorDetail, 'color', 0, 1, 0.01)
 		.name('Color strength')
-		.onFinishChange(rebakeImpostors)
-	detailFolder
-		.add(params.impostorDetail, 'bump', 0, 0.5, 0.005)
-		.name('Bump height')
 		.onFinishChange(rebakeImpostors)
 	sceneryFolder
 		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
