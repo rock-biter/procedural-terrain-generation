@@ -195,7 +195,7 @@ if (urlParams.get('gui') === '1') gui = new dat.GUI()
 const params = {
 	speedEffect: 0,
 	// Peak intensities; the day/night cycle scales them every frame.
-	directionalLight: 6,
+	directionalLight: 4,
 	moonLight: 1.2,
 	ambientLight: 1.5,
 	dayNight: {
