@@ -27,7 +27,7 @@ import { getHeight } from './chunkGeometry'
 const isMobile = window.innerWidth < 768
 const loader = new TextureLoader()
 const normalMap = loader.load(fabricSrc)
-normalMap.repeat.set(6, 6)
+normalMap.repeat.set(12, 12)
 normalMap.wrapS = RepeatWrapping
 normalMap.wrapT = RepeatWrapping
 const material = new MeshStandardMaterial({

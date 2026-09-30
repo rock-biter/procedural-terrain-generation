@@ -1,30 +1,32 @@
 #ifdef USE_NORMALMAP_OBJECTSPACE
 
-	normal = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0; // overrides both flatShading and attribute normals
+normal = texture2D(normalMap, vNormalMapUv).xyz * 2.0 - 1.0; // overrides both flatShading and attribute normals
 
 	#ifdef FLIP_SIDED
 
-		normal = - normal;
+normal = - normal;
 
 	#endif
 
 	#ifdef DOUBLE_SIDED
 
-		normal = normal * faceDirection;
+normal = normal * faceDirection;
 
 	#endif
 
-	normal = normalize( normalMatrix * normal );
+normal = normalize(normalMatrix * normal);
 
 #elif defined( USE_NORMALMAP_TANGENTSPACE )
 
-	vec3 mapN = texture2D( normalMap, vNormalMapUv ).xyz * 2.0 - 1.0;
-	mapN.xy *= normalScale * smoothstep(400.,20.,distanceFromCamera);
+vec3 mapN = texture2D(normalMap, vNormalMapUv).xyz * 2.0 - 1.0;
+	// Fade the fabric normal map out before its fine pattern aliases into
+	// moire at mid distance; full strength within 30 units of the plane.
+mapN.xy *= normalScale * smoothstep(120., 20., distanceFromCamera);
 
-	normal = normalize( tbn * mapN );
+normal = normalize(tbn * mapN);
 
 #elif defined( USE_BUMPMAP )
 
-	normal = perturbNormalArb( - vViewPosition, normal, dHdxy_fwd(), faceDirection );
+normal = perturbNormalArb(- vViewPosition, normal, dHdxy_fwd(), faceDirection);
 
 #endif

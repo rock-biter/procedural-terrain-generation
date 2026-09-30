@@ -93,7 +93,7 @@ The plane trail uses dynamic world-space positions, a per-vertex `trailWidths` v
 
 - [`project-vertex.glsl`](../src/shaders/project-vertex.glsl) applies water movement, distance-based curvature, and the final projection.
 - [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) keeps five elevation-based land bands and switches between their existing palette and a sand-to-dark-brown desert palette. A very-low-frequency signed simplex-noise sample in world XZ coordinates, shifted by `uBiomeOffset`, selects the desert biome below zero and the existing biome above zero; two denser samples fray the boundary at different scales. An antialiased black separator hides the hard palette transition on land only, leaving water colors and wave highlights independent. `getBiomeValue()` in `src/biome.js` is the exact CPU twin of this formula; change both together.
-- [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) attenuates tangent-space normal-map strength with distance.
+- [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) attenuates tangent-space normal-map strength with distance from `uCamera`: full within `30` units, gone beyond `150`. The earlier `400`-unit fade let the fine fabric pattern alias into moiré at mid distance.
 - [`curved-light-terminator.glsl`](../src/shaders/curved-light-terminator.glsl) is inserted into `lights_fragment_begin` (see below).
 
 ### Curved-World Lighting
