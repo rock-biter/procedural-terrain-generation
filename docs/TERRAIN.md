@@ -84,7 +84,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 [`src/sceneryPlacement.js`](../src/sceneryPlacement.js) runs in the chunk worker.
 
 - **Settings:** each placement request carries a snapshot of `params.scenery`, created by `createScenerySettings()`. The **Scenery** debug folder edits it (see [Scenery Settings](#scenery-settings)). Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
-- **Grid:** a jittered world-space grid whose cell size is `settings.cellSize`: `8` units on desktop and `16` on mobile by default, and it must divide the chunk size. Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
+- **Grid:** a jittered world-space grid whose cell size is `settings.cellSize`: `4` units on desktop and `8` on mobile by default, and it must divide the chunk size. Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
 - **Randomness:** each cell draws its values from a stateless integer hash of the seed and the cell coordinates. The result does not depend on generation order or LOD, and revisiting a coordinate reproduces the same instances.
 - **Rejected candidates:** a candidate is skipped when any of these hold:
   - it is on water or beach (height `< 1.8`);
@@ -99,13 +99,13 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
 
   Scale, vertical stretch, yaw, and tint vary per instance. Boulders are grey in temperate areas and sandy in the desert.
-- **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category. At the default multipliers of `1` the result matches the original fixed rules.
-- **Size:** `settings.size[typeKey]` multiplies the instance scale.
+- **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category.
+- **Size:** `settings.size[typeKey]` multiplies the instance scale drawn from the `SCENERY_CONFIG` range.
 - **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface.
 - **Cap:** when a chunk has more than `settings.maxPerChunk` instances (default `1000`), it keeps those with the lowest per-cell random priority. The subset is deterministic and spatially uniform.
 - **Output:** a transferable `Float32Array` with `IMPOSTOR_INSTANCE_STRIDE = 8` floats per instance: chunk-local `x, y, z`, scale, yaw, type, packed RGB tint, stretch.
 
-On desktop, placement costs roughly `0.3` ms per chunk in Node. Instance counts reach about 270 per land chunk.
+With the default settings, placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node. Instance counts reach about 550 and 120 per land chunk.
 
 ### Scenery LOD And Jobs
 
@@ -119,10 +119,18 @@ On desktop, placement costs roughly `0.3` ms per chunk in Node. Instance counts 
 
 `params.scenery` holds:
 
-- `cellSize`, one of `SCENERY_CELL_SIZES`: `4`, `8`, `16`, or `32`;
-- `maxPerChunk`;
-- `density.trees`, `density.cacti`, and `density.rocks`;
-- `size.roundTree`, `size.conifer`, `size.cactusOneArm`, `size.cactusTwoArms`, `size.boulder`, and `size.layeredRock`.
+- `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `4` on desktop and `8` on mobile;
+- `maxPerChunk`, default `1000`;
+- density multipliers, with defaults `density.trees = 0.63`, `density.cacti = 0.1`, and `density.rocks = 0.25`;
+- size multipliers, copied from the `SCENERY_DEFAULT_SIZES` configuration object:
+  - `roundTree`: `0.82`;
+  - `conifer`: `1.03`;
+  - `cactusOneArm`: `1`;
+  - `cactusTwoArms`: `1`;
+  - `boulder`: `0.98`;
+  - `layeredRock`: `0.56`.
+
+Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.
 
 `SCENERY_CATEGORIES` maps each type to its category.
 
@@ -133,7 +141,7 @@ On desktop, placement costs roughly `0.3` ms per chunk in Node. Instance counts 
 - Missing chunks get `create` jobs, and other live chunks in scenery range get `scenery` jobs.
 - Terrain is never regenerated.
 
-`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing, so a change made just before crossing is not lost. A cell of `4` quadruples candidates (4,096 per chunk) compared with `8`; measure before raising it on mobile.
+`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing, so a change made just before crossing is not lost. The desktop default cell of `4` gives 4,096 candidates per chunk, four times as many as a cell of `8`; measure before using it on mobile.
 
 ### Clouds (Dormant)
 

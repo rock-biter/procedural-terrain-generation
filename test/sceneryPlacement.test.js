@@ -9,6 +9,7 @@ import {
 import {
 	SCENERY_CATEGORIES,
 	SCENERY_CONFIG,
+	SCENERY_DEFAULT_SIZES,
 	SCENERY_TYPE_KEYS,
 	createScenerySettings,
 	generateSceneryInstances,
@@ -176,9 +177,18 @@ test('scales only the edited type', () => {
 
 	assert.equal(scaled.length, baseline.length)
 	for (let k = 0; k < baseline.length; k += IMPOSTOR_INSTANCE_STRIDE) {
-		const factor = baseline[k + 5] === IMPOSTOR_TYPE.CONIFER ? 2 : 1
+		const factor =
+			baseline[k + 5] === IMPOSTOR_TYPE.CONIFER ? 2 / defaults.size[key] : 1
 		assert.ok(Math.abs(scaled[k + 3] - baseline[k + 3] * factor) < 1e-5)
 	}
+})
+
+test('defines a default size for every scenery type', () => {
+	assert.deepEqual(
+		Object.keys(SCENERY_DEFAULT_SIZES).sort(),
+		Object.values(SCENERY_TYPE_KEYS).sort(),
+	)
+	assert.deepEqual(createScenerySettings().size, SCENERY_DEFAULT_SIZES)
 })
 
 test('caps instances per chunk with a deterministic subset', () => {

@@ -95,16 +95,16 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Terrain triangles              |                                           509,952 |                              118,784 |
 | Terrain noise evaluations      |                                         1,311,765 |                              311,925 |
 | Scenery chunks (LOD <= 2)      |                                                61 |                                   49 |
-| Scenery candidates             |                                            62,464 |                               12,544 |
-| Scenery height evaluations     |                                           312,320 |                               62,720 |
+| Scenery candidates             |                                           249,856 |                               50,176 |
+| Scenery height evaluations     |                                         1,249,280 |                              250,880 |
 | Cloud candidates               |                                         5,308,416 |                            3,211,264 |
 | Cloud noise evaluations        |                                        10,616,832 |                            6,422,528 |
 
 Terrain startup performs about **1.31 million** noise evaluations on desktop and **312 thousand** on mobile, distributed across up to two desktop workers or one mobile worker.
 
-Scenery placement also runs in those workers. It uses one candidate per `8`-unit cell on desktop and per `16`-unit cell on mobile. Each candidate costs five height evaluations. Land candidates add three biome and two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
+Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations. Land candidates add three biome and two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
 
-The former tree path would have needed 1.15 million main-thread evaluations on desktop. The new path measured about `0.3` ms per chunk in Node. Enabling the dormant clouds would still add about **10.6 million** desktop and **6.4 million** mobile main-thread evaluations.
+The former tree path would have needed 1.15 million main-thread evaluations on desktop. With the default settings, the new path measured about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node, with at most about 550 and 120 instances per chunk. Enabling the dormant clouds would still add about **10.6 million** desktop and **6.4 million** mobile main-thread evaluations.
 
 ### Terrain Cost Per Chunk
 
@@ -424,10 +424,10 @@ See the owning guides for current behavior and constraints. Promote an item into
   - Also the loader (bake in `init()`), tests, and every guide.
 - **Performance budget:**
   - Scenery work per frame: one draw call per scenery chunk (at most 61 on desktop) and 2 triangles per instance.
-  - Instance counts: about 1,800–2,300 at a desktop start over land, and at most about 270 per chunk.
+  - Instance counts: at most about 550 per chunk on desktop and 120 on mobile with the current defaults. The earlier `8`-unit, density-`1` defaults gave 1,800–2,300 at a desktop start over land.
   - Fragment cost: up to six atlas fetches per fragment, three on mobile with single-frame sampling.
   - Memory: an RGBA8 atlas pair of `3072 × 2048` on desktop (about `67` MB with mips) or `2304 × 1536` on mobile (about `38` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
-  - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the `16 × 16` grid, and placement costs about `0.3` ms per chunk in a worker.
+  - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the `16 × 16` grid, and placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile (measured in Node).
   - Real-GPU frame time has not been measured.
 - **Options:** real low-poly instanced meshes were rejected because the total instance count is high. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. A baked depth channel is reserved for a `gl_FragDepth` correction if slopes clip impostors visibly.
 - **Acceptance criteria:**

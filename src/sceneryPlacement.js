@@ -1,4 +1,10 @@
-import { BIOME, BIOME_BORDER_MARGIN, getBiome, getBiomeValue, snoise } from './biome.js'
+import {
+	BIOME,
+	BIOME_BORDER_MARGIN,
+	getBiome,
+	getBiomeValue,
+	snoise,
+} from './biome.js'
 import { getHeight, getSurfaceNormal } from './chunkGeometry.js'
 import {
 	IMPOSTOR_INSTANCE_STRIDE,
@@ -85,17 +91,26 @@ const TYPE_CATEGORY = Object.fromEntries(
 // Divisors of the 256-unit chunk offered for the scenery grid.
 export const SCENERY_CELL_SIZES = Object.freeze([4, 8, 16, 32])
 
+// Initial size multiplier per type, applied on top of the SCENERY_CONFIG
+// scale range. Keys match SCENERY_TYPE_KEYS.
+export const SCENERY_DEFAULT_SIZES = Object.freeze({
+	roundTree: 0.82,
+	conifer: 1.03,
+	cactusOneArm: 0.7,
+	cactusTwoArms: 0.8,
+	boulder: 0.98,
+	layeredRock: 0.56,
+})
+
 // Runtime settings sent with every placement request. Density and size are
-// multipliers: 1 reproduces SCENERY_CONFIG. Density multiplies the acceptance
+// multipliers on SCENERY_CONFIG. Density multiplies the acceptance
 // probability of its category, capped at one instance per grid cell.
 export function createScenerySettings({ isMobile = false } = {}) {
 	return {
-		cellSize: isMobile ? 16 : 8,
+		cellSize: isMobile ? 8 : 4,
 		maxPerChunk: 1000,
-		density: { trees: 1, cacti: 1, rocks: 1 },
-		size: Object.fromEntries(
-			Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 1]),
-		),
+		density: { trees: 0.63, cacti: 0.1, rocks: 0.25 },
+		size: { ...SCENERY_DEFAULT_SIZES },
 	}
 }
 
@@ -127,7 +142,8 @@ function cellRandom(seedHash, cellX, cellZ, salt) {
 
 // Tint channels in [0, 2) stored as bytes; decoded in impostor-vertex.glsl.
 export function packTint(r, g, b) {
-	const byte = (value) => Math.min(255, Math.max(0, Math.round((value / 2) * 255)))
+	const byte = (value) =>
+		Math.min(255, Math.max(0, Math.round((value / 2) * 255)))
 	return byte(r) + byte(g) * 256 + byte(b) * 65536
 }
 
@@ -150,7 +166,8 @@ function pickWeighted(table, value) {
 function getClusterDensity(x, z, biomeOffset) {
 	const cx = x + biomeOffset[0] + CLUSTER_OFFSET[0]
 	const cz = z + biomeOffset[1] + CLUSTER_OFFSET[1]
-	const forest = snoise(cx * 0.004, cz * 0.004) * 0.7 + snoise(cx * 0.02, cz * 0.02) * 0.3
+	const forest =
+		snoise(cx * 0.004, cz * 0.004) * 0.7 + snoise(cx * 0.02, cz * 0.02) * 0.3
 	return Math.min(Math.max((forest + 0.2) / 0.7, 0), 1)
 }
 
@@ -164,7 +181,11 @@ function getTint(type, biome, random) {
 	if (type === IMPOSTOR_TYPE.ROUND_TREE) {
 		// Warmer greens on brighter trees.
 		const warm = random * 0.18
-		return packTint(brightness * (1 + warm), brightness, brightness * (1 - warm))
+		return packTint(
+			brightness * (1 + warm),
+			brightness,
+			brightness * (1 - warm),
+		)
 	}
 	return packTint(brightness, brightness, brightness)
 }
@@ -182,7 +203,9 @@ export function generateSceneryInstances({
 }) {
 	const { cellSize } = settings
 	if (size % cellSize !== 0) {
-		throw new Error(`Scenery cell size ${cellSize} must divide chunk size ${size}`)
+		throw new Error(
+			`Scenery cell size ${cellSize} must divide chunk size ${size}`,
+		)
 	}
 
 	const cellsPerSide = size / cellSize
@@ -231,7 +254,8 @@ export function generateSceneryInstances({
 
 			const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
 			const scale =
-				(minScale + (maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)) *
+				(minScale +
+					(maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)) *
 				settings.size[SCENERY_TYPE_KEYS[type]]
 			if (scale <= 0) continue
 			const stretch =
