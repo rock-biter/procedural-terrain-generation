@@ -201,6 +201,7 @@ export default class ChunkManager {
 				worldX: (i + 0.5) * this.chunkSize,
 				worldZ: (j + 0.5) * this.chunkSize,
 				seed: this.seed,
+				biomeOffset: this.biomeOffset,
 				params: {
 					amplitude: this.params.amplitude,
 					frequency: {
@@ -210,6 +211,7 @@ export default class ChunkManager {
 					octaves: this.params.octaves,
 					lacunarity: this.params.lacunarity,
 					persistance: this.params.persistance,
+					desert: { ...this.params.desert },
 				},
 			},
 		}

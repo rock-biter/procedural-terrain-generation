@@ -30,7 +30,7 @@ export function getBiomeValue(x, z, offset) {
 	const bz = z + offset[1]
 
 	return (
-		snoise(bx * 0.00035, bz * 0.00035) +
+		snoise(bx * 0.000175, bz * 0.000175) +
 		snoise(bx * 0.0035, bz * 0.0035) * 0.22 +
 		snoise(bx * 0.012, bz * 0.012) * 0.06
 	)

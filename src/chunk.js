@@ -197,7 +197,13 @@ export default class Chunk extends Mesh {
 			do {
 				x = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.x
 				z = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.z
-				h = getHeight(x, z, this.noise, this.params)
+				h = getHeight(
+					x,
+					z,
+					this.noise,
+					this.params,
+					this.uniforms.uBiomeOffset.value.toArray(),
+				)
 				attempt++
 			} while ((h > -2 || h < -10) && attempt < 20)
 

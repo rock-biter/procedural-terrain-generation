@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { createBiomeOffset, getBiomeValue } from '../src/biome.js'
 import {
+	DESERT_TERRAIN_DEFAULTS,
 	createChunkGeometry,
+	createTerrainNoises,
 	generateChunkGeometryData,
+	getDesertFlattening,
+	getDesertWeight,
+	getHeight,
 } from '../src/chunkGeometry.js'
 
 const params = {
@@ -11,7 +17,9 @@ const params = {
 	octaves: 3,
 	lacunarity: 2,
 	persistance: 0.5,
+	desert: DESERT_TERRAIN_DEFAULTS,
 }
+const biomeOffset = createBiomeOffset('geometry-test')
 
 function generate(overrides = {}) {
 	return generateChunkGeometryData({
@@ -22,6 +30,7 @@ function generate(overrides = {}) {
 		worldZ: 8,
 		params,
 		seed: 'geometry-test',
+		biomeOffset,
 		...overrides,
 	})
 }
@@ -103,5 +112,92 @@ test('produces unit upward-facing normals', () => {
 		const length = Math.hypot(normal[index], normal[index + 1], normal[index + 2])
 		assert.ok(Math.abs(length - 1) < 1e-6)
 		assert.ok(normal[index + 1] > 0)
+	}
+})
+
+const noises = createTerrainNoises('geometry-test', params.octaves)
+const plainDesert = { ...DESERT_TERRAIN_DEFAULTS, frequency: 1, amplitude: 1, flatten: 0 }
+
+// Height before per-biome topography: every octave unscaled, no flattening.
+function getTemperateHeight(x, z) {
+	return getHeight(x, z, noises, { ...params, desert: plainDesert }, biomeOffset)
+}
+
+function getValue(x, z) {
+	return getBiomeValue(x, z, biomeOffset)
+}
+
+function findPoints(predicate, count) {
+	const points = []
+	for (let index = 0; points.length < count && index < 200000; index++) {
+		const x = ((index * 7919) % 80000) - 40000
+		const z = ((index * 104729) % 80000) - 40000
+		if (predicate(x, z)) points.push([x, z])
+	}
+	assert.equal(points.length, count)
+	return points
+}
+
+test('keeps temperate heights unchanged away from the biome border', () => {
+	const temperate = (x, z) => getValue(x, z) > DESERT_TERRAIN_DEFAULTS.blend
+	for (const [x, z] of findPoints(temperate, 50)) {
+		assert.equal(getDesertWeight(getValue(x, z), params), 0)
+		assert.equal(getDesertFlattening(getValue(x, z), params), 0)
+		const height = getHeight(x, z, noises, params, biomeOffset)
+		assert.ok(Math.abs(height - getTemperateHeight(x, z)) < 1e-9)
+	}
+})
+
+test('flattens desert land progressively with depth into the biome', () => {
+	const { flatten, depth } = DESERT_TERRAIN_DEFAULTS
+	assert.equal(getDesertFlattening(0, params), 0)
+	assert.equal(getDesertFlattening(-depth, params), flatten)
+	assert.equal(getDesertFlattening(-depth * 2, params), flatten)
+	let previous = 0
+	for (let value = 0; value >= -depth; value -= depth / 40) {
+		const flattening = getDesertFlattening(value, params)
+		assert.ok(flattening >= previous)
+		previous = flattening
+	}
+
+	// Deep inside the desert, land is exactly (1 - flatten) of the unflattened
+	// desert height; sea keeps its depth, so coastlines do not move.
+	const unflattened = { ...params, desert: { ...DESERT_TERRAIN_DEFAULTS, flatten: 0 } }
+	const deep = (x, z) => getValue(x, z) < -depth
+	let land = 0
+	for (const [x, z] of findPoints(deep, 50)) {
+		const raw = getHeight(x, z, noises, unflattened, biomeOffset)
+		const height = getHeight(x, z, noises, params, biomeOffset)
+		if (raw > 0) {
+			land++
+			assert.ok(Math.abs(height - raw * (1 - flatten)) < 1e-9)
+		} else {
+			assert.equal(height, raw)
+		}
+	}
+	assert.ok(land > 0)
+})
+
+test('reshapes the detail octaves inside the desert', () => {
+	const unflattened = { ...params, desert: { ...DESERT_TERRAIN_DEFAULTS, flatten: 0 } }
+	const desert = (x, z) => getValue(x, z) < -DESERT_TERRAIN_DEFAULTS.blend
+	let changed = false
+	for (const [x, z] of findPoints(desert, 50)) {
+		assert.equal(getDesertWeight(getValue(x, z), params), 1)
+		const height = getHeight(x, z, noises, unflattened, biomeOffset)
+		if (Math.abs(height - getTemperateHeight(x, z)) > 1e-3) changed = true
+	}
+	assert.ok(changed)
+})
+
+test('blends desert and temperate heights continuously across the border', () => {
+	const [[x0, z0]] = findPoints((x, z) => Math.abs(getValue(x, z)) < 0.01, 1)
+	let previous = getHeight(x0 - 200, z0, noises, params, biomeOffset)
+	for (let step = 1; step <= 4000; step++) {
+		const x = x0 - 200 + step * 0.1
+		const height = getHeight(x, z0, noises, params, biomeOffset)
+		// Terrain slopes stay well below 5 units per unit; a jump would exceed it.
+		assert.ok(Math.abs(height - previous) < 0.5, `jump at x=${x}`)
+		previous = height
 	}
 })

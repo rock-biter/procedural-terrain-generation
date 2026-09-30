@@ -17,15 +17,27 @@ Keep CPU sampling, chunk placement, instance placement, and shader world coordin
 
 ## Height Generation
 
-`getHeight(x, z, noises, params)` in [`src/chunkGeometry.js`](../src/chunkGeometry.js) is the shared CPU height function.
+`getHeight(x, z, noises, params, biomeOffset)` in [`src/chunkGeometry.js`](../src/chunkGeometry.js) is the shared CPU height function. `biomeOffset` is the seeded offset from `createBiomeOffset(seed)`; every caller must pass the same one the shader uses as `uBiomeOffset`.
 
 1. For every configured octave, sample simplex noise using `frequency`, `lacunarity`, and world coordinates.
 2. Square each sample and scale it by `amplitude * persistance ** octave`.
 3. Add a lower-frequency landmass term blended through Three.js `smoothstep` and `lerp` helpers.
 
+### Biome Topography
+
+The desert is lower and softer than the temperate biome, while the large-scale shape of the world stays the same:
+
+- Octave `0` and the landmass term are shared by both biomes, so continents and the big hills keep their layout.
+- **Detail:** the detail octaves (`1` and above) are summed twice. The temperate sum is unchanged. The desert sum multiplies their frequency by `params.desert.frequency` (`0.5`, broader forms) and their amplitude by `params.desert.amplitude` (`0.45`). `getDesertWeight()` mixes them with `1 - smoothstep(biomeValue, -blend, blend)`, with `blend` from `params.desert.blend` (`0.08`). The weight uses the same `getBiomeValue()` as the color border, so the change in relief follows it.
+- **Height reduction:** `getDesertFlattening()` removes a share of the land height that grows with the distance into the desert, measured in biome-noise value: `flatten * smoothstep(-biomeValue, 0, depth)`. It is `0` at the border and reaches `params.desert.flatten` (`0.5`, half the height) once the value is `params.desert.depth` (`0.4`) below it. Only positive heights are scaled, so coastlines and sea depth do not change; the slope bends slightly at the shoreline.
+- Heights are mixed rather than frequencies: interpolating the frequency would compress the noise into artificial ripples across the transition. Each detail sum is only evaluated where its weight is non-zero, so away from the border one set of detail octaves is computed.
+- Temperate terrain away from the border is unchanged. Desert height bands, and so their colors, become broader because they follow the height.
+- Defaults live in `DESERT_TERRAIN_DEFAULTS`; `main.js` copies them into `params.desert`, and `ChunkManager` snapshots them into every worker request. The **Terrain > Desert topography** GUI edits them and regenerates the chunks when a control is released.
+- **Cost:** each height sample also evaluates the biome field (three `snoise` calls). In Node, a LOD `0` chunk at density `1` went from about `86` to `130`–`140` ms. The work runs in the workers.
+
 `ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random per-load seed. Each worker caches its noise functions until the seed or octave count changes.
 
-`main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
+`main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path, with `chunkManager.biomeOffset`. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
 
 For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. Shaders use the raw attribute for effects and coloring, so do not remove it.
 
@@ -42,7 +54,7 @@ The worker transfers position, normal, UV, height, and index buffers. The main t
 - Entering a new chunk increments the desired-set revision and diffs every live chunk against the new set.
 - Out-of-range chunks are immediately disposed and deleted from the live `Map`; pending jobs outside the set are deleted as well.
 - Missing chunks and changed LODs become keyed jobs in a pending `Map`, so each coordinate has at most one queued operation.
-- Jobs carry key, desired-set revision, LOD, seed, and a snapshot of terrain parameters. Workers echo key and revision; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
+- Jobs carry key, desired-set revision, LOD, seed, biome offset, and a snapshot of terrain parameters (including `desert`). Workers echo key and revision; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
 - While the tracked position remains in the same chunk, the manager processes up to three jobs per frame on desktop or two on mobile. Near LOD 0/1 work remains limited to one job in that frame.
 - Pending jobs are sorted by distance so nearer work runs first.
 - Generation is bounded by a pool of up to two workers on desktop and one on mobile. Only one request per chunk key may be in flight.
@@ -74,7 +86,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 [`src/biome.js`](../src/biome.js) is the CPU twin of the GLSL `getBiomeValue()` in `common.glsl`, which `color-fragment.glsl` uses to select biomes.
 
 - It ports the GLSL Ashima `snoise` exactly, using a floor-based `mod`, and applies the same three-frequency formula.
-- `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `main.js` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers, so the seed now moves biomes as well.
+- `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `main.js` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers in both the terrain and the scenery part of each request, so the seed moves biomes and their topography.
 - A negative value is desert and a non-negative value is temperate.
 - In a headless SwiftShader comparison over 16,384 points, JS and GLSL differed by at most `8e-6`, with no sign mismatch.
 - Placement skips candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border.

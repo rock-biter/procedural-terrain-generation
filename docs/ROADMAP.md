@@ -80,7 +80,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 
 - Chunk size: `256`.
 - Default octaves: `3`.
-- `getHeight()` performs exactly five simplex-noise evaluations at the default octave count: one per octave plus two landmass samples.
+- `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and three biome-field samples. Near a biome border the two detail octaves are evaluated twice, for seven terrain samples.
 - Desktop uses `maxDistance = 5`, terrain density divisor `2`, and tree step `5`.
 - Mobile uses `maxDistance = 4`, terrain density divisor `4`, and tree step `8`.
 - Counts model the symmetric desired-set policy. Keyed pending work prevents duplicate jobs for one coordinate.

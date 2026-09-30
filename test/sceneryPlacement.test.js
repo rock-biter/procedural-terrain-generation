@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BIOME_BORDER_MARGIN, createBiomeOffset, getBiomeValue } from '../src/biome.js'
-import { createTerrainNoises, getHeight } from '../src/chunkGeometry.js'
+import {
+	DESERT_TERRAIN_DEFAULTS,
+	createTerrainNoises,
+	getHeight,
+} from '../src/chunkGeometry.js'
 import {
 	IMPOSTOR_INSTANCE_STRIDE,
 	IMPOSTOR_TYPE,
@@ -23,6 +27,7 @@ const params = {
 	octaves: 3,
 	lacunarity: 2,
 	persistance: 0.5,
+	desert: DESERT_TERRAIN_DEFAULTS,
 }
 const seed = 'scenery-test'
 const noises = createTerrainNoises(seed, params.octaves)
@@ -84,7 +89,7 @@ test('keeps every instance inside its own chunk without duplicates', () => {
 test('never places scenery in water, on beaches, or on snow', () => {
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
-			const height = getHeight(instance.x, instance.z, noises, params)
+			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
 			assert.ok(height >= SCENERY_CONFIG.grassLevel)
 			assert.equal(isSnow(instance.x, height, instance.z), false)
 			assert.ok(

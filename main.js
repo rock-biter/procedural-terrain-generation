@@ -5,7 +5,7 @@ import Chunk, { CURVATURE } from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import DayNight from './src/dayNight'
 import { DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './src/dayNightPolicy'
-import { getHeight } from './src/chunkGeometry'
+import { DESERT_TERRAIN_DEFAULTS, getHeight } from './src/chunkGeometry'
 import { createBiomeOffset } from './src/biome'
 import {
 	createTerrainNormalSettings,
@@ -203,7 +203,7 @@ const params = {
 		cycleDuration: DAY_NIGHT_DEFAULTS.cycleDuration,
 		paused: false,
 	},
-	amplitude: 23,
+	amplitude: 32,
 	frequency: {
 		x: 0.5,
 		z: 0.5,
@@ -213,6 +213,9 @@ const params = {
 	octaves: 3,
 	lacunarity: 2,
 	persistance: 0.5,
+	// Desert detail topography and progressive height reduction; see
+	// DESERT_TERRAIN_DEFAULTS.
+	desert: { ...DESERT_TERRAIN_DEFAULTS },
 	LOD: 0,
 	colors: {
 		uGrass: '#6d976d',
@@ -326,6 +329,28 @@ if (gui) {
 	terrainFolder
 		.add(params, 'zOffset', -10, 10, 0.1)
 		.onChange(() => chunkManager.onParamsChange())
+
+	const desertFolder = terrainFolder.addFolder('Desert topography')
+	desertFolder
+		.add(params.desert, 'frequency', 0.1, 2, 0.01)
+		.name('Detail frequency ×')
+		.onFinishChange(() => chunkManager.onParamsChange())
+	desertFolder
+		.add(params.desert, 'amplitude', 0, 2, 0.01)
+		.name('Detail amplitude ×')
+		.onFinishChange(() => chunkManager.onParamsChange())
+	desertFolder
+		.add(params.desert, 'blend', 0.01, 0.4, 0.005)
+		.name('Blend width')
+		.onFinishChange(() => chunkManager.onParamsChange())
+	desertFolder
+		.add(params.desert, 'flatten', 0, 1, 0.01)
+		.name('Height reduction')
+		.onFinishChange(() => chunkManager.onParamsChange())
+	desertFolder
+		.add(params.desert, 'depth', 0.01, 1.5, 0.01)
+		.name('Reduction depth')
+		.onFinishChange(() => chunkManager.onParamsChange())
 
 	const updateTerrainNormals = () =>
 		updateTerrainNormalUniforms(uniforms, params.terrainNormals)
@@ -627,14 +652,19 @@ function init(assets) {
 		worldFeatures,
 		worldSeed,
 	)
-	plane.setTerrainSampler((x, z) => getHeight(x, z, chunkManager.noise, params))
+	plane.setTerrainSampler((x, z) =>
+		getHeight(x, z, chunkManager.noise, params, chunkManager.biomeOffset),
+	)
 
 	/**
 	 * Plane
 	 */
 
 	plane.position.y =
-		Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
+		Math.max(
+			getHeight(0, 0, chunkManager.noise, params, chunkManager.biomeOffset),
+			0,
+		) + 60
 	scene.add(plane)
 	scene.add(plane.trails)
 	if (debugFeatures.terrainSamples) {

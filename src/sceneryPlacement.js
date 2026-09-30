@@ -224,7 +224,7 @@ export function generateSceneryInstances({
 			const x = (cellX + cellRandom(seedHash, cellX, cellZ, 0)) * cellSize
 			const z = (cellZ + cellRandom(seedHash, cellX, cellZ, 1)) * cellSize
 
-			const height = getHeight(x, z, noises, params)
+			const height = getHeight(x, z, noises, params, biomeOffset)
 			if (height < config.grassLevel || isSnow(x, height, z)) continue
 
 			const biomeValue = getBiomeValue(x, z, biomeOffset)
@@ -249,7 +249,7 @@ export function generateSceneryInstances({
 			const density = baseDensity * settings.density[TYPE_CATEGORY[type]]
 			if (cellRandom(seedHash, cellX, cellZ, 2) >= density) continue
 
-			getSurfaceNormal(x, z, noises, params, normal)
+			getSurfaceNormal(x, z, noises, params, biomeOffset, normal)
 			if (normal[1] < rules.minSlopeNormalY) continue
 
 			const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]

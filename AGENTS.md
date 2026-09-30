@@ -45,7 +45,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, the render loop, and resize behavior.
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
 - [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, symmetric desired-set selection, distance-based LOD policy, and the scenery LOD rule.
-- [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling and transferable terrain buffers shared by tests and workers.
+- [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and transferable terrain buffers shared by tests and workers.
 - [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
 - [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
 - [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.
