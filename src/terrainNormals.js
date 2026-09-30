@@ -1,5 +1,6 @@
 import { MathUtils, RepeatWrapping, TextureLoader, Vector2 } from 'three'
 import fabricSrc from './textures/normal.jpg'
+import curlyTeddySrc from './textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg'
 import dirtyCarpetSrc from './textures/dirty_carpet/dirty_carpet_nor_gl_1k.jpg'
 import fabricPatternSrc from './textures/fabric_pattern/fabric_pattern_07_nor_gl_1k.jpg'
 import hessianSrc from './textures/hessian/hessian_230_nor_gl_1k.jpg'
@@ -10,6 +11,7 @@ import wafflePiqueSrc from './textures/waffle_pique/waffle_pique_cotton_nor_gl_1
 // for maps that do not follow the OpenGL (+Y) convention.
 export const TERRAIN_NORMAL_TEXTURES = Object.freeze({
 	fabric: { src: fabricSrc, invertGreen: true },
+	curlyTeddy: { src: curlyTeddySrc, invertGreen: false },
 	dirtyCarpet: { src: dirtyCarpetSrc, invertGreen: false },
 	fabricPattern: { src: fabricPatternSrc, invertGreen: false },
 	hessian: { src: hessianSrc, invertGreen: false },
@@ -36,9 +38,14 @@ export const TERRAIN_BANDS = Object.freeze([
 // Rotations are arbitrary, but consecutive layers differ by at least 15
 // degrees even modulo 90, so neighbouring bands never line up their patterns.
 export const TERRAIN_NORMAL_LAYERS = Object.freeze({
-	sea: { texture: 'fabric', scale: 256 / 12, strength: 2, rotation: 23 },
+	sea: {
+		texture: 'ribbedCorduroy',
+		scale: 85,
+		strength: 2,
+		rotation: 50,
+	},
 	sand: { texture: 'hessian', scale: 15, strength: 4.0, rotation: 71 },
-	grass: { texture: 'ribbedCorduroy', scale: 33, strength: 3.5, rotation: 137 },
+	grass: { texture: 'ribbedCorduroy', scale: 50, strength: 3.5, rotation: 137 },
 	land: { texture: 'wafflePique', scale: 36, strength: 1.85, rotation: 204 },
 	rocks: { texture: 'dirtyCarpet', scale: 35, strength: 2.5, rotation: 256 },
 	snow: { texture: 'fabricPattern', scale: 20, strength: 3.2, rotation: 318 },
@@ -47,7 +54,7 @@ export const TERRAIN_NORMAL_LAYERS = Object.freeze({
 // Distance from the plane (world units) where every layer's normal map starts
 // fading (start) and is gone (end). Fine patterns alias into moire if they
 // reach too far.
-export const TERRAIN_NORMAL_FADE = Object.freeze({ start: 50, end: 300 })
+export const TERRAIN_NORMAL_FADE = Object.freeze({ start: 150, end: 500 })
 
 const loader = new TextureLoader()
 const textures = new Map()
