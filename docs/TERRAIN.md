@@ -83,7 +83,8 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 [`src/sceneryPlacement.js`](../src/sceneryPlacement.js) runs in the chunk worker.
 
-- **Grid:** a jittered world-space grid with cells of `8` units on desktop and `16` on mobile (`ChunkManager.sceneryCellSize`). The cell size must divide the chunk size. Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
+- **Settings:** each placement request carries a snapshot of `params.scenery`, created by `createScenerySettings()`. The **Scenery** debug folder edits it (see [Scenery Settings](#scenery-settings)). Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
+- **Grid:** a jittered world-space grid whose cell size is `settings.cellSize`: `8` units on desktop and `16` on mobile by default, and it must divide the chunk size. Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
 - **Randomness:** each cell draws its values from a stateless integer hash of the seed and the cell coordinates. The result does not depend on generation order or LOD, and revisiting a coordinate reproduces the same instances.
 - **Rejected candidates:** a candidate is skipped when any of these hold:
   - it is on water or beach (height `< 1.8`);
@@ -91,25 +92,48 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
   - it is within the biome-border margin;
   - it fails the density test;
   - the surface normal's Y is below `0.8` (temperate) or `0.75` (desert).
-- **Density:** temperate density follows a low-frequency cluster noise (maximum `0.55` per cell), which produces woods and clearings. The desert uses a flat `0.16`.
-- **Types:** chosen from weighted tables in `SCENERY_CONFIG`:
+- **Types:** each candidate first draws its type from a weighted table in `SCENERY_CONFIG`:
   - temperate grass band: round trees, some conifers and boulders;
   - temperate land band (`≥ 14`): mostly conifers;
   - temperate rock band (`≥ 22`): conifers and boulders;
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
 
   Scale, vertical stretch, yaw, and tint vary per instance. Boulders are grey in temperate areas and sandy in the desert.
+- **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category. At the default multipliers of `1` the result matches the original fixed rules.
+- **Size:** `settings.size[typeKey]` multiplies the instance scale.
 - **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface.
+- **Cap:** when a chunk has more than `settings.maxPerChunk` instances (default `1000`), it keeps those with the lowest per-cell random priority. The subset is deterministic and spatially uniform.
 - **Output:** a transferable `Float32Array` with `IMPOSTOR_INSTANCE_STRIDE = 8` floats per instance: chunk-local `x, y, z`, scale, yaw, type, packed RGB tint, stretch.
 
 On desktop, placement costs roughly `0.3` ms per chunk in Node. Instance counts reach about 270 per land chunk.
 
-### Scenery LOD
+### Scenery LOD And Jobs
 
 - Only chunks with LOD `≤ SCENERY_MAX_LOD` (`2`) carry scenery. Farther chunks sit inside the fog.
-- `needsSceneryPlacement()` in `chunkPolicy.js` asks the worker for placement on every `create` and `regenerate` job within range. An `updateLOD` job requests it only when the chunk has none.
+- `needsSceneryPlacement()` in `chunkPolicy.js` asks the worker for placement on every `create`, `regenerate`, and `scenery` job within range, and on any job flagged `refreshScenery`. An ordinary `updateLOD` job requests it only when the chunk has none.
+- A `scenery` job sends `terrain: false`: the worker skips terrain generation and returns only instances, and the manager replaces the chunk's scenery without touching its geometry. Scenery jobs do not count toward the one-near-job-per-frame limit.
 - When a committed job's LOD leaves the range, the scenery is cleared. It is regenerated identically when the chunk comes back into range.
 - `getStats()` reports `sceneryChunks` and `sceneryInstances`.
+
+### Scenery Settings
+
+`params.scenery` holds:
+
+- `cellSize`, one of `SCENERY_CELL_SIZES`: `4`, `8`, `16`, or `32`;
+- `maxPerChunk`;
+- `density.trees`, `density.cacti`, and `density.rocks`;
+- `size.roundTree`, `size.conifer`, `size.cactusOneArm`, `size.cactusTwoArms`, `size.boulder`, and `size.layeredRock`.
+
+`SCENERY_CATEGORIES` maps each type to its category.
+
+`ChunkManager.onSceneryChange()` applies a change:
+
+- It increments the revision.
+- Queued and in-flight jobs are queued again with `refreshScenery`.
+- Missing chunks get `create` jobs, and other live chunks in scenery range get `scenery` jobs.
+- Terrain is never regenerated.
+
+`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing, so a change made just before crossing is not lost. A cell of `4` quadruples candidates (4,096 per chunk) compared with `8`; measure before raising it on mobile.
 
 ### Clouds (Dormant)
 

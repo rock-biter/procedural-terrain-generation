@@ -18,6 +18,12 @@ import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
 import TerrainSampleDebug from './src/terrainSampleDebug'
+import {
+	SCENERY_CATEGORIES,
+	SCENERY_CELL_SIZES,
+	SCENERY_TYPE_KEYS,
+	createScenerySettings,
+} from './src/sceneryPlacement'
 import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
@@ -203,6 +209,8 @@ const params = {
 		blur: { strength: 0.09, start: 0.35, end: 1.5, curve: 1.2 },
 		aberration: { strength: 0.02, start: 0.28, end: 0.9, curve: 2.2 },
 	},
+	// Placement settings sent to the chunk workers; see createScenerySettings().
+	scenery: createScenerySettings({ isMobile }),
 	trails: {
 		ribbonWidth: 9.6,
 		lineWidth: 0.65,
@@ -321,6 +329,34 @@ if (gui) {
 	aberrationFolder
 		.add(params.postProcessing.aberration, 'curve', 0.1, 5, 0.05)
 		.onChange(updatePost)
+
+	// Scenery changes re-place instances in the workers when a control is
+	// released; terrain is not regenerated.
+	const updateScenery = () => chunkManager?.onSceneryChange()
+	const sceneryFolder = gui.addFolder('Scenery')
+	sceneryFolder
+		.add(params.scenery, 'cellSize', SCENERY_CELL_SIZES)
+		.name('Grid cell (units)')
+		.onFinishChange(updateScenery)
+	sceneryFolder
+		.add(params.scenery, 'maxPerChunk', 0, 4096, 1)
+		.name('Max per chunk')
+		.onFinishChange(updateScenery)
+	const sceneryLabels = { trees: 'Trees', cacti: 'Cacti', rocks: 'Rocks' }
+	for (const [category, types] of Object.entries(SCENERY_CATEGORIES)) {
+		const folder = sceneryFolder.addFolder(sceneryLabels[category])
+		folder
+			.add(params.scenery.density, category, 0, 4, 0.01)
+			.name('Density')
+			.onFinishChange(updateScenery)
+		for (const type of types) {
+			const key = SCENERY_TYPE_KEYS[type]
+			folder
+				.add(params.scenery.size, key, 0.1, 4, 0.01)
+				.name(`${key} size`)
+				.onFinishChange(updateScenery)
+		}
+	}
 
 	const trailsFolder = gui.addFolder('Trails')
 	trailsFolder

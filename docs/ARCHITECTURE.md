@@ -56,7 +56,7 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 
 ## Shared State And Ownership
 
-- `params` in `main.js` is the mutable source for terrain generation, colors, peak light intensity, the day/night settings (`params.dayNight`: `timeOfDay`, `cycleDuration`, `paused`), post-processing, and the optional debug GUI. Fog and background colors are no longer parameters; `DayNight` derives them from the time of day.
+- `params` in `main.js` is the mutable source for terrain generation, colors, peak light intensity, the day/night settings (`params.dayNight`: `timeOfDay`, `cycleDuration`, `paused`), post-processing, scenery placement settings (`params.scenery`, snapshotted into every placement request), and the optional debug GUI. Fog and background colors are no longer parameters; `DayNight` derives them from the time of day.
 - `worldSeed` comes from `?seed=<value>` or a random per-load fallback. The same value seeds main-thread height queries and every worker.
 - `worldFeatures` in `main.js` is the frozen runtime switch for scenery, clouds, and boats. Scenery is `true`; clouds and boats are `false`.
 - `uniforms` in `main.js` is shared with chunks, the impostor material, and boat materials. It includes `uBiomeOffset`, derived from `worldSeed`; `ChunkManager` derives the same offset for its workers. It also includes `uCurvature`, whose value is `CURVATURE` exported by `src/chunk.js`, so materials compiled before the first chunk arrives, such as the `?debug=1` terrain-sample markers, still receive a valid uniform.

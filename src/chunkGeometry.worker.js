@@ -15,17 +15,23 @@ self.addEventListener('message', ({ data: request }) => {
 			)
 		}
 
-		const geometry = generateChunkGeometryData({
-			...request.geometry,
-			noises: cachedNoises,
-		})
-		const transfer = [
-			geometry.position.buffer,
-			geometry.normal.buffer,
-			geometry.uv.buffer,
-			geometry.height.buffer,
-			geometry.index.buffer,
-		]
+		// Scenery-only requests reuse the chunk's world data without rebuilding
+		// its terrain.
+		let geometry = null
+		const transfer = []
+		if (request.terrain !== false) {
+			geometry = generateChunkGeometryData({
+				...request.geometry,
+				noises: cachedNoises,
+			})
+			transfer.push(
+				geometry.position.buffer,
+				geometry.normal.buffer,
+				geometry.uv.buffer,
+				geometry.height.buffer,
+				geometry.index.buffer,
+			)
+		}
 
 		// Placement depends only on world coordinates, never on terrain LOD.
 		let scenery = null
@@ -37,8 +43,8 @@ self.addEventListener('message', ({ data: request }) => {
 				seed: request.geometry.seed,
 				params: request.geometry.params,
 				noises: cachedNoises,
-				cellSize: request.scenery.cellSize,
 				biomeOffset: request.scenery.biomeOffset,
+				settings: request.scenery.settings,
 			})
 			transfer.push(scenery.buffer)
 		}

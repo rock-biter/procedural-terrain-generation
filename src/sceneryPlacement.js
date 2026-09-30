@@ -1,6 +1,9 @@
 import { BIOME, BIOME_BORDER_MARGIN, getBiome, getBiomeValue, snoise } from './biome.js'
 import { getHeight, getSurfaceNormal } from './chunkGeometry.js'
-import { IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
+import {
+	IMPOSTOR_INSTANCE_STRIDE,
+	IMPOSTOR_TYPE,
+} from './impostors/impostorTypes.js'
 
 // Deterministic scenery placement, run in the chunk worker. Candidates come
 // from a jittered world-space grid aligned to chunk borders: every cell lies in
@@ -55,6 +58,46 @@ export const SCENERY_CONFIG = Object.freeze({
 		[IMPOSTOR_TYPE.LAYERED_ROCK]: [0.8, 1.8, 0.7, 1.4],
 	},
 })
+
+// Settings keys for each type; the debug GUI edits values under these names.
+export const SCENERY_TYPE_KEYS = Object.freeze({
+	[IMPOSTOR_TYPE.ROUND_TREE]: 'roundTree',
+	[IMPOSTOR_TYPE.CONIFER]: 'conifer',
+	[IMPOSTOR_TYPE.CACTUS_ONE_ARM]: 'cactusOneArm',
+	[IMPOSTOR_TYPE.CACTUS_TWO_ARMS]: 'cactusTwoArms',
+	[IMPOSTOR_TYPE.BOULDER]: 'boulder',
+	[IMPOSTOR_TYPE.LAYERED_ROCK]: 'layeredRock',
+})
+
+// Density is set per category; each type belongs to one.
+export const SCENERY_CATEGORIES = Object.freeze({
+	trees: [IMPOSTOR_TYPE.ROUND_TREE, IMPOSTOR_TYPE.CONIFER],
+	cacti: [IMPOSTOR_TYPE.CACTUS_ONE_ARM, IMPOSTOR_TYPE.CACTUS_TWO_ARMS],
+	rocks: [IMPOSTOR_TYPE.BOULDER, IMPOSTOR_TYPE.LAYERED_ROCK],
+})
+
+const TYPE_CATEGORY = Object.fromEntries(
+	Object.entries(SCENERY_CATEGORIES).flatMap(([category, types]) =>
+		types.map((type) => [type, category]),
+	),
+)
+
+// Divisors of the 256-unit chunk offered for the scenery grid.
+export const SCENERY_CELL_SIZES = Object.freeze([4, 8, 16, 32])
+
+// Runtime settings sent with every placement request. Density and size are
+// multipliers: 1 reproduces SCENERY_CONFIG. Density multiplies the acceptance
+// probability of its category, capped at one instance per grid cell.
+export function createScenerySettings({ isMobile = false } = {}) {
+	return {
+		cellSize: isMobile ? 16 : 8,
+		maxPerChunk: 1000,
+		density: { trees: 1, cacti: 1, rocks: 1 },
+		size: Object.fromEntries(
+			Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 1]),
+		),
+	}
+}
 
 // Offsets that decorrelate the cluster noise from the biome field.
 const CLUSTER_OFFSET = [7123.4, -3311.9]
@@ -130,13 +173,14 @@ export function generateSceneryInstances({
 	size,
 	worldX,
 	worldZ,
-	cellSize,
 	seed,
 	noises,
 	params,
 	biomeOffset,
+	settings = createScenerySettings(),
 	config = SCENERY_CONFIG,
 }) {
+	const { cellSize } = settings
 	if (size % cellSize !== 0) {
 		throw new Error(`Scenery cell size ${cellSize} must divide chunk size ${size}`)
 	}
@@ -148,7 +192,7 @@ export function generateSceneryInstances({
 	const firstCellZ = Math.round(minZ / cellSize)
 	const seedHash = hashSeed(seed)
 	const normal = [0, 0, 0]
-	const output = []
+	const instances = []
 
 	for (let k = 0; k < cellsPerSide; k++) {
 		for (let w = 0; w < cellsPerSide; w++) {
@@ -165,15 +209,8 @@ export function generateSceneryInstances({
 			const biome = getBiome(biomeValue)
 			const rules = biome === BIOME.DESERT ? config.desert : config.temperate
 
-			const density =
-				biome === BIOME.DESERT
-					? rules.maxDensity
-					: rules.maxDensity * getClusterDensity(x, z, biomeOffset)
-			if (cellRandom(seedHash, cellX, cellZ, 2) >= density) continue
-
-			getSurfaceNormal(x, z, noises, params, normal)
-			if (normal[1] < rules.minSlopeNormalY) continue
-
+			// The type is drawn before acceptance, from an independent random
+			// value, so a category's density only adds or removes that category.
 			let table = rules.types
 			if (biome === BIOME.TEMPERATE) {
 				if (height < config.landLevel) table = rules.bands.grass
@@ -181,25 +218,54 @@ export function generateSceneryInstances({
 				else table = rules.bands.rocks
 			}
 			const type = pickWeighted(table, cellRandom(seedHash, cellX, cellZ, 3))
+
+			const baseDensity =
+				biome === BIOME.DESERT
+					? rules.maxDensity
+					: rules.maxDensity * getClusterDensity(x, z, biomeOffset)
+			const density = baseDensity * settings.density[TYPE_CATEGORY[type]]
+			if (cellRandom(seedHash, cellX, cellZ, 2) >= density) continue
+
+			getSurfaceNormal(x, z, noises, params, normal)
+			if (normal[1] < rules.minSlopeNormalY) continue
+
 			const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
 			const scale =
-				minScale + (maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)
+				(minScale + (maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)) *
+				settings.size[SCENERY_TYPE_KEYS[type]]
+			if (scale <= 0) continue
 			const stretch =
 				minStretch +
 				(maxStretch - minStretch) * cellRandom(seedHash, cellX, cellZ, 5)
 
-			output.push(
-				x - worldX,
-				height - config.sink * scale,
-				z - worldZ,
-				scale,
-				cellRandom(seedHash, cellX, cellZ, 6) * Math.PI * 2,
-				type,
-				getTint(type, biome, cellRandom(seedHash, cellX, cellZ, 7)),
-				stretch,
-			)
+			instances.push({
+				priority: cellRandom(seedHash, cellX, cellZ, 8),
+				values: [
+					x - worldX,
+					height - config.sink * scale,
+					z - worldZ,
+					scale,
+					cellRandom(seedHash, cellX, cellZ, 6) * Math.PI * 2,
+					type,
+					getTint(type, biome, cellRandom(seedHash, cellX, cellZ, 7)),
+					stretch,
+				],
+			})
 		}
 	}
 
-	return new Float32Array(output)
+	// Over the cap, keep the lowest random priorities: the thinning stays
+	// deterministic and spatially uniform instead of filling one corner first.
+	let kept = instances
+	if (instances.length > settings.maxPerChunk) {
+		kept = [...instances]
+			.sort((a, b) => a.priority - b.priority)
+			.slice(0, Math.max(0, settings.maxPerChunk))
+	}
+
+	const output = new Float32Array(kept.length * IMPOSTOR_INSTANCE_STRIDE)
+	kept.forEach(({ values }, index) =>
+		output.set(values, index * IMPOSTOR_INSTANCE_STRIDE),
+	)
+	return output
 }

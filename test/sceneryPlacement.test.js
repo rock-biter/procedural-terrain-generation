@@ -7,7 +7,10 @@ import {
 	IMPOSTOR_TYPE,
 } from '../src/impostors/impostorTypes.js'
 import {
+	SCENERY_CATEGORIES,
 	SCENERY_CONFIG,
+	SCENERY_TYPE_KEYS,
+	createScenerySettings,
 	generateSceneryInstances,
 	isSnow,
 	packTint,
@@ -24,14 +27,12 @@ const seed = 'scenery-test'
 const noises = createTerrainNoises(seed, params.octaves)
 const biomeOffset = createBiomeOffset(seed)
 const size = 256
-const cellSize = 8
-
-function generate(i, j, overrides = {}) {
+function generate(i, j, overrides = {}, settingsOverrides = {}) {
 	return generateSceneryInstances({
 		size,
 		worldX: (i + 0.5) * size,
 		worldZ: (j + 0.5) * size,
-		cellSize,
+		settings: { ...createScenerySettings(), ...settingsOverrides },
 		seed,
 		noises,
 		params,
@@ -121,7 +122,7 @@ test('keeps desert and temperate types in their biome', () => {
 })
 
 test('rejects cell sizes that do not divide the chunk', () => {
-	assert.throws(() => generate(0, 0, { cellSize: 7 }))
+	assert.throws(() => generate(0, 0, {}, { cellSize: 7 }))
 })
 
 test('packs tint channels as bytes', () => {
@@ -129,4 +130,73 @@ test('packs tint channels as bytes', () => {
 	assert.equal(packTint(2, 2, 2), 255 + 255 * 256 + 255 * 65536)
 	assert.equal(packTint(1, 0, 0), 128)
 	assert.ok(Number.isInteger(Math.fround(packTint(2, 2, 2))))
+})
+
+function countByType(data) {
+	const counts = new Map()
+	for (let k = 5; k < data.length; k += IMPOSTOR_INSTANCE_STRIDE) {
+		counts.set(data[k], (counts.get(data[k]) ?? 0) + 1)
+	}
+	return counts
+}
+
+function generateAll(settingsOverrides) {
+	return chunks.map(([i, j]) => generate(i, j, {}, settingsOverrides))
+}
+
+function countCategory(results, category) {
+	let count = 0
+	for (const data of results) {
+		const counts = countByType(data)
+		for (const type of SCENERY_CATEGORIES[category]) count += counts.get(type) ?? 0
+	}
+	return count
+}
+
+test('changes only the density of the edited category', () => {
+	const defaults = createScenerySettings()
+	const baseline = chunks.map(([, , data]) => data)
+	const denser = generateAll({ density: { ...defaults.density, trees: 1.5 } })
+	const noCacti = generateAll({ density: { ...defaults.density, cacti: 0 } })
+
+	assert.ok(countCategory(denser, 'trees') > countCategory(baseline, 'trees'))
+	assert.equal(countCategory(denser, 'cacti'), countCategory(baseline, 'cacti'))
+	assert.equal(countCategory(denser, 'rocks'), countCategory(baseline, 'rocks'))
+	assert.equal(countCategory(noCacti, 'cacti'), 0)
+	assert.equal(countCategory(noCacti, 'trees'), countCategory(baseline, 'trees'))
+})
+
+test('scales only the edited type', () => {
+	const defaults = createScenerySettings()
+	const key = SCENERY_TYPE_KEYS[IMPOSTOR_TYPE.CONIFER]
+	const [i, j, baseline] = chunks.find(([, , data]) =>
+		countByType(data).has(IMPOSTOR_TYPE.CONIFER),
+	)
+	const scaled = generate(i, j, {}, { size: { ...defaults.size, [key]: 2 } })
+
+	assert.equal(scaled.length, baseline.length)
+	for (let k = 0; k < baseline.length; k += IMPOSTOR_INSTANCE_STRIDE) {
+		const factor = baseline[k + 5] === IMPOSTOR_TYPE.CONIFER ? 2 : 1
+		assert.ok(Math.abs(scaled[k + 3] - baseline[k + 3] * factor) < 1e-5)
+	}
+})
+
+test('caps instances per chunk with a deterministic subset', () => {
+	const [i, j, baseline] = chunks.reduce((best, chunk) =>
+		chunk[2].length > best[2].length ? chunk : best,
+	)
+	const total = baseline.length / IMPOSTOR_INSTANCE_STRIDE
+	const cap = Math.floor(total / 3)
+	const capped = generate(i, j, {}, { maxPerChunk: cap })
+
+	assert.equal(capped.length / IMPOSTOR_INSTANCE_STRIDE, cap)
+	assert.deepEqual(generate(i, j, {}, { maxPerChunk: cap }), capped)
+	const kept = new Set()
+	for (let k = 0; k < baseline.length; k += IMPOSTOR_INSTANCE_STRIDE) {
+		kept.add(`${baseline[k]}|${baseline[k + 2]}`)
+	}
+	for (let k = 0; k < capped.length; k += IMPOSTOR_INSTANCE_STRIDE) {
+		assert.ok(kept.has(`${capped[k]}|${capped[k + 2]}`))
+	}
+	assert.equal(generate(i, j, {}, { maxPerChunk: 0 }).length, 0)
 })

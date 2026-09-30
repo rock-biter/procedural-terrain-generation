@@ -28,8 +28,6 @@ export default class ChunkManager {
 	maxDistance = isMobile ? 4 : 5
 	jobsPerFrame = isMobile ? 2 : 3
 	density = isMobile ? 4 : 2
-	// World-space scenery grid; must divide the chunk size.
-	sceneryCellSize = isMobile ? 16 : 8
 
 	constructor(
 		chunkSize,
@@ -86,6 +84,12 @@ export default class ChunkManager {
 		for (const target of this.desired.values()) {
 			const chunk = this.chunks.get(target.key)
 			const pending = this.pending.get(target.key)
+			// A scenery refresh must survive the new revision, whether its job is
+			// still queued or in flight (an in-flight result is now stale).
+			const sceneryWork = [pending, this.inFlight.get(target.key)].find(
+				(job) => job?.type === 'scenery' || job?.refreshScenery,
+			)
+			const refreshScenery = Boolean(sceneryWork)
 
 			if (!chunk) {
 				this.pending.set(target.key, {
@@ -98,11 +102,18 @@ export default class ChunkManager {
 					...target,
 					type: 'updateLOD',
 					revision: this.revision,
+					refreshScenery,
 				})
 			} else if (pending?.type === 'regenerate') {
 				this.pending.set(target.key, {
 					...pending,
 					distance: target.distance,
+					revision: this.revision,
+				})
+			} else if (refreshScenery && hasSceneryAtLOD(chunk.LOD)) {
+				this.pending.set(target.key, {
+					...target,
+					type: 'scenery',
 					revision: this.revision,
 				})
 			} else {
@@ -158,7 +169,8 @@ export default class ChunkManager {
 				(error) => this.handleWorkerError(job, error),
 			)
 			processed++
-			if (job.LOD <= 1 && processed === 1) break
+			// Scenery-only jobs are cheap; only terrain work limits near jobs.
+			if (job.type !== 'scenery' && job.LOD <= 1 && processed === 1) break
 		}
 	}
 
@@ -170,12 +182,17 @@ export default class ChunkManager {
 				job.type,
 				job.LOD,
 				this.chunks.get(job.key)?.hasScenery ?? false,
+				job.refreshScenery,
 			)
 		return {
 			key: job.key,
 			revision: job.revision,
+			terrain: job.type !== 'scenery',
 			scenery: wantsScenery
-				? { cellSize: this.sceneryCellSize, biomeOffset: this.biomeOffset }
+				? {
+						biomeOffset: this.biomeOffset,
+						settings: structuredClone(this.params.scenery),
+					}
 				: null,
 			geometry: {
 				size: this.chunkSize,
@@ -211,8 +228,19 @@ export default class ChunkManager {
 			return
 		}
 
-		const geometry = createChunkGeometry(response.geometry)
 		let chunk = this.chunks.get(job.key)
+
+		if (job.type === 'scenery') {
+			if (!chunk) {
+				this.stale++
+				return
+			}
+			if (response.scenery) chunk.setScenery(response.scenery)
+			this.generated++
+			return
+		}
+
+		const geometry = createChunkGeometry(response.geometry)
 
 		if (job.type === 'create') {
 			if (chunk) {
@@ -258,7 +286,9 @@ export default class ChunkManager {
 			return !this.chunks.has(job.key) && target.LOD === job.LOD
 		}
 		if (!this.chunks.has(job.key)) return false
-		if (job.type === 'regenerate' || job.forceLOD) return true
+		if (job.type === 'regenerate' || job.type === 'scenery' || job.forceLOD) {
+			return true
+		}
 
 		return target.LOD === job.LOD
 	}
@@ -310,6 +340,43 @@ export default class ChunkManager {
 				forceLOD,
 				revision: this.revision,
 			})
+		}
+	}
+
+	// Re-places scenery after a change to params.scenery. Queued and in-flight
+	// jobs are queued again (in-flight results become stale) and also refresh
+	// scenery; other live chunks in scenery range get a scenery-only job.
+	onSceneryChange() {
+		if (!this.features.scenery) return
+
+		this.revision++
+		const previous = this.pending
+		this.pending = new Map()
+
+		for (const [key, target] of this.desired) {
+			const chunk = this.chunks.get(key)
+			const queued = previous.get(key) ?? this.inFlight.get(key)
+
+			if (queued) {
+				this.pending.set(key, {
+					...queued,
+					revision: this.revision,
+					refreshScenery: true,
+				})
+			} else if (!chunk) {
+				this.pending.set(key, {
+					...target,
+					type: 'create',
+					revision: this.revision,
+				})
+			} else if (hasSceneryAtLOD(chunk.LOD)) {
+				this.pending.set(key, {
+					...target,
+					LOD: chunk.LOD,
+					type: 'scenery',
+					revision: this.revision,
+				})
+			}
 		}
 	}
 

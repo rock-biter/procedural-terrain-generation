@@ -45,4 +45,7 @@ test('places scenery only in near LODs and only when missing', () => {
 	assert.equal(needsSceneryPlacement('updateLOD', 1, true), false)
 	assert.equal(needsSceneryPlacement('updateLOD', 2, false), true)
 	assert.equal(needsSceneryPlacement('regenerate', 0, true), true)
+	assert.equal(needsSceneryPlacement('scenery', 1, true), true)
+	assert.equal(needsSceneryPlacement('updateLOD', 1, true, true), true)
+	assert.equal(needsSceneryPlacement('updateLOD', 3, false, true), false)
 })

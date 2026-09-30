@@ -13,10 +13,12 @@ export function hasSceneryAtLOD(LOD) {
 	return LOD <= SCENERY_MAX_LOD
 }
 
-// Scenery is placed once per chunk and kept across LOD changes within range;
-// a create or regenerate job always rebuilds it.
-export function needsSceneryPlacement(jobType, LOD, chunkHasScenery) {
+// Scenery is placed once per chunk and kept across LOD changes within range.
+// Create, regenerate, and scenery-only jobs rebuild it, as does any job queued
+// after a scenery-settings change (`refresh`).
+export function needsSceneryPlacement(jobType, LOD, chunkHasScenery, refresh = false) {
 	if (!hasSceneryAtLOD(LOD)) return false
+	if (refresh) return true
 	return jobType !== 'updateLOD' || !chunkHasScenery
 }
 
