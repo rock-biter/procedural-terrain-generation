@@ -23,12 +23,14 @@ import { IMPOSTOR_TYPE } from './impostorTypes'
 
 const COLORS = {
 	trunk: '#7a4a2a',
-	leaves: '#5c9a45',
-	needles: '#2f6b3a',
-	cactus: '#4a9a3e',
-	boulder: '#c9c3b8',
-	rockLight: '#d0703f',
-	rockDark: '#a8492a',
+	// Wood-toy look: light brown round-tree crowns, darker brown conifers
+	// and cacti, and the lightest woods for rocks.
+	leaves: '#c69c6d',
+	needles: '#8f5f3a',
+	cactus: '#8f5f3a',
+	boulder: '#dcc29a',
+	rockLight: '#e3c9a0',
+	rockDark: '#cfa878',
 }
 
 function part(geometry, color, { lumps = 0, lumpScale = 0.8, ribs = 0 } = {}) {

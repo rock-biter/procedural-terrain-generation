@@ -94,12 +94,12 @@ export const SCENERY_CELL_SIZES = Object.freeze([4, 8, 16, 32])
 // Initial size multiplier per type, applied on top of the SCENERY_CONFIG
 // scale range. Keys match SCENERY_TYPE_KEYS.
 export const SCENERY_DEFAULT_SIZES = Object.freeze({
-	roundTree: 0.82,
-	conifer: 1.03,
-	cactusOneArm: 0.7,
-	cactusTwoArms: 0.8,
-	boulder: 0.98,
-	layeredRock: 0.56,
+	roundTree: 1.35,
+	conifer: 1.7,
+	cactusOneArm: 1.29,
+	cactusTwoArms: 1.68,
+	boulder: 0.6,
+	layeredRock: 0.48,
 })
 
 // Runtime settings sent with every placement request. Density and size are
@@ -107,9 +107,9 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 // probability of its category, capped at one instance per grid cell.
 export function createScenerySettings({ isMobile = false } = {}) {
 	return {
-		cellSize: isMobile ? 8 : 4,
+		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.63, cacti: 0.1, rocks: 0.25 },
+		density: { trees: 0.39, cacti: 0.2, rocks: 0.65 },
 		size: { ...SCENERY_DEFAULT_SIZES },
 	}
 }
@@ -179,7 +179,7 @@ function getTint(type, biome, random) {
 			: packTint(0.8 * brightness, 0.82 * brightness, 0.84 * brightness)
 	}
 	if (type === IMPOSTOR_TYPE.ROUND_TREE) {
-		// Warmer greens on brighter trees.
+		// Warmer tones on brighter trees.
 		const warm = random * 0.18
 		return packTint(
 			brightness * (1 + warm),
