@@ -39,7 +39,7 @@ export const TERRAIN_NORMAL_LAYERS = Object.freeze({
 	sea: { texture: 'fabric', scale: 256 / 12, strength: 2, rotation: 23 },
 	sand: { texture: 'hessian', scale: 15, strength: 4.0, rotation: 71 },
 	grass: { texture: 'ribbedCorduroy', scale: 33, strength: 3.5, rotation: 137 },
-	land: { texture: 'wafflePique', scale: 25, strength: 1.85, rotation: 204 },
+	land: { texture: 'wafflePique', scale: 36, strength: 1.85, rotation: 204 },
 	rocks: { texture: 'dirtyCarpet', scale: 35, strength: 2.5, rotation: 256 },
 	snow: { texture: 'fabricPattern', scale: 20, strength: 3.2, rotation: 318 },
 })

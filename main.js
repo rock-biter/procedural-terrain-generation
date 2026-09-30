@@ -225,6 +225,8 @@ const params = {
 	// Normal map, tile size (world units), and strength per terrain layer;
 	// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
 	terrainNormals: createTerrainNormalSettings(),
+	// Renderer tone mapping operator (a THREE.*ToneMapping constant) and exposure.
+	toneMapping: { mode: THREE.NoToneMapping, exposure: 1 },
 	postProcessing: {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
@@ -396,6 +398,30 @@ if (gui) {
 		.add(params.dayNight, 'cycleDuration', 10, 1200, 1)
 		.name('Cycle duration (s)')
 	dayNightFolder.add(params.dayNight, 'paused').name('Paused')
+
+	const toneMappingFolder = gui.addFolder('Tone mapping')
+	toneMappingFolder
+		.add(params.toneMapping, 'mode', {
+			None: THREE.NoToneMapping,
+			Linear: THREE.LinearToneMapping,
+			Reinhard: THREE.ReinhardToneMapping,
+			Cineon: THREE.CineonToneMapping,
+			'ACES Filmic': THREE.ACESFilmicToneMapping,
+			AgX: THREE.AgXToneMapping,
+			Neutral: THREE.NeutralToneMapping,
+		})
+		.name('Mode')
+		.onChange((mode) => {
+			renderer.toneMapping = mode
+			postProcessing.updateToneMapping()
+		})
+	// Three.js ignores exposure while the mode is None.
+	toneMappingFolder
+		.add(params.toneMapping, 'exposure', 0, 4, 0.01)
+		.name('Exposure')
+		.onChange((exposure) => {
+			renderer.toneMappingExposure = exposure
+		})
 
 	const grainFolder = gui.addFolder('Film grain')
 	grainFolder
@@ -575,6 +601,8 @@ const renderer = new THREE.WebGLRenderer({
 	antialias: true, //window.devicePixelRatio < 2,
 	logarithmicDepthBuffer: true,
 })
+renderer.toneMapping = params.toneMapping.mode
+renderer.toneMappingExposure = params.toneMapping.exposure
 document.body.appendChild(renderer.domElement)
 const postProcessing = new PostProcessing(
 	renderer,
