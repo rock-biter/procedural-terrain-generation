@@ -50,7 +50,7 @@ The worker transfers position, normal, UV, height, and index buffers. The main t
 
 `ChunkManager.getStats()` additionally reports queued/in-flight work, generated/stale/failed results, worker count, and seed. The browser exposes it through `window.__INFINITE_WORLD__.getChunkStats()`.
 
-The worker pool removes height sampling and normal computation from the rendering thread. Main-thread geometry wrapping, GPU upload, scene insertion, disposal, and dormant scenery generation remain synchronous and require profiling.
+The worker pool removes height sampling and normal computation from the rendering thread. Scenery placement also runs in the worker. Main-thread geometry wrapping, GPU upload, scene insertion, and disposal remain synchronous and require profiling.
 
 ## Level Of Detail
 
@@ -67,36 +67,74 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ## Per-Chunk Scenery
 
-`main.js` currently passes `worldFeatures` with `trees`, `clouds`, and `boats` all set to `false`. Workers generate terrain only, and `Chunk.updateScenery()` performs no work. The scenery implementations remain available behind those flags for later isolated work.
+`main.js` passes `worldFeatures` with `scenery` set to `true` and `clouds` and `boats` set to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor; the rendering side is in [Rendering](RENDERING.md#impostor-scenery). Clouds and boats keep their dormant implementations behind their flags.
 
-### Trees
+### Biome Field
 
-- When enabled, trees are generated when a chunk has no tree mesh and its LOD is `2` or lower.
-- Candidate spacing is `5` units on desktop and `8` on mobile.
-- Placement combines terrain height, two noise frequencies, and a random threshold.
-- Valid tree heights are greater than `4` and less than `42`.
-- Positions are passed to the `Trees` instanced mesh in chunk-local coordinates.
+[`src/biome.js`](../src/biome.js) is the CPU twin of the biome selector in `color-fragment.glsl`.
 
-### Clouds
+- It ports the GLSL Ashima `snoise` exactly, using a floor-based `mod`, and applies the same three-frequency formula.
+- `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `main.js` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers, so the seed now moves biomes as well.
+- A negative value is desert and a non-negative value is temperate.
+- In a headless SwiftShader comparison over 16,384 points, JS and GLSL differed by at most `8e-6`, with no sign mismatch.
+- Placement skips candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border.
+
+### Placement
+
+[`src/sceneryPlacement.js`](../src/sceneryPlacement.js) runs in the chunk worker.
+
+- **Grid:** a jittered world-space grid with cells of `8` units on desktop and `16` on mobile (`ChunkManager.sceneryCellSize`). The cell size must divide the chunk size. Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
+- **Randomness:** each cell draws its values from a stateless integer hash of the seed and the cell coordinates. The result does not depend on generation order or LOD, and revisiting a coordinate reproduces the same instances.
+- **Rejected candidates:** a candidate is skipped when any of these hold:
+  - it is on water or beach (height `< 1.8`);
+  - it is on snow (the same wobble formula as the shader snow line);
+  - it is within the biome-border margin;
+  - it fails the density test;
+  - the surface normal's Y is below `0.8` (temperate) or `0.75` (desert).
+- **Density:** temperate density follows a low-frequency cluster noise (maximum `0.55` per cell), which produces woods and clearings. The desert uses a flat `0.16`.
+- **Types:** chosen from weighted tables in `SCENERY_CONFIG`:
+  - temperate grass band: round trees, some conifers and boulders;
+  - temperate land band (`≥ 14`): mostly conifers;
+  - temperate rock band (`≥ 22`): conifers and boulders;
+  - desert: one-arm and two-arm cacti, boulders, and layered rocks.
+
+  Scale, vertical stretch, yaw, and tint vary per instance. Boulders are grey in temperate areas and sandy in the desert.
+- **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface.
+- **Output:** a transferable `Float32Array` with `IMPOSTOR_INSTANCE_STRIDE = 8` floats per instance: chunk-local `x, y, z`, scale, yaw, type, packed RGB tint, stretch.
+
+On desktop, placement costs roughly `0.3` ms per chunk in Node. Instance counts reach about 270 per land chunk.
+
+### Scenery LOD
+
+- Only chunks with LOD `≤ SCENERY_MAX_LOD` (`2`) carry scenery. Farther chunks sit inside the fog.
+- `needsSceneryPlacement()` in `chunkPolicy.js` asks the worker for placement on every `create` and `regenerate` job within range. An `updateLOD` job requests it only when the chunk has none.
+- When a committed job's LOD leaves the range, the scenery is cleared. It is regenerated identically when the chunk comes back into range.
+- `getStats()` reports `sceneryChunks` and `sceneryInstances`.
+
+### Clouds (Dormant)
 
 - When enabled, clouds are generated once per chunk and passed to a `Clouds` instanced mesh.
 - The current candidate loop samples every integer position across the chunk. It computes a mobile/desktop `density` value but does not use it.
 - Placement combines two noise frequencies with a random threshold and stores cloud positions around Y `100`.
 
-### Boats
+### Boats (Dormant)
 
 - When enabled, each chunk attempts to place between zero and three boats.
 - Each boat gets at most `20` random placement attempts.
 - Accepted terrain height must be between `-10` and `-2`.
 - The loaded boat model is cloned, randomly rotated, positioned at Y `0.8`, and given the boat vertex-shader replacement.
 
-Tree, cloud, and boat placement includes `Math.random()`, so re-enabling decoration would not be reproducible between sessions even if terrain noise were later seeded.
+Cloud and boat placement still uses `Math.random()`, so re-enabling them would not be reproducible between sessions.
 
 ## Resource Lifecycle
 
-`Chunk.dispose()` removes the chunk from its parent, disposes terrain geometry and the tree instanced mesh, and removes boat clones. Review all owned GPU resources when adding new per-chunk content.
+`Chunk.dispose()` removes the chunk from its parent, disposes the terrain geometry, clears the scenery, and removes boat clones. Review all owned GPU resources when adding new per-chunk content.
 
-`createCloudsMesh()` disposes an existing cloud mesh before replacing it, but the main `Chunk.dispose()` path does not explicitly dispose that mesh. It also does not dispose shared materials or cloned boat resources. Record and test ownership before changing disposal; shared resources must not be destroyed while another chunk still uses them.
+- `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it.
+- The impostor material and its atlas textures are shared through `assets.impostorMaterial` and are never disposed by chunks.
+- `createCloudsMesh()` disposes an existing cloud mesh before replacing it, but the main `Chunk.dispose()` path does not explicitly dispose that mesh. It also does not dispose shared materials or cloned boat resources.
+
+Record and test ownership before changing disposal; shared resources must not be destroyed while another chunk still uses them.
 
 ## Invariants For Changes
 
@@ -106,7 +144,8 @@ Tree, cloud, and boat placement includes `Math.random()`, so re-enabling decorat
 - Keep expensive creation and LOD work bounded per frame.
 - Test negative world coordinates because chunk indexing uses `Math.floor()`.
 - Validate desktop and narrow/mobile paths because density and streaming radius differ.
-- Check terrain, trees, clouds, and boats after changing height bands.
+- Check terrain, scenery, clouds, and boats after changing height bands. Scenery thresholds in `SCENERY_CONFIG` and `isSnow()` mirror `color-fragment.glsl`.
+- Keep `getBiomeValue()` in `src/biome.js` identical to the biome formula in `color-fragment.glsl`, including `uBiomeOffset`.
 - Treat changes to `params.octaves` as changes to both the height loop and the number of available noise functions.
 
 ## Open Questions
@@ -114,5 +153,6 @@ Tree, cloud, and boat placement includes `Math.random()`, so re-enabling decorat
 - Should a generated terrain seed be persisted or shown to the user when no URL seed is supplied?
 - What frame-time budget should govern queue throughput and chunk radius?
 - Should chunk resources be pooled rather than recreated after disposal?
-- Should clouds and decorations have independent LOD policies?
+- Should clouds have an LOD policy independent of scenery?
+- What scenery density and instance scale best match the style references in `public/style-references/`?
 - How should visible geometric seams (T-junctions between LODs) be measured?

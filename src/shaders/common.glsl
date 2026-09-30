@@ -6,6 +6,8 @@ uniform vec3 uGrass;
 uniform vec3 uLand;
 uniform vec3 uRocks;
 uniform vec3 uAtmosphere;
+// Seeded shift of the biome field; src/biome.js applies the same offset on the CPU.
+uniform vec2 uBiomeOffset;
 varying vec3 wPosition;
 varying float distanceFromCamera;
 
@@ -19,6 +21,11 @@ mat4 rotateZ(float alpha) {
         0.0,  0.0,   1.0, 0.0,
         0.0,  0.0,   0.0, 1.0
     );
+}
+
+// Rodrigues rotation of v around a unit axis by the angle with cosine c and sine s.
+vec3 rotateAroundAxis(vec3 v, vec3 axis, float c, float s) {
+    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
 }
 
 vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }

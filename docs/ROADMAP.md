@@ -8,7 +8,7 @@ The first analysis focuses on terrain generation and streaming because they domi
 
 Last baseline review: **2026-09-26**.
 
-Current implementation scope: `worldFeatures` disables trees, clouds, and boats so streaming work can be repaired and measured against terrain alone. Their implementations and historical cost analysis remain in this document for later reintroduction.
+Current implementation scope: `worldFeatures` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`) and still disables clouds and boats. The dormant cloud and boat implementations and their historical cost analysis remain in this document for later reintroduction.
 
 Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
 
@@ -66,7 +66,9 @@ main.js: tic()
             -> main thread validates key + revision
                  -> wrap buffers in BufferGeometry
                  -> create Chunk or replace its geometry
-                 -> [disabled] trees / clouds / boats
+                 -> scenery placement when LOD <= 2 (transferred Float32Array)
+            -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk
+                 -> [disabled] clouds / boats
   -> renderer.render()
 ```
 
@@ -92,13 +94,17 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Terrain vertices               |                                           262,353 |                               62,385 |
 | Terrain triangles              |                                           509,952 |                              118,784 |
 | Terrain noise evaluations      |                                         1,311,765 |                              311,925 |
-| Tree-generating chunks         |                                                61 |                                   49 |
-| Tree candidates                |                                           164,944 |                               50,176 |
-| Tree-related noise evaluations |                                         1,154,608 |                              351,232 |
+| Scenery chunks (LOD <= 2)      |                                                61 |                                   49 |
+| Scenery candidates             |                                            62,464 |                               12,544 |
+| Scenery height evaluations     |                                           312,320 |                               62,720 |
 | Cloud candidates               |                                         5,308,416 |                            3,211,264 |
 | Cloud noise evaluations        |                                        10,616,832 |                            6,422,528 |
 
-The terrain-only startup performs about **1.31 million** noise evaluations on desktop and **312 thousand** on mobile, now distributed across up to two desktop workers or one mobile worker. With every dormant scenery path enabled, the same window would contain about **13.08 million** desktop and **7.09 million** mobile evaluations before boat placement; scenery remains main-thread work until redesigned.
+Terrain startup performs about **1.31 million** noise evaluations on desktop and **312 thousand** on mobile, distributed across up to two desktop workers or one mobile worker.
+
+Scenery placement also runs in those workers. It uses one candidate per `8`-unit cell on desktop and per `16`-unit cell on mobile. Each candidate costs five height evaluations. Land candidates add three biome and two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
+
+The former tree path would have needed 1.15 million main-thread evaluations on desktop. The new path measured about `0.3` ms per chunk in Node. Enabling the dormant clouds would still add about **10.6 million** desktop and **6.4 million** mobile main-thread evaluations.
 
 ### Terrain Cost Per Chunk
 
@@ -122,10 +128,11 @@ vertices = triangles * 3
 
 | Type  | Detail | Base triangles | Base vertices | Position + normal + UV bytes |
 | ----- | -----: | -------------: | ------------: | ---------------------------: |
-| Tree  |      5 |            720 |         2,160 |                       69,120 |
 | Cloud |     10 |          2,420 |         7,260 |                      232,320 |
 
-Each chunk creates new copies of these identical base geometries. Instance transforms and colors add more buffers, and GPU vertex work multiplies base geometry by the number of visible instances. Actual instance counts must be measured because placement depends on noise and `Math.random()`.
+The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance. They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
+
+Each chunk creates new copies of the cloud base geometry. Instance transforms and colors add more buffers, and GPU vertex work multiplies base geometry by the number of visible instances. Actual instance counts must be measured because placement depends on noise and `Math.random()`.
 
 ## Known Problem Register
 
@@ -135,20 +142,20 @@ Each chunk creates new copies of these identical base geometries. Instance trans
 | `STRM-001`  | P0       | Done        | Pending work must be keyed consistently and reject stale operations.                    | One `Map` entry per key plus desired-set revisions prevent duplicate and obsolete jobs.                                                          |
 | `STRM-002`  | P0       | Done        | Desired-set reconciliation must inspect all live chunks.                                | A pure symmetric desired set is diffed against every live and pending key on each chunk transition.                                              |
 | `PERF-001`  | P0       | Observed    | Dormant cloud placement scans all 65,536 integer positions in every chunk at every LOD. | The current feature flag prevents execution; `generateClouds()` still ignores its `density` variable and performs two noise calls per candidate. |
-| `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | `Chunk.dispose()` omits clouds and does not dispose unique tree/cloud geometries.                                                                |
+| `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; `Chunk.dispose()` still omits clouds and their unique geometry.                                |
 | `PERF-002`  | P1       | In progress | Main-thread commits are limited by job count rather than a frame-time budget.           | Workers handle sampling/normals; buffer wrapping, GPU upload, scene mutation, and future scenery still commit synchronously.                     |
 | `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Workers now perform the computation, but each transition still creates and transfers a complete replacement buffer set.                          |
-| `PERF-004`  | P1       | Observed    | Identical tree and cloud base geometries are recreated per chunk.                       | Constructors allocate new `IcosahedronGeometry` instances while materials are shared.                                                            |
+| `PERF-004`  | P1       | Observed    | Identical cloud base geometries are recreated per chunk.                                | The dormant cloud constructor allocates a new `IcosahedronGeometry`; scenery impostors already share one material and atlas.                     |
 | `STATE-001` | P1       | Done        | Chunk registries must delete historical keys and remain bounded.                        | Live and pending state use keyed `Map` instances; disposal deletes entries. Browser traversal kept `created - disposed = live`.                  |
-| `CORR-001`  | P1       | Observed    | Tree and cloud candidates are offset by a full chunk instead of half a chunk.           | Generation subtracts `size`; terrain local bounds are centered on `size / 2`.                                                                    |
+| `CORR-001`  | P1       | Observed    | Cloud candidates are offset by a full chunk instead of half a chunk.                    | Generation subtracts `size`; terrain local bounds are centered on `size / 2`. Scenery uses a chunk-aligned grid and is not affected.             |
 | `CORR-002`  | P1       | Observed    | Boat world coordinates are assigned as local coordinates on a chunk child.              | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                                 |
-| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter changes revision jobs and rebuild seeded noises, but dormant decorations would retain old placement.                                   |
-| `DET-001`   | P1       | In progress | Terrain is deterministic but dormant decoration placement is not.                       | `?seed=` drives matching main/worker simplex fields; scenery still uses `Math.random()`.                                                         |
+| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter changes revision jobs, rebuild seeded noises, and regenerate scenery; dormant clouds and boats would retain old placement.              |
+| `DET-001`   | P1       | In progress | Dormant cloud and boat placement is not deterministic.                                  | `?seed=` drives terrain, biomes, and hashed scenery placement; dormant clouds and boats still use `Math.random()`.                               |
 | `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity; cancellation and disposal remain browser-only.     |
 | `STRM-003`  | P2       | Observed    | Priority uses distance only and has no hysteresis.                                      | Work is not biased by movement direction, camera visibility, or recent LOD state.                                                                |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
 | `FRAME-001` | P2       | Observed    | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
-| `LOAD-001`  | P3       | Observed    | Re-enabling trees loads the normal map through two independent paths.                   | The terrain-only runtime uses only `chunk.js`; the guarded tree path in `main.js` uses the loading manager.                                      |
+| `LOAD-001`  | P3       | Done        | Re-enabling trees loaded the normal map through two independent paths.                  | The tree path was removed; `normal.jpg` now loads once from `chunk.js`.                                                                          |
 | `MAINT-001` | P3       | Observed    | Dead paths and misleading names still obscure some lifecycle behavior.                  | `camera` is the plane and dormant scenery code remains; the former callback pool and unnecessary async declaration were removed.                 |
 
 ## Detailed Findings
@@ -195,9 +202,9 @@ In Three.js r186, `Object3D.dispose()` dispatches a disposal event but explicitl
 Current ownership facts:
 
 - Terrain geometry is unique and explicitly disposed.
-- Tree and cloud geometry is unique per chunk but is not explicitly disposed.
-- The tree instanced object receives `dispose()`; the cloud instanced object does not during chunk removal.
-- Tree and cloud materials are shared module-level resources and must not be disposed per chunk.
+- Scenery geometry (a quad plus the instance buffer) is unique per chunk and disposed by `Chunk.clearScenery()`, including from `Chunk.dispose()`.
+- Cloud geometry is unique per chunk but is not explicitly disposed, and the cloud instanced object is not disposed during chunk removal.
+- The impostor material and atlas, and the cloud material, are shared resources and must not be disposed per chunk.
 - Boat clones share geometry and material references with the template by default. Blindly disposing those resources per clone would break remaining boats and the template.
 - Stale work can retain detached chunks and their children after scene removal.
 
@@ -213,7 +220,7 @@ Required direction: instrument worker duration, transfer delay, main-thread wrap
 
 ### `CORR-001` And `CORR-002`: Ownership Coordinates
 
-Tree and cloud loops generate local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`. Their world samples are internally consistent, but most instances are owned by a neighboring spatial region. This complicates culling, streaming edges, and disposal.
+The dormant cloud loop generates local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`. Its world samples are internally consistent, but most instances are owned by a neighboring spatial region. Scenery placement avoids this with a jittered grid aligned to chunk borders. This complicates culling, streaming edges, and disposal.
 
 Boats sample valid world coordinates, then store those world values as the local transform of an object parented to the positioned chunk. The chunk transform is therefore applied a second time.
 
@@ -285,7 +292,7 @@ Acceptance criteria:
 - No callback or worker result mutates a retired chunk.
 - The chosen symmetric radius produces 81 desktop and 49 mobile coordinates, unless a different shape is explicitly adopted.
 - Repeated create/retire cycles reach a stable renderer-memory plateau.
-- Trees, clouds, and boats remain inside their documented ownership region.
+- Scenery, clouds, and boats remain inside their documented ownership region.
 
 ### Phase 2: Remove Dominant Waste
 
@@ -295,7 +302,7 @@ Tasks:
 
 - Replace per-unit cloud scanning with a sparse deterministic strategy.
 - Generate decorations only at LODs where they can contribute visually.
-- Share immutable tree and cloud base geometries.
+- Share immutable cloud base geometries (scenery already shares one impostor material and atlas).
 - Lower geometry detail based on measured image quality.
 - Split chunk generation into terrain, normals, and decoration stages.
 - Schedule work by elapsed milliseconds, priority, and cancellation state.
@@ -306,7 +313,7 @@ Acceptance criteria:
 - Cloud candidates fall by at least 90 percent from 65,536 per chunk, subject to visual approval.
 - Only one base geometry per decoration type exists unless variants are justified.
 - No scheduled main-thread stage exceeds the agreed frame budget on target devices.
-- Visual comparison covers terrain seams, biome bands, trees, clouds, boats, and distance fades.
+- Visual comparison covers terrain seams, biome bands, scenery, clouds, boats, and distance fades.
 
 ### Phase 3: Move Pure Generation Off The Main Thread
 
@@ -368,7 +375,7 @@ See the owning guides for current behavior and constraints. Promote an item into
 2. Is the target 60 FPS, 30 FPS on mobile, or an adaptive quality policy?
 3. Must revisiting coordinates reproduce identical terrain and decorations?
 4. Will future features modify terrain or persist objects at world coordinates?
-5. How dense must trees and clouds remain to preserve the intended art direction?
+5. How dense must scenery and clouds remain to preserve the intended art direction?
 6. Is short-term compatibility with the current world appearance more important than a clipmap migration?
 7. How much startup latency is acceptable before the play action appears?
 
@@ -391,13 +398,50 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Status:** In progress
 - **User value:** Gives the flight a sense of time and variety: sunrise, daylight, sunset, and a starry night over the same procedural world.
 - **Behavior:** Time of day advances continuously (default `240` seconds per day, start `0.3`). The sky dome shows a horizon-to-zenith gradient, sun and moon discs, and stars at night. Lights, fog, background, and the distant-terrain atmosphere follow keyframed palettes; shading follows the sun and moon. Everything is aligned with the curved world: the horizon dip sets the sky gradient, disc visibility, palette timing, and light fades, and terrain normals bend with the curvature and have a per-fragment terminator. The wing trails are tinted pink at dawn, orange at sunset, and blue at night; the airplane has no navigation lights for now. `?time=` sets the start, and the `?gui=1` **Day/night** folder scrubs, pauses, or changes the duration.
-- **Dependencies:** None blocking. Trees and clouds already share `uAtmosphere` for reactivation. Frame-time acceptance depends on `OBS-001`.
+- **Dependencies:** None blocking. Scenery impostors use `uAtmosphere`, and dormant clouds share it for reactivation. Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:** Rendering (sky `ShaderMaterial`, shared `uAtmosphere`, lights, fog), terrain lighting (bent normals, `lights_fragment_begin` terminator), `Plane` (trail tint), frame loop, debug GUI, tests.
 - **Performance budget:** One extra draw call for the sky (32×16 sphere, stars branch skipped by day), one extra directional light (moon), a few ALU ops per terrain vertex and per directional light per fragment, no `PointLight`, no shadows, and no per-frame allocation in the policy or runtime.
 - **Options:** Palette interpolation with a gradient dome was chosen over the Three.js `Sky` addon (physically based but less stylized, and it needs tone mapping) and over flat background colors (no celestial bodies).
 - **Acceptance criteria:** No shader errors. The horizon has no seam between the sky and fogged terrain. No light switches direction while lit. The sun rises and sets on the curved edge in sync with the palette. The dusk keyframe keeps the original static sky colors. Stars appear only at night. Pure policy tests pass. Verified so far in headless Chrome (SwiftShader) on desktop and a 390 px mobile viewport. Remaining: real mobile devices, frame-time measurement (`OBS-001`), and art-direction tuning of the palettes, especially night water saturation without tone mapping.
-- **Follow-ups:** decide on airplane lights later (the first sprite version was removed); align tree, cloud, and boat lighting with curved normals when they are re-enabled.
+- **Follow-ups:** decide on airplane lights later (the first sprite version was removed); align cloud and boat lighting with curved normals when they are re-enabled (scenery impostors already use bent normals and the terminator).
 - **Documentation:** [Rendering](RENDERING.md#daynight-cycle), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
+
+### `FEAT-003`: Biome Scenery With Octahedral Impostors
+
+- **Status:** In progress
+- **User value:** Populates each biome in the clay/toy style of `public/style-references/`: round trees and conifers in temperate areas; cacti and red layered rocks in the desert; boulders in both.
+- **Behavior:**
+  - Six scenery types are built from Three.js primitives and baked at startup into a hemi-octahedral impostor atlas with albedo plus normals: `16 × 16` views per type on desktop and `12 × 12` on mobile.
+  - Each instance is one camera-facing quad. It blends three frames and is lit from its baked normals with the terrain's curvature bend and terminator.
+  - Placement is deterministic per seed. A world-space jittered grid runs in the chunk worker and applies biome, height band, slope, snow, and cluster rules.
+  - Only chunks at LOD `≤ 2` carry scenery.
+  - The seed now also moves the biome field (`uBiomeOffset`).
+- **Dependencies:** `STRM-001` and `STRM-002` (keyed jobs and revisions carry the scenery result). The feature resolves the tree parts of `PERF-004`, `CORR-001`, `DET-001`, `LIFE-001`, and `LOAD-001`. Frame-time acceptance depends on `OBS-001`.
+- **Affected systems:**
+  - Terrain: `biome.js`, `sceneryPlacement.js`, worker protocol, chunk policy, and `Chunk` ownership.
+  - Rendering: `src/impostors/`, impostor shaders, `curvedLights.js`, `uBiomeOffset`, and `rotateAroundAxis()`.
+  - Also the loader (bake in `init()`), tests, and every guide.
+- **Performance budget:**
+  - Scenery work per frame: one draw call per scenery chunk (at most 61 on desktop) and 2 triangles per instance.
+  - Instance counts: about 1,800–2,300 at a desktop start over land, and at most about 270 per chunk.
+  - Fragment cost: up to six atlas fetches per fragment, three on mobile with single-frame sampling.
+  - Memory: an RGBA8 atlas pair of `3072 × 2048` on desktop (about `67` MB with mips) or `2304 × 1536` on mobile (about `38` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
+  - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the `16 × 16` grid, and placement costs about `0.3` ms per chunk in a worker.
+  - Real-GPU frame time has not been measured.
+- **Options:** real low-poly instanced meshes were rejected because the total instance count is high. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. A baked depth channel is reserved for a `gl_FragDepth` correction if slopes clip impostors visibly.
+- **Acceptance criteria:**
+  - Met so far:
+    - JS and GLSL biome values match within `1e-5` (SwiftShader).
+    - Placement is deterministic, unique per chunk, and biome-correct, which pure tests cover.
+    - There are no shader errors.
+    - Types appear in the correct biomes, and lighting is coherent at day, sunset, and night.
+    - During desktop and mobile traversals, lifecycle counters stay bounded (`created - disposed = live`, `stale = failed = 0`).
+  - Remaining:
+    - Art-direction tuning of density, scale (cacti read small), and palette.
+    - Real mobile devices.
+    - Frame-time and overdraw measurement against `OBS-001`.
+    - Near-camera and steep-slope clipping review.
+- **Documentation:** [Terrain](TERRAIN.md#per-chunk-scenery), [Rendering](RENDERING.md#impostor-scenery), [Architecture](ARCHITECTURE.md), [Assets](ASSETS.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), `AGENTS.md`.
 
 Add further features with this template:
 

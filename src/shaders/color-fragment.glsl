@@ -1,13 +1,15 @@
 #include <color_fragment>
 
-float biomeNoise = snoise(wPosition.xz * 0.00035);
-float biomeEdgeNoise = snoise(wPosition.xz * 0.0035) * 0.22;
-biomeEdgeNoise += snoise(wPosition.xz * 0.012) * 0.06;
+// Mirrored by getBiomeValue() in src/biome.js; keep both in sync.
+vec2 biomeXZ = wPosition.xz + uBiomeOffset;
+float biomeNoise = snoise(biomeXZ * 0.00035);
+float biomeEdgeNoise = snoise(biomeXZ * 0.0035) * 0.22;
+biomeEdgeNoise += snoise(biomeXZ * 0.012) * 0.06;
 float biomeValue = biomeNoise + biomeEdgeNoise;
 float biomeBlend = step(0.0, biomeValue);
 float biomePixelWidth = max(fwidth(biomeValue), 0.00001);
 float biomeBoundary = 1.0 - smoothstep(biomePixelWidth, biomePixelWidth * 2.0, abs(biomeValue));
-float currentBiomeVariation = snoise(wPosition.xz * 0.001) * 0.3 + 0.6 + snoise(wPosition.xz * 0.01) * 0.3;
+float currentBiomeVariation = snoise(biomeXZ * 0.001) * 0.3 + 0.6 + snoise(biomeXZ * 0.01) * 0.3;
 
 vec3 currentSand = vec3(0.9, 0.8, 0.5);
 vec3 currentGrass = mix(uGrass, vec3(0.33, 0.2, 0.0), currentBiomeVariation * 0.5);

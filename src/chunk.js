@@ -9,7 +9,6 @@ import {
 	MultiplyBlending,
 	RepeatWrapping,
 	Scene,
-	ShaderChunk,
 	TextureLoader,
 	Vector2,
 	Vector3,
@@ -20,8 +19,8 @@ import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
-import curvedLightTerminator from './shaders/curved-light-terminator.glsl'
-import Trees from './trees'
+import { curvedLightsFragment } from './curvedLights'
+import { createImpostorMesh } from './impostors/impostorMaterial'
 import Clouds from './clouds'
 import { getHeight } from './chunkGeometry'
 
@@ -44,25 +43,16 @@ const material = new MeshStandardMaterial({
 // Shared with GLSL through the `uCurvature` uniform created in main.js.
 export const CURVATURE = 3000
 
-// Three.js r186 include text; an upgrade that renames it disables the terminator.
-const DIRECTIONAL_LIGHT_INFO = 'getDirectionalLightInfo( directionalLight, directLight );'
-if (!ShaderChunk.lights_fragment_begin.includes(DIRECTIONAL_LIGHT_INFO)) {
-	console.warn('Curved light terminator: lights_fragment_begin hook not found')
-}
-const curvedLightsFragment = ShaderChunk.lights_fragment_begin.replace(
-	DIRECTIONAL_LIGHT_INFO,
-	`${DIRECTIONAL_LIGHT_INFO}\n${curvedLightTerminator}`,
-)
 const V2 = new Vector2(0, 0)
 const DEFAULT_FEATURES = Object.freeze({
-	trees: true,
+	scenery: true,
 	clouds: true,
 	boats: true,
 })
 
 export default class Chunk extends Mesh {
-	treesPositionArray = []
-	treesCount = 0
+	scenery = null
+	hasScenery = false
 	cloudsPositionArray = []
 	cloudsCount = 0
 
@@ -103,7 +93,7 @@ export default class Chunk extends Mesh {
 		// console.log(this)
 		this.parent.remove(this)
 		this.geometry.dispose()
-		this.trees && this.trees.dispose()
+		this.clearScenery()
 		if (this.boats) {
 			this.boats.forEach((el) => this.remove(el))
 		}
@@ -164,11 +154,31 @@ export default class Chunk extends Mesh {
 		this.updateScenery()
 	}
 
+	// Instances come from the chunk worker (src/sceneryPlacement.js). The mesh
+	// geometry is owned by this chunk; the impostor material is shared.
+	setScenery(instances) {
+		this.clearScenery()
+		this.hasScenery = true
+		if (instances.length === 0) return
+
+		this.scenery = createImpostorMesh(
+			instances,
+			this.assets.impostorMaterial,
+			this.size * 0.75 + 40,
+		)
+		this.add(this.scenery)
+	}
+
+	clearScenery() {
+		this.hasScenery = false
+		if (!this.scenery) return
+
+		this.remove(this.scenery)
+		this.scenery.geometry.dispose()
+		this.scenery = null
+	}
+
 	updateScenery() {
-		this.treesPositionArray = []
-		if (this.features.trees && !this.trees && this.LOD <= 2) {
-			this.generateTrees()
-		}
 		if (this.features.clouds && !this.clouds) this.generateClouds()
 		if (this.features.boats && !this.boats) this.addBoats()
 	}
@@ -243,55 +253,6 @@ export default class Chunk extends Mesh {
 		this.add(m)
 
 		return m
-	}
-
-	createTreesMesh() {
-		// console.log(this.treesPositionArray, this.treesCount)
-
-		const position = new BufferAttribute(
-			new Float32Array(this.treesPositionArray),
-			3,
-		)
-
-		// console.log(this.trees)
-		if (this.trees) {
-			this.remove(this.trees)
-			this.trees.dispose()
-		}
-
-		this.trees = new Trees(position, this.uniforms, this.assets)
-
-		this.add(this.trees)
-	}
-
-	generateTrees() {
-		const density = isMobile ? 8 : 5
-		const half = this.size
-		for (let i = 0; i < this.size; i += density) {
-			for (let j = 0; j < this.size; j += density) {
-				const x = i + this.position.x - half
-				const z = j + this.position.z - half
-				let h = getHeight(x, z, this.noise, this.params)
-
-				this.addTree(x, h, z)
-			}
-		}
-
-		this.createTreesMesh()
-	}
-
-	addTree(x, y, z) {
-		const n =
-			this.noise[0](x * 0.005, z * 0.005) + this.noise[1](x * 0.05, z * 0.05)
-
-		if (n > -0.5 && y > 4 && y < 42 && Math.random() < n + 0.3) {
-			this.treesPositionArray.push(
-				x - this.position.x,
-				y + 1,
-				z - this.position.z,
-			)
-			this.treesCount++
-		}
 	}
 
 	generateClouds() {

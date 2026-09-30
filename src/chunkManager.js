@@ -1,7 +1,14 @@
 import { Vector3 } from 'three'
+import { createBiomeOffset } from './biome'
 import Chunk from './chunk'
 import { createChunkGeometry, createTerrainNoises } from './chunkGeometry'
-import { getChunkKey, getChunkLOD, getDesiredChunks } from './chunkPolicy'
+import {
+	getChunkKey,
+	getChunkLOD,
+	getDesiredChunks,
+	hasSceneryAtLOD,
+	needsSceneryPlacement,
+} from './chunkPolicy'
 import ChunkWorkerPool from './chunkWorkerPool'
 
 const isMobile = window.innerWidth < 768
@@ -21,6 +28,8 @@ export default class ChunkManager {
 	maxDistance = isMobile ? 4 : 5
 	jobsPerFrame = isMobile ? 2 : 3
 	density = isMobile ? 4 : 2
+	// World-space scenery grid; must divide the chunk size.
+	sceneryCellSize = isMobile ? 16 : 8
 
 	constructor(
 		chunkSize,
@@ -41,6 +50,7 @@ export default class ChunkManager {
 		this.features = features
 		this.seed = seed
 		this.noise = createTerrainNoises(seed, params.octaves)
+		this.biomeOffset = createBiomeOffset(seed)
 		const availableThreads = Math.max(
 			1,
 			(navigator.hardwareConcurrency ?? 2) - 1,
@@ -120,6 +130,7 @@ export default class ChunkManager {
 		this.chunks.set(job.key, chunk)
 		this.created++
 		this.scene.add(chunk)
+		return chunk
 	}
 
 	processPendingJobs() {
@@ -153,9 +164,19 @@ export default class ChunkManager {
 
 	createWorkerRequest(job) {
 		const [i, j] = job.coords
+		const wantsScenery =
+			this.features.scenery &&
+			needsSceneryPlacement(
+				job.type,
+				job.LOD,
+				this.chunks.get(job.key)?.hasScenery ?? false,
+			)
 		return {
 			key: job.key,
 			revision: job.revision,
+			scenery: wantsScenery
+				? { cellSize: this.sceneryCellSize, biomeOffset: this.biomeOffset }
+				: null,
 			geometry: {
 				size: this.chunkSize,
 				LOD: job.LOD,
@@ -191,7 +212,7 @@ export default class ChunkManager {
 		}
 
 		const geometry = createChunkGeometry(response.geometry)
-		const chunk = this.chunks.get(job.key)
+		let chunk = this.chunks.get(job.key)
 
 		if (job.type === 'create') {
 			if (chunk) {
@@ -199,7 +220,7 @@ export default class ChunkManager {
 				this.stale++
 				return
 			}
-			this.createChunk(job, geometry)
+			chunk = this.createChunk(job, geometry)
 		} else if (chunk) {
 			chunk.replaceGeometry(geometry, job.LOD)
 		} else {
@@ -207,6 +228,9 @@ export default class ChunkManager {
 			this.stale++
 			return
 		}
+
+		if (response.scenery) chunk.setScenery(response.scenery)
+		else if (!hasSceneryAtLOD(job.LOD)) chunk.clearScenery()
 
 		this.generated++
 	}
@@ -290,6 +314,14 @@ export default class ChunkManager {
 	}
 
 	getStats() {
+		let sceneryChunks = 0
+		let sceneryInstances = 0
+		for (const chunk of this.chunks.values()) {
+			if (!chunk.scenery) continue
+			sceneryChunks++
+			sceneryInstances += chunk.scenery.geometry.instanceCount
+		}
+
 		return {
 			desired: this.desired.size,
 			live: this.chunks.size,
@@ -304,6 +336,8 @@ export default class ChunkManager {
 			workers: this.workerPool.size,
 			revision: this.revision,
 			seed: this.seed,
+			sceneryChunks,
+			sceneryInstances,
 		}
 	}
 

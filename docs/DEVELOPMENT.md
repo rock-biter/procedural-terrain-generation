@@ -37,7 +37,7 @@ Do not edit or commit generated files under `dist/`.
 - `postprocessing` (pmndrs) provides the effect composer; its `three` peer range must include the installed Three.js version.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
-- Node's built-in test runner covers pure chunk-policy, flight-policy, day/night-policy, trail-history, and deterministic terrain-buffer behavior under `test/`.
+- Node's built-in test runner covers pure chunk-policy, flight-policy, day/night-policy, trail-history, biome, octahedral-mapping, scenery-placement, and deterministic terrain-buffer behavior under `test/`.
 - Vite bundles `src/chunkGeometry.worker.js` as a module worker; no separate worker build command is required.
 - The repository currently has no formatter, linter, browser test suite, or CI workflow.
 
@@ -54,6 +54,7 @@ Follow the patterns in the code being changed rather than introducing a parallel
 - Reuse vectors and matrices in frame-sensitive code where the surrounding module already does so. Avoid allocations inside the render loop without measuring their cost.
 - Uniform names use a `u` prefix, such as `uTime` and `uCamera`.
 - Keep shader source in `src/shaders/`; do not embed large GLSL strings in JavaScript.
+- Modules imported by Node tests must use explicit `.js` extensions on their relative imports, as in `src/sceneryPlacement.js`, because Node ESM does not resolve extensionless paths the way Vite does.
 - Preserve responsive behavior at the existing `768px` JavaScript breakpoint unless a task intentionally redesigns it.
 - Add comments only for constraints or non-obvious behavior.
 

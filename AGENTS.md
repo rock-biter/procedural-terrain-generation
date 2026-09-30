@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. The current terrain-only work mode disables trees, clouds, and boats behind feature flags.
+This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. Trees, cacti, and rocks are placed deterministically per biome and drawn as baked octahedral impostors; clouds and boats remain disabled behind feature flags.
 
 [`README.md`](README.md) is the short human-facing introduction. This file is the entry point for coding agents and routes detailed work to the owning guide.
 
@@ -12,8 +12,8 @@ This repository contains **Infinite Procedural World**, a browser-based Three.js
 | ----------------------------------------------------------------------------------- | ---------------------------------------------- |
 | Install, commands, dependencies, source conventions, or debugging                   | [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)   |
 | Bootstrap, frame loop, module ownership, or cross-system changes                    | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) |
-| Noise, height generation, chunks, LOD, pooling, trees, clouds, or boats             | [`docs/TERRAIN.md`](docs/TERRAIN.md)           |
-| Three.js materials, uniforms, GLSL, instancing, curvature, fog, or post-processing  | [`docs/RENDERING.md`](docs/RENDERING.md)       |
+| Noise, height generation, chunks, LOD, pooling, biomes, scenery, clouds, or boats   | [`docs/TERRAIN.md`](docs/TERRAIN.md)           |
+| Three.js materials, uniforms, GLSL, impostors, curvature, fog, or post-processing   | [`docs/RENDERING.md`](docs/RENDERING.md)       |
 | Loader, play flow, controls, camera, audio, DOM, or responsive behavior             | [`docs/EXPERIENCE.md`](docs/EXPERIENCE.md)     |
 | Models, textures, audio files, loading transforms, or licensing                     | [`docs/ASSETS.md`](docs/ASSETS.md)             |
 | Build expectations, browser checks, manual QA, or future test automation            | [`docs/QUALITY.md`](docs/QUALITY.md)           |
@@ -43,16 +43,18 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 
 - [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, the render loop, and resize behavior.
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
-- [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, symmetric desired-set selection, and distance-based LOD policy.
+- [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, symmetric desired-set selection, distance-based LOD policy, and the scenery LOD rule.
 - [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling and transferable terrain buffers shared by tests and workers.
 - [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
-- [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and per-chunk scenery.
+- [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
+- [`src/biome.js`](src/biome.js) owns the seeded CPU twin of the shader biome field; [`src/sceneryPlacement.js`](src/sceneryPlacement.js) owns deterministic scenery placement, run in the chunk worker.
+- [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, and per-chunk quad meshes; [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
 - [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
 - [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
 - [`src/dayNight.js`](src/dayNight.js) owns the sky dome and applies time of day to lights, fog, and `uAtmosphere`; [`src/dayNightPolicy.js`](src/dayNightPolicy.js) owns the pure keyframes, celestial directions, curved-horizon dip and palette time, and `?time=` parsing.
 - [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer and idle bypass; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
-- [`src/trees.js`](src/trees.js) and [`src/clouds.js`](src/clouds.js) own instanced scenery meshes.
+- [`src/clouds.js`](src/clouds.js) owns the dormant instanced cloud mesh.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
 - [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets; model license files must remain with their assets.
@@ -73,7 +75,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, biome, octahedral-mapping, scenery-placement, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

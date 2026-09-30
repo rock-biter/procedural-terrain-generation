@@ -10,7 +10,7 @@ This document inventories runtime assets and records the checks required when ad
 | ------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------- |
 | Airplane model     | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`       | Player model loaded in `main.js`             | [`public/airplane/license.txt`](../public/airplane/license.txt) |
 | Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Dormant while `worldFeatures.boats` is false | [`public/boat/license.txt`](../public/boat/license.txt)         |
-| Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Terrain; dormant tree/cloud material paths   | No dedicated provenance file in the repository                  |
+| Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Terrain; dormant cloud material path         | No dedicated provenance file in the repository                  |
 | Unused texture     | [`src/textures/tessuto.jpg`](../src/textures/tessuto.jpg)                           | Not imported by current source               | No dedicated provenance file in the repository                  |
 | Soundtrack         | [`src/audio/epic-soundtrack.mp3`](../src/audio/epic-soundtrack.mp3)                 | Looping experience audio                     | No dedicated provenance file in the repository                  |
 
@@ -41,9 +41,9 @@ The hard-coded child selection is part of the current asset contract. A replacem
 
 ### Textures
 
-`normal.jpg` is always loaded independently by `src/chunk.js` for terrain, with repeat wrapping and a `6` by `6` repeat. When trees are enabled, `main.js` also loads it through the shared loading manager and exposes it as `assets.normalMap`.
+`normal.jpg` is loaded once, independently, by `src/chunk.js` for terrain, with repeat wrapping and a `6` by `6` repeat. That request is not part of the loading manager's progress state.
 
-With the current tree flag disabled there is one image request, and that request is not part of the loading manager's progress state. Re-enabling trees restores the second texture-loading path unless asset ownership is consolidated first.
+Scenery (trees, cacti, rocks) uses no file assets. Its source meshes are built from Three.js primitives in `src/impostors/impostorArchetypes.js`, and `init()` bakes them into an in-memory atlas at startup (see [Rendering](RENDERING.md#impostor-scenery)). The images in `public/style-references/` are untracked art-direction references and are not loaded at runtime.
 
 ### Audio
 
@@ -66,4 +66,3 @@ With the current tree flag disabled there is one image request, and that request
 - What are the source and redistribution terms for the soundtrack and both texture files?
 - Is `tessuto.jpg` intentionally reserved for future work or safe to remove?
 - Should model extraction use names instead of hierarchy indices?
-- Before re-enabling trees, should the conditional second normal-map loading path be consolidated under the asset-loading lifecycle?

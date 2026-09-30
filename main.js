@@ -6,6 +6,13 @@ import ChunkManager from './src/chunkManager'
 import DayNight from './src/dayNight'
 import { DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './src/dayNightPolicy'
 import { getHeight } from './src/chunkGeometry'
+import { createBiomeOffset } from './src/biome'
+import { bakeImpostorAtlas } from './src/impostors/impostorBaker'
+import { createImpostorMaterial } from './src/impostors/impostorMaterial'
+import {
+	IMPOSTOR_FRAMES_DESKTOP,
+	IMPOSTOR_FRAMES_MOBILE,
+} from './src/impostors/impostorTypes'
 import { isDebugEnabled } from './src/debugPolicy'
 import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
@@ -14,7 +21,6 @@ import TerrainSampleDebug from './src/terrainSampleDebug'
 import airplane from '/airplane/scene.gltf?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
-import normalMapSrc from './src/textures/normal.jpg'
 import gsap from 'gsap'
 
 const loadingEl = document.getElementById('loader')
@@ -27,7 +33,7 @@ const isMobile = window.innerWidth < 768
 const urlParams = new URLSearchParams(window.location.search)
 const worldSeed = urlParams.get('seed') ?? `${Date.now()}-${Math.random()}`
 const worldFeatures = Object.freeze({
-	trees: false,
+	scenery: true,
 	clouds: false,
 	boats: false,
 })
@@ -38,8 +44,8 @@ const debugFeatures = Object.freeze({
 
 const assets = {
 	planeModel: null,
-	normalMap: null,
 	boatModel: null,
+	impostorMaterial: null,
 	soundtrack: null,
 }
 
@@ -111,7 +117,6 @@ loaderManager.onStart = () => {
 	gsap.to(loadingEl, { autoAlpha: 1, duration: 0 })
 }
 
-const textureLoader = new THREE.TextureLoader(loaderManager)
 const gltfLoader = new GLTFLoader(loaderManager)
 const audioLoader = new THREE.AudioLoader(loaderManager)
 
@@ -125,10 +130,6 @@ audioLoader.load(audioSrc, (buffer) => {
 
 	camera.add(listener)
 })
-
-if (worldFeatures.trees) {
-	assets.normalMap = textureLoader.load(normalMapSrc)
-}
 
 if (worldFeatures.boats) {
 	gltfLoader.load('/boat/scene.gltf', (gltf) => {
@@ -222,6 +223,7 @@ const uniforms = {
 	uRocks: { value: new THREE.Color(params.colors.uRocks) },
 	// Written by DayNight before the first render.
 	uAtmosphere: { value: new THREE.Color() },
+	uBiomeOffset: { value: new THREE.Vector2(...createBiomeOffset(worldSeed)) },
 }
 
 if (gui) {
@@ -446,6 +448,17 @@ window.__INFINITE_WORLD__ = Object.freeze({
 
 function init(assets) {
 	plane = new Plane(assets.planeModel, null, params, camera)
+
+	if (worldFeatures.scenery) {
+		// Bakes every scenery type into the shared impostor atlas once.
+		const impostorAtlas = bakeImpostorAtlas(renderer, {
+			frames: isMobile ? IMPOSTOR_FRAMES_MOBILE : IMPOSTOR_FRAMES_DESKTOP,
+			frameSize: 64,
+		})
+		assets.impostorMaterial = createImpostorMaterial(impostorAtlas, uniforms, {
+			singleFrame: isMobile,
+		})
+	}
 
 	// Terrain
 	chunkManager = new ChunkManager(

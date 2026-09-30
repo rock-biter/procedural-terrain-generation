@@ -19,11 +19,11 @@ Changing an ID requires updating both files. UI classes are Tailwind utilities i
 
 ## Loading Flow
 
-1. The module starts soundtrack and airplane requests with a shared `THREE.LoadingManager`. The terrain normal map loads independently; tree and boat requests are disabled by `worldFeatures`.
+1. The module starts soundtrack and airplane requests with a shared `THREE.LoadingManager`. The terrain normal map loads independently; the boat request is disabled by `worldFeatures`.
 2. `onStart` reveals the loader.
 3. `onProgress` animates the progress width from loaded item count divided by total item count.
 4. `onLoad` hides the canvas, registers the sound toggle, and fades out the loader.
-5. After the loader fade, `init(assets)` starts the scene and the play action fades in.
+5. After the loader fade, `init(assets)` bakes the scenery impostor atlas, starts the scene, and the play action fades in.
 6. The canvas fades in while the scene is already rendering.
 
 The current flow has no explicit asset error handler. A failed startup-critical request can therefore leave the experience without a useful recovery message.
@@ -106,7 +106,8 @@ It controls:
 - Initial camera FOV and zoom.
 - Play-transition camera distance.
 - Chunk radius and per-frame queue throughput.
-- Terrain density and, when trees are enabled, tree density.
+- Terrain density and scenery density: the scenery grid cell is `8` units on desktop and `16` on mobile.
+- Scenery impostors: mobile bakes a `12 × 12` view grid instead of `16 × 16` and samples one baked frame instead of three.
 
 `handleResize()` updates renderer dimensions and camera projection, but it does not recompute `isMobile` or rebuild terrain. Crossing the breakpoint after startup therefore does not switch runtime policy.
 

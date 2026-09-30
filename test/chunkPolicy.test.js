@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { getChunkKey, getDesiredChunks } from '../src/chunkPolicy.js'
+import {
+	getChunkKey,
+	getDesiredChunks,
+	hasSceneryAtLOD,
+	needsSceneryPlacement,
+} from '../src/chunkPolicy.js'
 
 test('creates symmetric desktop and mobile desired sets', () => {
 	assert.equal(getDesiredChunks(0, 0, 5).size, 81)
@@ -28,4 +33,16 @@ test('preserves the existing distance-based LOD policy', () => {
 	assert.equal(desired.get('2|0').LOD, 1)
 	assert.equal(desired.get('4|0').LOD, 2)
 	assert.equal(desired.get('5|0').LOD, 3)
+})
+
+test('places scenery only in near LODs and only when missing', () => {
+	assert.equal(hasSceneryAtLOD(0), true)
+	assert.equal(hasSceneryAtLOD(2), true)
+	assert.equal(hasSceneryAtLOD(3), false)
+
+	assert.equal(needsSceneryPlacement('create', 1, false), true)
+	assert.equal(needsSceneryPlacement('create', 3, false), false)
+	assert.equal(needsSceneryPlacement('updateLOD', 1, true), false)
+	assert.equal(needsSceneryPlacement('updateLOD', 2, false), true)
+	assert.equal(needsSceneryPlacement('regenerate', 0, true), true)
 })

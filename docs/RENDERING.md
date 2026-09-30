@@ -53,19 +53,19 @@ Resize changes the camera aspect, projection matrix, capped pixel ratio, and the
 
 ## Shader Injection Pattern
 
-Scene materials other than the sky dome do not use `ShaderMaterial`. They start with built-in Three.js materials and patch generated shaders through `material.onBeforeCompile`. The sky dome (unlit, fog-free) and the post-processing blur downsample and upsample are the only standalone `ShaderMaterial` instances.
+Scene materials other than the sky dome do not use `ShaderMaterial`. They start with built-in Three.js materials and patch generated shaders through `material.onBeforeCompile`. The sky dome (unlit, fog-free), the post-processing blur downsample and upsample, and the two transient impostor bake passes are the only standalone `ShaderMaterial` instances.
 
 | Rendered content          | JavaScript owner                    | Base material                      | Replacements                                                         |
 | ------------------------- | ----------------------------------- | ---------------------------------- | -------------------------------------------------------------------- |
 | Terrain and water surface | [`src/chunk.js`](../src/chunk.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps`, `lights_fragment_begin` |
 | Boats                     | [`src/chunk.js`](../src/chunk.js)   | Materials from the glTF model      | `common`, `project_vertex`                                           |
-| Trees                     | [`src/trees.js`](../src/trees.js)   | `MeshStandardMaterial`             | `common`, `project_vertex`, `color_fragment`                         |
+| Scenery impostors         | [`src/impostors/impostorMaterial.js`](../src/impostors/impostorMaterial.js) | `MeshStandardMaterial` (`alphaTest`, `alphaToCoverage`) | `common`, `project_vertex`, `color_fragment`, `normal_fragment_begin`, `lights_fragment_begin` |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
 | Plane trails              | [`src/plane.js`](../src/plane.js)   | Transparent `MeshBasicMaterial`    | `common`, `project_vertex`, `color_fragment`                         |
 
 Each replacement string must match the corresponding Three.js shader include exactly. A Three.js upgrade can rename or reorganize those includes while the JavaScript build still succeeds.
 
-The tree, cloud, and boat shader paths are currently dormant because all three `worldFeatures` flags are disabled in `main.js`. Terrain and water continue to use the existing `MeshStandardMaterial` replacement path unchanged.
+The cloud and boat shader paths are currently dormant because their `worldFeatures` flags are disabled in `main.js`.
 
 ## Shared GLSL Contract
 
@@ -75,10 +75,11 @@ The tree, cloud, and boat shader paths are currently dormant because all three `
 - `uCamera`: the plane's world position, used as the visual reference point.
 - `uCurvature`: radius used by the curved-world projection.
 - `uGrass`, `uLand`, and `uRocks`: terrain biome colors.
-- `uAtmosphere`: the day/night color ceiling that distant terrain, trees, and clouds are clamped toward (`min(uAtmosphere, color)`) before fog. It replaces the former hard-coded dark maroon.
+- `uBiomeOffset`: seeded world offset of the biome field, from `createBiomeOffset()` in [`src/biome.js`](../src/biome.js). The CPU placement code applies the same offset.
+- `uAtmosphere`: the day/night color ceiling that distant terrain, scenery, and clouds are clamped toward (`min(uAtmosphere, color)`) before fog. It replaces the former hard-coded dark maroon.
 - `wPosition`: world-space position passed from vertex to fragment stages.
 - `distanceFromCamera`: distance used for curvature, scaling, atmospheric darkening, and fading.
-- Shared `rotateZ()` and simplex-noise helpers.
+- Shared `rotateZ()`, `rotateAroundAxis()` (Rodrigues rotation used for bent normals), and simplex-noise helpers.
 
 The terrain geometry also provides a custom scalar `height` attribute. Its value is the raw procedural height, including underwater values that differ from the CPU-clamped visible vertex position. Position, normal, UV, height, and index arrays are generated in a worker, transferred, and wrapped in `BufferGeometry` on the main thread before rendering.
 
@@ -91,7 +92,7 @@ The plane trail uses dynamic world-space positions, a per-vertex `trailWidths` v
 ### Terrain
 
 - [`project-vertex.glsl`](../src/shaders/project-vertex.glsl) applies water movement, distance-based curvature, and the final projection.
-- [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) keeps five elevation-based land bands and switches between their existing palette and a sand-to-dark-brown desert palette. A very-low-frequency signed simplex-noise sample in world XZ coordinates selects the desert biome below zero and the existing biome above zero; two denser samples fray the boundary at different scales. An antialiased black separator hides the hard palette transition on land only, leaving water colors and wave highlights independent.
+- [`color-fragment.glsl`](../src/shaders/color-fragment.glsl) keeps five elevation-based land bands and switches between their existing palette and a sand-to-dark-brown desert palette. A very-low-frequency signed simplex-noise sample in world XZ coordinates, shifted by `uBiomeOffset`, selects the desert biome below zero and the existing biome above zero; two denser samples fray the boundary at different scales. An antialiased black separator hides the hard palette transition on land only, leaving water colors and wave highlights independent. `getBiomeValue()` in `src/biome.js` is the exact CPU twin of this formula; change both together.
 - [`normal-fragment-map.glsl`](../src/shaders/normal-fragment-map.glsl) attenuates tangent-space normal-map strength with distance.
 - [`curved-light-terminator.glsl`](../src/shaders/curved-light-terminator.glsl) is inserted into `lights_fragment_begin` (see below).
 
@@ -100,14 +101,47 @@ The plane trail uses dynamic world-space positions, a per-vertex `trailWidths` v
 The curvature in `project-vertex.glsl` moves vertices down by `R * (1 - cos(dist / R))` but used to leave normals flat, so distant terrain was lit as if the world were flat. Terrain now shades as the sphere it is drawn on:
 
 - **Bent normal (vertex):** after the curvature distance is known, `objectNormal` is rotated about `cross(up, awayDirection)` by `dist / uCurvature`, the same angle the surface tilts away from `uCamera`. The result overwrites `vNormal`. Chunk meshes are only translated, so object-space normals are world-space and `normalMatrix` applies. The derivative-based normal-map TBN uses the already curved positions and stays consistent. The unperturbed sphere normal is passed in the terrain-only varying `vSphereNormal`, which is declared in the injected code rather than in `common.glsl`.
-- **Terminator (fragment):** `chunk.js` builds a copy of Three.js's `lights_fragment_begin` with the terminator appended after the exact r186 line `getDirectionalLightInfo( directionalLight, directLight );`. For every directional light, `directLight.color` is scaled by `smoothstep(-0.02, 0.06, dot(directLight.direction, vSphereNormal))`. The sun or moon therefore contributes nothing where it is below that fragment's local horizon, even on slopes facing it. At sunset, distant terrain toward the sun stays lit while nearby terrain is already dark. `chunk.js` warns in the console if a Three.js upgrade removes the hook line.
-- Ambient light is unaffected. The airplane, trails, and the dormant tree, cloud, and boat materials still use flat lighting; align them when those features return.
+- **Terminator (fragment):** [`src/curvedLights.js`](../src/curvedLights.js) builds a copy of Three.js's `lights_fragment_begin` with the terminator appended after the exact r186 line `getDirectionalLightInfo( directionalLight, directLight );`. For every directional light, `directLight.color` is scaled by `smoothstep(-0.02, 0.06, dot(directLight.direction, vSphereNormal))`. The sun or moon therefore contributes nothing where it is below that fragment's local horizon, even on slopes facing it. At sunset, distant terrain toward the sun stays lit while nearby terrain is already dark. `curvedLights.js` warns in the console if a Three.js upgrade removes the hook line. Terrain and scenery impostors both use this copy; each provides its own view-space `vSphereNormal`.
+- Ambient light is unaffected. Scenery impostors bend their baked normals and use the terminator like terrain. The airplane, trails, and the dormant cloud and boat materials still use flat lighting; align them when those features return.
 
-### Instanced Scenery
+### Impostor Scenery
 
-- [`project-instanced-vertex.glsl`](../src/shaders/project-instanced-vertex.glsl) applies instance transforms, tree movement, distance scaling, and curvature.
+Trees, cacti, and rocks are octahedral impostors: each instance is one camera-facing quad (2 triangles), shaded from baked color and normal images.
+
+- **Sources:** [`src/impostors/impostorArchetypes.js`](../src/impostors/impostorArchetypes.js) builds the six types from Three.js primitives. They are merged, smooth-shaded, lightly noise-deformed, and carry vertex colors with a baked vertical occlusion. Bounding spheres are recentered on the Y axis so yaw rotates around the base. These meshes exist only during the bake, so their vertex counts have no runtime cost.
+- **Types:** the type indices, atlas layout, and instance stride live in [`src/impostors/impostorTypes.js`](../src/impostors/impostorTypes.js).
+- **Bake:** [`src/impostors/impostorBaker.js`](../src/impostors/impostorBaker.js) runs once in `init()`, before chunks exist.
+  - It renders every type from a grid of `frames × frames` hemi-octahedral directions (see [`src/impostors/octahedral.js`](../src/impostors/octahedral.js)) with an orthographic camera framed on the bounding sphere plus a `4%` margin.
+  - `main.js` passes `IMPOSTOR_FRAMES_DESKTOP` (`16`, 256 views per type) or `IMPOSTOR_FRAMES_MOBILE` (`12`, 144 views). The count must be even. The atlas records it, and the material turns it into the `IMPOSTOR_FRAMES` define, so the bake and the shader always agree.
+  - It renders one type at a time into a `2×` supersampled MRT target (`count: 2`) the size of one type block: at most `2048` px, which stays inside mobile texture limits. The target holds sRGB-encoded albedo with coverage in alpha, and object-space normal with normalized depth in alpha. Depth is currently unused.
+  - A resolve pass writes that type's block of the atlas (`uBlockOrigin`). It box-downsamples to fractional coverage and dilates the color and normal of the nearest covered texel into empty texels of the same frame, so bilinear filtering and mipmaps do not pull in dark halos.
+  - The result is two mipmapped RGBA8 atlases, laid out as `3 × 2` type blocks of `64` px frames:
+    - desktop: `3072 × 2048`, about `67` MB with mips;
+    - mobile: `2304 × 1536`, about `38` MB with mips.
+  - In headless SwiftShader the `16 × 16` bake takes about `0.2` to `0.35` s.
+- **Vertex (`impostor-vertex.glsl`, replacing `project_vertex`):**
+  1. Reads per-instance `aInstanceA` (chunk-local base, scale) and `aInstanceB` (yaw, type, packed tint, stretch).
+  2. Applies the terrain curvature at the base, and places the bounding-sphere center along the bent sphere normal.
+  3. Builds the quad on the camera's right and up axes.
+  4. Converts the camera and each vertex into the baked local frame by undoing the bend, yaw, scale, and stretch.
+  5. Picks the three frames around the view direction with barycentric weights, the same triangle blend as `getFrameBlend()`. Each frame UV comes from intersecting the view ray with that frame's image plane.
+  6. Scales instances to zero between `950` and `800` units from `uCamera`, inside the fog.
+- **Fragment:**
+  - `impostor-color-fragment.glsl` blends the three frames weighted by coverage, decodes sRGB, and multiplies by the instance tint. It then applies the `uAtmosphere` clamp (`700`→`400`).
+  - `IMPOSTOR_SINGLE_FRAME`, set on mobile, samples only the dominant frame.
+  - Coverage goes to `diffuseColor.a`, and Three.js's `alphatest_fragment` turns it into MSAA coverage (`alphaToCoverage`, threshold `0.5`).
+  - `impostor-normal-fragment.glsl` replaces `normal_fragment_begin`. It rebuilds the view-space normal from the baked normal through the per-instance yaw, stretch, and bend basis.
+- **GLSL twins:** [`impostor-octahedral.glsl`](../src/shaders/impostor-octahedral.glsl) mirrors `octahedral.js`. Keep the frame basis identical to the baker, which uses `camera.lookAt()` with world up.
+- **Known limits:**
+  - The quad is flat, so a large instance on a steep slope can be partially hidden by terrain in front of its center.
+  - Adjacent frames can ghost slightly where silhouettes differ.
+  - Distant mips lose coverage on thin parts.
+  - The baked depth channel is kept for a possible `gl_FragDepth` correction.
+
+### Clouds (Dormant)
+
 - [`project-vertex-clouds.glsl`](../src/shaders/project-vertex-clouds.glsl) applies instance transforms, distance scaling, and curvature for clouds.
-- Tree and cloud fragment replacements apply snow/atmosphere coloring and different distance fade ranges.
+- The cloud fragment replacement applies atmosphere coloring and its own distance fade range.
 
 ### Boats And Trails
 
@@ -122,6 +156,8 @@ The curvature in `project-vertex.glsl` moves vertices down by `R * (1 - cos(dist
 - `main.js` creates `uAtmosphere` in the shared uniform object; `DayNight` writes it in its constructor (before the first compile) and on every frame after `uCamera`.
 - `main.js` creates `uCurvature` in the shared uniform object from `CURVATURE` in `src/chunk.js`, the same constant used by the CPU curvature helper. Do not recreate it per chunk: materials that compile before the first chunk exists read it immediately.
 - Biome colors are initialized from `params.colors`; the disabled GUI can mutate them.
+- `uBiomeOffset` is set once from the world seed and never changes at runtime.
+- The impostor material adds its own atlas uniforms (`uImpostorAlbedo`, `uImpostorNormal`, and `uImpostorTypes` with per-type frame radius and center height) next to the shared uniforms at compile time.
 - `Plane.update()` writes `uAcceleration` and updates the trail buffer before the frame renders.
 - `Plane.updateTrails()` calls `recordTrailPose()`, which pushes the current pose into the history, and then `refreshTrails()`, which copies `params.trails` into stable trail-uniform wrappers and rebuilds the ribbon from the history. Changing a GUI slider affects already emitted sections as well as new ones. During the debug flight pause only `refreshTrails()` runs, so tuning stays live without extending the trail.
 - `main.js` passes `max(uAcceleration, params.speedEffect)` to `PostProcessing.setSpeedEffect()` immediately before `PostProcessing.render()`.
@@ -132,9 +168,9 @@ Do not replace the shared uniform wrapper objects each frame. Update their `.val
 ## Materials And Textures
 
 - Terrain uses `normal.jpg` with repeat wrapping, a `6` by `6` repeat, and normal scale `(2, -2)`.
-- When enabled, trees use the separately loaded `assets.normalMap`.
 - When enabled, clouds receive the terrain normal map after construction.
-- Terrain, tree, and cloud materials are module-level shared instances. Their shader hooks and mutable properties therefore affect every instance using that material.
+- Terrain and cloud materials are module-level shared instances. Their shader hooks and mutable properties therefore affect every instance using that material.
+- The impostor material is created once in `init()` and shared through `assets.impostorMaterial`. It owns the atlas render target. Chunks dispose only their own scenery geometry.
 - Boats originate from cloned glTF scene nodes; verify whether geometry and material resources remain shared before disposing or mutating them.
 
 See [Assets](ASSETS.md) for load paths, transforms, and licensing.
@@ -146,7 +182,7 @@ See [Assets](ASSETS.md) for load paths, transforms, and licensing.
 3. Preserve the original Three.js include when the replacement depends on built-in declarations or behavior.
 4. Run `pnpm build` to validate imports and bundling.
 5. Load the scene and check the browser console for shader compile or link errors.
-6. Inspect terrain, water, trees, clouds, boats, and trails as applicable.
+6. Inspect terrain, water, scenery impostors, clouds, boats, and trails as applicable.
 7. For post-processing changes, hold the effect with `?gui=1` and the top-level **speedEffect** slider (same smoothstep mapping as a real boost) or **Speed effect > preview** (raw intensity), and check the center, edges, and corners, and that the idle bypass returns (`getPostProcessingStats().active === false`).
 8. Move far enough to exercise distance fades, curvature, new chunks, and multiple LODs.
 9. Repeat at a narrow/mobile viewport because geometry density and camera settings differ.
@@ -155,6 +191,6 @@ See [Assets](ASSETS.md) for load paths, transforms, and licensing.
 
 - Should shader contracts receive automated compile checks against the installed Three.js version?
 - Should module-level materials be replaced with explicitly owned or cached variants?
-- Should curvature and atmosphere calculations share one documented distance convention? The atmosphere color is now tied to the day/night cycle, but its distance ranges (`700`→`200` terrain, different ranges for trees and clouds) remain independent of the fog range.
+- Should curvature and atmosphere calculations share one documented distance convention? The atmosphere color is now tied to the day/night cycle, but its distance ranges (`700`→`200` terrain, `700`→`400` impostors, a different range for clouds) remain independent of the fog range.
 - Should the renderer adopt tone mapping? Bright daytime water and sky currently saturate without it.
 - What visual baseline should be used for regression screenshots?

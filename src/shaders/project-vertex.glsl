@@ -37,9 +37,7 @@ if (horizontalLength > 0.0001) {
 	float bendCos = cos(bendAngle);
 	float bendSin = sin(bendAngle);
 	sphereNormal = vec3(0.0, bendCos, 0.0) + awayDirection * bendSin;
-	bentNormal = objectNormal * bendCos
-		+ cross(bendAxis, objectNormal) * bendSin
-		+ bendAxis * dot(bendAxis, objectNormal) * (1.0 - bendCos);
+	bentNormal = rotateAroundAxis(objectNormal, bendAxis, bendCos, bendSin);
 }
 vNormal = normalize(normalMatrix * bentNormal);
 vSphereNormal = normalize(normalMatrix * sphereNormal);
