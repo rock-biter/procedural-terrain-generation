@@ -23,9 +23,9 @@ normal = normalize(normalMatrix * normal);
 // the chunk uv, so the tangent frame built from vNormalMapUv still applies.
 vec2 terrainNormalUv = vec2(wPosition.x, - wPosition.z);
 vec3 mapN = sampleTerrainNormal(terrainBand, terrainNormalUv, dFdx(terrainNormalUv), dFdy(terrainNormalUv));
-	// Fade the fabric normal map out before its fine pattern aliases into
-	// moire at mid distance; full strength within 20 units of the plane.
-mapN.xy *= smoothstep(120., 20., distanceFromCamera);
+	// Fade the fabric normal maps out before their fine patterns alias into
+	// moire at a distance; range set by uTerrainNormalFade.
+mapN.xy *= 1.0 - smoothstep(uTerrainNormalFade.x, uTerrainNormalFade.y, distanceFromCamera);
 
 normal = normalize(tbn * mapN);
 

@@ -1,4 +1,4 @@
-import { RepeatWrapping, TextureLoader, Vector2 } from 'three'
+import { MathUtils, RepeatWrapping, TextureLoader, Vector2 } from 'three'
 import fabricSrc from './textures/normal.jpg'
 import dirtyCarpetSrc from './textures/dirty_carpet/dirty_carpet_nor_gl_1k.jpg'
 import fabricPatternSrc from './textures/fabric_pattern/fabric_pattern_07_nor_gl_1k.jpg'
@@ -30,16 +30,24 @@ export const TERRAIN_BANDS = Object.freeze([
 ])
 
 // Which normal map each layer uses. texture is a TERRAIN_NORMAL_TEXTURES key,
-// scale is the size of one texture tile in world units, and strength
-// multiplies the normal-map XY. The debug GUI edits scale and strength.
+// scale is the size of one texture tile in world units, strength multiplies
+// the normal-map XY, and rotation turns the texture on the ground in degrees
+// (counter-clockwise seen from above). The debug GUI edits all three.
+// Rotations are arbitrary, but consecutive layers differ by at least 15
+// degrees even modulo 90, so neighbouring bands never line up their patterns.
 export const TERRAIN_NORMAL_LAYERS = Object.freeze({
-	sea: { texture: 'fabric', scale: 256 / 12, strength: 2 },
-	sand: { texture: 'hessian', scale: 15, strength: 4.0 },
-	grass: { texture: 'ribbedCorduroy', scale: 33, strength: 3.5 },
-	land: { texture: 'wafflePique', scale: 25, strength: 1.85 },
-	rocks: { texture: 'dirtyCarpet', scale: 40, strength: 2.5 },
-	snow: { texture: 'fabricPattern', scale: 20, strength: 3.2 },
+	sea: { texture: 'fabric', scale: 256 / 12, strength: 2, rotation: 23 },
+	sand: { texture: 'hessian', scale: 15, strength: 4.0, rotation: 71 },
+	grass: { texture: 'ribbedCorduroy', scale: 33, strength: 3.5, rotation: 137 },
+	land: { texture: 'wafflePique', scale: 25, strength: 1.85, rotation: 204 },
+	rocks: { texture: 'dirtyCarpet', scale: 35, strength: 2.5, rotation: 256 },
+	snow: { texture: 'fabricPattern', scale: 20, strength: 3.2, rotation: 318 },
 })
+
+// Distance from the plane (world units) where every layer's normal map starts
+// fading (start) and is gone (end). Fine patterns alias into moire if they
+// reach too far.
+export const TERRAIN_NORMAL_FADE = Object.freeze({ start: 50, end: 300 })
 
 const loader = new TextureLoader()
 const textures = new Map()
@@ -59,10 +67,16 @@ export function getTerrainNormalTexture(name) {
 	return textures.get(name)
 }
 
-export function createTerrainNormalSettings(layers = TERRAIN_NORMAL_LAYERS) {
-	return Object.fromEntries(
-		TERRAIN_BANDS.map((band) => [band, { ...layers[band] }]),
-	)
+export function createTerrainNormalSettings(
+	layers = TERRAIN_NORMAL_LAYERS,
+	fade = TERRAIN_NORMAL_FADE,
+) {
+	return {
+		...Object.fromEntries(
+			TERRAIN_BANDS.map((band) => [band, { ...layers[band] }]),
+		),
+		fade: { ...fade },
+	}
 }
 
 // Uniforms for terrain-normal-pars.glsl; arrays are indexed by TERRAIN_BANDS.
@@ -78,6 +92,12 @@ export function createTerrainNormalUniforms(settings) {
 		uTerrainNormalStrength: {
 			value: TERRAIN_BANDS.map(() => new Vector2()),
 		},
+		// (cos, sin) of each layer's rotation.
+		uTerrainNormalRotation: {
+			value: TERRAIN_BANDS.map(() => new Vector2(1, 0)),
+		},
+		// x = fade start, y = fade end, in world units from the plane.
+		uTerrainNormalFade: { value: new Vector2() },
 	}
 	updateTerrainNormalUniforms(uniforms, settings)
 
@@ -85,6 +105,9 @@ export function createTerrainNormalUniforms(settings) {
 }
 
 export function updateTerrainNormalUniforms(uniforms, settings) {
+	// smoothstep() is undefined unless start < end.
+	const { start, end } = settings.fade
+	uniforms.uTerrainNormalFade.value.set(start, Math.max(end, start + 1))
 	TERRAIN_BANDS.forEach((band, index) => {
 		const layer = settings[band]
 		const green = TERRAIN_NORMAL_TEXTURES[layer.texture].invertGreen ? -1 : 1
@@ -92,6 +115,11 @@ export function updateTerrainNormalUniforms(uniforms, settings) {
 		uniforms.uTerrainNormalStrength.value[index].set(
 			layer.strength,
 			layer.strength * green,
+		)
+		const angle = MathUtils.degToRad(layer.rotation ?? 0)
+		uniforms.uTerrainNormalRotation.value[index].set(
+			Math.cos(angle),
+			Math.sin(angle),
 		)
 	})
 }

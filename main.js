@@ -330,6 +330,14 @@ if (gui) {
 	const updateTerrainNormals = () =>
 		updateTerrainNormalUniforms(uniforms, params.terrainNormals)
 	const terrainNormalsFolder = terrainFolder.addFolder('Normal maps')
+	terrainNormalsFolder
+		.add(params.terrainNormals.fade, 'start', 0, 1000, 1)
+		.name('Fade start (units)')
+		.onChange(updateTerrainNormals)
+	terrainNormalsFolder
+		.add(params.terrainNormals.fade, 'end', 1, 2000, 1)
+		.name('Fade end (units)')
+		.onChange(updateTerrainNormals)
 	for (const band of TERRAIN_BANDS) {
 		const layer = params.terrainNormals[band]
 		const folder = terrainNormalsFolder.addFolder(
@@ -342,6 +350,10 @@ if (gui) {
 		folder
 			.add(layer, 'strength', 0, 5, 0.01)
 			.name('Strength')
+			.onChange(updateTerrainNormals)
+		folder
+			.add(layer, 'rotation', 0, 360, 1)
+			.name('Rotation (°)')
 			.onChange(updateTerrainNormals)
 	}
 
