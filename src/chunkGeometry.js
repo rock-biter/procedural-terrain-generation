@@ -43,6 +43,32 @@ export function getHeight(x, z, noises, params) {
 	return height + landmass
 }
 
+// World-space step for normal sampling. It is independent of chunk LOD, so
+// vertices shared by neighbouring chunks get identical normals at any detail.
+export const NORMAL_EPSILON = 1
+
+function getSurfaceHeight(x, z, noises, params) {
+	return Math.max(getHeight(x, z, noises, params), -1)
+}
+
+export function getSurfaceNormal(x, z, noises, params, target = [0, 0, 0]) {
+	const left = getSurfaceHeight(x - NORMAL_EPSILON, z, noises, params)
+	const right = getSurfaceHeight(x + NORMAL_EPSILON, z, noises, params)
+	const back = getSurfaceHeight(x, z - NORMAL_EPSILON, noises, params)
+	const front = getSurfaceHeight(x, z + NORMAL_EPSILON, noises, params)
+
+	const nx = left - right
+	const ny = 2 * NORMAL_EPSILON
+	const nz = back - front
+	const length = Math.hypot(nx, ny, nz)
+
+	target[0] = nx / length
+	target[1] = ny / length
+	target[2] = nz / length
+
+	return target
+}
+
 export function getChunkSegments(size, LOD, density) {
 	return Math.max(Math.floor(size * 0.5 ** LOD), density) / density
 }
@@ -64,6 +90,8 @@ export function generateChunkGeometryData({
 	const position = geometry.getAttribute('position')
 	const height = new BufferAttribute(new Float32Array(position.count), 1)
 	geometry.setAttribute('height', height)
+	const normal = geometry.getAttribute('normal')
+	const sampledNormal = [0, 0, 0]
 
 	for (let index = 0; index < position.count; index++) {
 		const x = position.getX(index) + worldX
@@ -72,10 +100,13 @@ export function generateChunkGeometryData({
 
 		height.setX(index, sampledHeight)
 		position.setY(index, Math.max(sampledHeight, -1))
+
+		getSurfaceNormal(x, z, noises, params, sampledNormal)
+		normal.setXYZ(index, sampledNormal[0], sampledNormal[1], sampledNormal[2])
 	}
 
 	position.needsUpdate = true
-	geometry.computeVertexNormals()
+	normal.needsUpdate = true
 
 	return {
 		position: geometry.getAttribute('position').array,

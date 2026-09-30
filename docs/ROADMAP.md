@@ -61,7 +61,7 @@ main.js: tic()
             -> chunkGeometry.worker.js
                  -> seeded PlaneGeometry allocation
                  -> getHeight() for every terrain vertex
-                 -> computeVertexNormals()
+                 -> getSurfaceNormal() central differences (4 extra samples/vertex)
                  -> transfer position/normal/UV/height/index buffers
             -> main thread validates key + revision
                  -> wrap buffers in BufferGeometry
@@ -109,7 +109,7 @@ The terrain-only startup performs about **1.31 million** noise evaluations on de
 | 2   |                      32 / 1,089 / 2,048 |                         16 / 289 / 512 |
 | 3   |                          16 / 289 / 512 |                           8 / 81 / 128 |
 
-`computeVertexNormals()` then walks the rebuilt indexed geometry inside the worker. LOD changes still allocate, resample, transfer, and replace complete geometry; the work is asynchronous but not cached.
+Normals are sampled from the height function inside the worker with four extra `getHeight()` calls per vertex, so a job costs about five height samples per vertex. LOD changes still allocate, resample, transfer, and replace complete geometry; the work is asynchronous but not cached.
 
 ### Decoration Geometry
 
@@ -205,7 +205,7 @@ Required direction: write an ownership table in code design, separate shared imm
 
 ### `PERF-002` And `PERF-003`: Main-Thread Spikes
 
-The scheduler dispatches one near job or up to three farther jobs, bounded further by one mobile or up to two desktop workers. A near LOD 0 worker job performs 16,641 height samples and normal generation; the main thread still wraps buffers and triggers GPU upload.
+The scheduler dispatches one near job or up to three farther jobs, bounded further by one mobile or up to two desktop workers. A near LOD 0 worker job performs 16,641 vertex height samples plus 66,564 normal samples; the main thread still wraps buffers and triggers GPU upload.
 
 LOD transitions avoid recreating existing decorations but still allocate a new `PlaneGeometry`, evaluate heights, compute normals, transfer buffers, and replace the old geometry. There is no height cache or reusable geometry buffer. Running work is not interrupted; obsolete responses are discarded by key and revision.
 

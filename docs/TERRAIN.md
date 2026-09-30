@@ -27,7 +27,9 @@ Keep CPU sampling, chunk placement, instance placement, and shader world coordin
 
 `main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
 
-For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. It also computes normals using the same Three.js plane topology as the former main-thread path. Shaders use the raw attribute for effects and coloring, so do not remove it.
+For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. Shaders use the raw attribute for effects and coloring, so do not remove it.
+
+Normals come from the height function, not from mesh triangles. `getSurfaceNormal()` takes central differences of the clamped surface height `max(getHeight(), -1)` at `±NORMAL_EPSILON` (`1` world unit) along X and Z. The step is a fixed world-space constant, independent of LOD and density, so a vertex shared by neighboring chunks gets the same normal even when the chunks have different LODs, and chunk borders show no lighting seams. Each vertex costs four extra `getHeight()` calls. Keep the epsilon fixed; do not derive it from grid spacing.
 
 The worker transfers position, normal, UV, height, and index buffers. The main thread wraps them in `BufferGeometry`; it does not resample heights or recompute normals.
 
@@ -113,4 +115,4 @@ Tree, cloud, and boat placement includes `Math.random()`, so re-enabling decorat
 - What frame-time budget should govern queue throughput and chunk radius?
 - Should chunk resources be pooled rather than recreated after disposal?
 - Should clouds and decorations have independent LOD policies?
-- How should visible seams and normal discontinuities be measured?
+- How should visible geometric seams (T-junctions between LODs) be measured?
