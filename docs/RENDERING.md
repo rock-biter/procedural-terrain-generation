@@ -74,6 +74,7 @@ Scene materials other than the sky dome do not use `ShaderMaterial`. They start 
 | Scenery impostors         | [`src/impostors/impostorMaterial.js`](../src/impostors/impostorMaterial.js) | `MeshStandardMaterial` (`alphaTest`, `alphaToCoverage`) | `common`, `project_vertex`, `color_fragment`, `normal_fragment_begin`, `lights_fragment_begin` |
 | Near scenery meshes       | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js) | `MeshStandardMaterial` (`vertexColors`), one per level of detail | `common`, `beginnormal_vertex`, `project_vertex`, `color_fragment`, `lights_fragment_begin` |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
+| Airplane                  | [`src/plane.js`](../src/plane.js)   | `MeshStandardMaterial` from `plane-toy.glb` | `common`, `beginnormal_vertex`, `begin_vertex` (propeller rotation) |
 | Plane trails              | [`src/plane.js`](../src/plane.js)   | Transparent `MeshBasicMaterial`    | `common`, `project_vertex`, `color_fragment`                         |
 
 Each replacement string must match the corresponding Three.js shader include exactly. A Three.js upgrade can rename or reorganize those includes while the JavaScript build still succeeds.
@@ -244,6 +245,16 @@ Scenery (trees, cacti, rocks) and the airplane cast soft shadows on the terrain 
 
 - [`project-vertex-clouds.glsl`](../src/shaders/project-vertex-clouds.glsl) applies instance transforms, distance scaling, and curvature for clouds.
 - The cloud fragment replacement applies atmosphere coloring and its own distance fade range.
+
+### Airplane Propeller
+
+The toy airplane's propeller is fused into its single mesh, so `Plane.addPropeller()` turns it in the vertex shader of the model's own material ([`propeller-pars-vertex.glsl`](../src/shaders/propeller-pars-vertex.glsl)).
+
+- **Selection:** at startup, `getPropellerMask()` ([`src/propellerMask.js`](../src/propellerMask.js)) groups the mesh into index-connected components and marks every vertex of each component that reaches beyond `PROPELLER_MIN_Z` (`0.28` model units). The mask goes in a per-vertex `propeller` attribute, an unnormalized `Uint8` with values `0` and `1`. Each component is one UV chart, and each triangle belongs to exactly one, so turning whole charts never stretches a triangle. A coordinate threshold alone does not work: near the blade roots the blades and the cowl overlap in position (see [Assets](ASSETS.md#airplane)).
+- **Rotation:** after `beginnormal_vertex` and `begin_vertex`, marked vertices and their normals turn about the axis through `uPropellerAxis`, parallel to +Z in model space, by `uPropellerAngle`. The normal map uses screen-space derivatives (no tangent attribute), so it follows the rotated surface.
+- **Speed:** `Plane.updatePropeller()` advances the angle by `params.propeller.speed` turns per second (default `4`) in `Plane.update()`, so the propeller stops during the debug flight pause. The **Airplane > Propeller speed** GUI control (`?gui=1`, `0`–`20`) changes it live. With two blades, speeds near half the frame rate (`30` turns/s at 60 fps) strobe and look still.
+- **Cowl plugs:** two dark (`#3b291c`, roughness `1`) children of the model close openings that the turning propeller reveals: a ring sector behind the fused lower-right blade root and a disc on the floor of the cowl opening behind the spinner. Both sit inside the cowl, so at rest the airplane looks unchanged.
+- **Shadow:** the `SceneryShadows` airplane caster does not apply the rotation, so the propeller casts a still shadow.
 
 ### Boats And Trails
 

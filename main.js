@@ -296,6 +296,9 @@ const params = {
 			Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8]),
 		),
 	},
+	// Airplane propeller rotation in turns per second. With two blades, speeds
+	// near half the frame rate (30 at 60 fps) strobe and look still.
+	propeller: { speed: 4 },
 	trails: {
 		ribbonWidth: 9.6,
 		lineWidth: 0.65,
@@ -712,6 +715,11 @@ if (gui) {
 			.name(`${index === 0 ? 'Near' : 'Far'} cascade radius`)
 			.onChange(updateShadows)
 	})
+
+	const airplaneFolder = gui.addFolder('Airplane')
+	airplaneFolder
+		.add(params.propeller, 'speed', 0, 20, 0.1)
+		.name('Propeller speed (turns/s)')
 
 	const trailsFolder = gui.addFolder('Trails')
 	trailsFolder

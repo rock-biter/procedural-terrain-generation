@@ -43,6 +43,15 @@ Never delete, rename, or replace either license file without updating the corres
 
 `TRAIL_ANCHOR` in `src/plane.js` is the trail emission point in the model's geometry units: the wings' trailing edge at tip height, `(0, 0.014, 0.05)`, where the tips reach `x = ±0.49`. With the default ribbon width the stripes leave the wing tips. Changing the model, its pivot, units, orientation, or `AIRPLANE_WINGSPAN` can affect steering, camera composition, and trail alignment; re-measure the anchor after a model change.
 
+The propeller is fused into the mesh. All measurements below are in geometry units after `center()`. They live in `src/plane.js` and are applied by the [propeller shader](RENDERING.md#airplane-propeller).
+
+- **Axis:** parallel to +Z through `(0, 0.0346)`, a circle fit of the spinner sections. The cowl is not coaxial: its center is about `(0, 0.022–0.026)`, which is why cowl vertices must not turn.
+- **Depth:** the nose cowl ends at `z = 0.2742`. The blades span about `0.2687`–`0.292`, the spinner tip reaches `0.305`, and the blades are about `0.135` long from the axis.
+- **Selection (`PROPELLER_MIN_Z`):** the propeller is the set of UV charts that reach beyond `0.28`: two blade charts, two blade-tip charts, and two spinner charts.
+- **Fused root and plugs:** the lower-right blade root is fused into the cowl face, which has no surface under it. Turning the blade opens a hole between radii `0.042` and `0.061` from the axis, at angles `-75°` to `-15°` from +X seen from the front, with its rim back to `z = 0.2536`. `COWL_PLUG` closes it from inside the cowl, with a ring sector at `z = 0.252`. Thin slits open around the spinner base, at radii `0.028`–`0.042` with the rim back to `z = 0.2437`, and `SPINNER_PLUG` closes them with a disc at `z = 0.243`.
+
+A model with a separate propeller node would remove the mask and both plugs.
+
 ### Boat
 
 When `worldFeatures.boats` is enabled, `main.js` loads `/boat/scene.gltf`, selects `gltf.scene.children[0].children[0]`, scales it to `1.3`, and stores it as `assets.boatModel`. `Chunk` clones that model, rotates each clone around Y, positions it at Y `0.8`, and injects the boat curvature shader into mesh materials. The current terrain-only configuration makes no boat request.

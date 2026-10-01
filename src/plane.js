@@ -1,20 +1,25 @@
 import {
 	BufferAttribute,
 	BufferGeometry,
+	CircleGeometry,
 	Color,
 	DoubleSide,
 	DynamicDrawUsage,
 	MathUtils,
 	Mesh,
 	MeshBasicMaterial,
+	MeshStandardMaterial,
 	Object3D,
 	Quaternion,
+	RingGeometry,
 	SRGBColorSpace,
 	Vector2,
 	Vector3,
 } from 'three'
 import common from './shaders/common.glsl'
 import projectVertex from './shaders/project-vertex-plane.glsl'
+import propellerParsVertex from './shaders/propeller-pars-vertex.glsl'
+import { getPropellerMask } from './propellerMask.js'
 import TrailHistory, { getTrailBankFactor, getTrailWidths } from './trailHistory.js'
 import {
 	constrainDescentToMinimum,
@@ -38,6 +43,30 @@ const TRAIL_SEGMENTS = 30
 // the model's pitch and roll; the stripes sit near the ribbon edges, at about
 // the tips with the default ribbon width.
 const TRAIL_ANCHOR = new Vector3(0, 0.014, 0.05)
+// Propeller of plane-toy.glb in the same units: its axis (parallel to +Z)
+// passes through this XY point, and its UV charts are the only ones that
+// reach beyond this Z (the cowl stops at 0.2742).
+const PROPELLER_AXIS = new Vector2(0, 0.0346)
+const PROPELLER_MIN_Z = 0.28
+// The lower-right blade root is fused into the cowl face, which has no
+// surface under it: turning the blade opens a hole between radii 0.042 and
+// 0.061 from the axis and angles -75° to -15° (from +X, seen from the front),
+// whose rim reaches back to z 0.2536. This ring sector sits just behind it and
+// inside the cowl, wider than the hole so oblique views through it are closed
+// too, and shows only through that hole, as a dark recess matching the gap
+// between the spinner and the cowl.
+const COWL_PLUG = Object.freeze({
+	innerRadius: 0.03,
+	outerRadius: 0.062,
+	thetaStart: MathUtils.degToRad(-120),
+	thetaLength: MathUtils.degToRad(130),
+	z: 0.252,
+	color: '#3b291c',
+})
+// The spinner base is not perfectly round, so turning it opens thin slits
+// into the cowl opening (radii 0.028 to 0.042, rim back to z 0.2437). This
+// disc closes the opening's floor behind the spinner, in the same color.
+const SPINNER_PLUG = Object.freeze({ radius: 0.043, z: 0.243 })
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 35)
@@ -78,6 +107,7 @@ export default class Plane extends Object3D {
 		this.add(airplane)
 		camera && this.addCamera(camera)
 		this.addTrails()
+		this.addPropeller()
 
 		this.initCursor()
 	}
@@ -234,6 +264,70 @@ export default class Plane extends Object3D {
 				`,
 			)
 		}
+	}
+
+	// Spins the propeller in the airplane material's vertex shader
+	// (propeller-pars-vertex.glsl); params.propeller.speed sets turns per second.
+	addPropeller() {
+		const { geometry, material } = this.model
+		const position = geometry.attributes.position
+		const zValues = new Float32Array(position.count)
+		for (let i = 0; i < position.count; i++) zValues[i] = position.getZ(i)
+		const mask = getPropellerMask(zValues, geometry.index.array, PROPELLER_MIN_Z)
+		// Not normalized: the bytes 0 and 1 reach the shader as 0.0 and 1.0.
+		geometry.setAttribute('propeller', new BufferAttribute(mask, 1))
+		this.propellerUniforms = {
+			uPropellerAngle: { value: 0 },
+			uPropellerAxis: { value: PROPELLER_AXIS },
+		}
+		material.onBeforeCompile = (shader) => {
+			Object.assign(shader.uniforms, this.propellerUniforms)
+			shader.vertexShader = shader.vertexShader
+				.replace('#include <common>', `#include <common>\n${propellerParsVertex}`)
+				.replace(
+					'#include <beginnormal_vertex>',
+					`#include <beginnormal_vertex>
+					vec2 propellerRotation = vec2(cos(uPropellerAngle), sin(uPropellerAngle));
+					if (propeller > 0.5) objectNormal.xy = rotatePropeller(objectNormal.xy, propellerRotation);`,
+				)
+				.replace(
+					'#include <begin_vertex>',
+					`#include <begin_vertex>
+					if (propeller > 0.5) {
+						transformed.xy = uPropellerAxis + rotatePropeller(position.xy - uPropellerAxis, propellerRotation);
+					}`,
+				)
+		}
+		material.needsUpdate = true
+
+		const plugMaterial = new MeshStandardMaterial({
+			color: COWL_PLUG.color,
+			roughness: 1,
+			metalness: 0,
+		})
+		const cowlPlug = new Mesh(
+			new RingGeometry(
+				COWL_PLUG.innerRadius,
+				COWL_PLUG.outerRadius,
+				16,
+				1,
+				COWL_PLUG.thetaStart,
+				COWL_PLUG.thetaLength,
+			),
+			plugMaterial,
+		)
+		cowlPlug.name = 'cowl-plug'
+		cowlPlug.position.set(PROPELLER_AXIS.x, PROPELLER_AXIS.y, COWL_PLUG.z)
+		const spinnerPlug = new Mesh(new CircleGeometry(SPINNER_PLUG.radius, 32), plugMaterial)
+		spinnerPlug.name = 'spinner-plug'
+		spinnerPlug.position.set(PROPELLER_AXIS.x, PROPELLER_AXIS.y, SPINNER_PLUG.z)
+		this.model.add(cowlPlug, spinnerPlug)
+	}
+
+	updatePropeller(dt) {
+		const turns = this.params.propeller.speed * dt
+		const angle = this.propellerUniforms.uPropellerAngle.value + turns * Math.PI * 2
+		this.propellerUniforms.uPropellerAngle.value = angle % (Math.PI * 2)
 	}
 
 	setDayNight({ trailTint }) {
@@ -532,6 +626,7 @@ export default class Plane extends Object3D {
 
 		this.rotation.y += Math.PI * -this.cursor.x * dt * 0.2
 		this.updateAltitude(dt)
+		this.updatePropeller(dt)
 		const visualSpeedEffect = this.getVisualSpeedEffect()
 		// V3.set(0, 1, 0)
 		// 	.multiplyScalar(this.cursor.y * 0.2)
