@@ -22,6 +22,8 @@ import {
 	IMPOSTOR_FRAMES_DESKTOP,
 	IMPOSTOR_FRAMES_MOBILE,
 } from './src/impostors/impostorTypes'
+import SceneryMeshes from './src/impostors/sceneryMeshes'
+import { createSceneryMeshSettings } from './src/sceneryMeshPolicy'
 import { isDebugEnabled } from './src/debugPolicy'
 import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
@@ -139,7 +141,8 @@ const audioLoader = new THREE.AudioLoader(loaderManager)
 const textureLoader = new THREE.TextureLoader(loaderManager)
 
 if (worldFeatures.scenery) {
-	// Olive veneer color map, baked into every impostor's albedo.
+	// White oak veneer color map, baked into every impostor's albedo and
+	// sampled by the near scenery meshes.
 	assets.woodTexture = textureLoader.load(woodGrainSrc)
 	assets.woodTexture.colorSpace = THREE.SRGBColorSpace
 	assets.woodTexture.wrapS = THREE.RepeatWrapping
@@ -259,6 +262,9 @@ const params = {
 	// strength (0 = vertex color only, 1 = vertex color × texture). Changing
 	// them re-bakes the atlas.
 	impostorDetail: { scale: 0.01, color: 0.1 },
+	// Near scenery meshes: below `start` units from the eye instances are real
+	// meshes, beyond `end` impostors, with a dithered cross-fade in between.
+	sceneryMeshes: createSceneryMeshSettings({ isMobile }),
 	impostorVariation: {
 		frequency: 0.01,
 		amount: Object.fromEntries(
@@ -292,6 +298,8 @@ const uniforms = {
 	uColorNoiseSoftness: { value: params.terrainColorNoise.softness },
 	uColorNoiseSpeed: { value: params.terrainColorNoise.speed },
 	...createTerrainNormalUniforms(params.terrainNormals),
+	// Impostor-to-mesh band; written by SceneryMeshes.applySettings().
+	uSceneryMeshRange: { value: new THREE.Vector2(-2, -1) },
 }
 // Uniforms shared with the impostor material; amount is indexed by type.
 const impostorVariation = {
@@ -305,6 +313,13 @@ function updateImpostorVariation() {
 	impostorVariation.frequency.value = params.impostorVariation.frequency
 }
 updateImpostorVariation()
+// Wood detail shared by the near meshes; the bake reads params.impostorDetail.
+// The texture is assigned in init().
+const sceneryDetail = {
+	uDetail: { value: null },
+	uDetailScale: { value: params.impostorDetail.scale },
+	uDetailColor: { value: params.impostorDetail.color },
+}
 
 if (gui) {
 	const terrainFolder = gui.addFolder('Terrain')
@@ -513,6 +528,8 @@ if (gui) {
 		.name('Max per chunk')
 		.onFinishChange(updateScenery)
 	const rebakeImpostors = () => {
+		sceneryDetail.uDetailScale.value = params.impostorDetail.scale
+		sceneryDetail.uDetailColor.value = params.impostorDetail.color
 		if (assets.impostorMaterial) {
 			setImpostorAtlas(assets.impostorMaterial, bakeImpostors())
 		}
@@ -526,6 +543,21 @@ if (gui) {
 		.add(params.impostorDetail, 'color', 0, 1, 0.01)
 		.name('Color strength')
 		.onFinishChange(rebakeImpostors)
+	// Live: only the shader band and the CPU selection radius change.
+	const updateSceneryMeshes = () => sceneryMeshes?.applySettings()
+	const meshFolder = sceneryFolder.addFolder('Near meshes')
+	meshFolder
+		.add(params.sceneryMeshes, 'enabled')
+		.name('Enabled')
+		.onChange(updateSceneryMeshes)
+	meshFolder
+		.add(params.sceneryMeshes, 'start', 0, 400, 1)
+		.name('Mesh until (units)')
+		.onChange(updateSceneryMeshes)
+	meshFolder
+		.add(params.sceneryMeshes, 'end', 1, 500, 1)
+		.name('Impostor from (units)')
+		.onChange(updateSceneryMeshes)
 	sceneryFolder
 		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
 		.name('Variation frequency')
@@ -669,7 +701,7 @@ const chunkSize = 256
 // scene.add(plane)
 // plane.camera = camera
 // plane.add(camera)
-let chunkManager, plane, terrainSampleDebug, flightPause
+let chunkManager, plane, terrainSampleDebug, flightPause, sceneryMeshes
 
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
@@ -677,6 +709,7 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getPostProcessingStats: () => postProcessing.getStats(),
 	getDebugStats: () => flightPause?.getStats() ?? null,
 	getDayNightStats: () => dayNight.getStats(),
+	getSceneryMeshStats: () => sceneryMeshes?.getStats() ?? null,
 })
 
 // Bakes every scenery type into the impostor atlas, with the wood detail.
@@ -697,6 +730,14 @@ function init(assets) {
 			uniforms,
 			{ singleFrame: isMobile, variation: impostorVariation },
 		)
+		sceneryDetail.uDetail.value = assets.woodTexture
+		sceneryMeshes = new SceneryMeshes({
+			uniforms,
+			variation: impostorVariation,
+			detail: sceneryDetail,
+			settings: params.sceneryMeshes,
+		})
+		scene.add(sceneryMeshes)
 	}
 
 	// Terrain
@@ -807,6 +848,8 @@ function tic(timestamp) {
 	plane.setDayNight(dayNight.update(deltaTime))
 
 	chunkManager.updateChunks()
+	// After this frame's scenery commits, with the camera that renders it.
+	sceneryMeshes?.update(chunkManager.chunks, chunkSize, camera)
 
 	// controls.update(deltaTime)
 

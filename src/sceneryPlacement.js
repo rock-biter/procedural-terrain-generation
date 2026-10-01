@@ -99,7 +99,7 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	cactusOneArm: 1.29,
 	cactusTwoArms: 1.68,
 	boulder: 0.6,
-	layeredRock: 0.48,
+	layeredRock: 0.85,
 })
 
 // Runtime settings sent with every placement request. Density and size are
@@ -109,7 +109,7 @@ export function createScenerySettings({ isMobile = false } = {}) {
 	return {
 		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.39, cacti: 0.2, rocks: 0.65 },
+		density: { trees: 0.75, cacti: 0.2, rocks: 0.65 },
 		size: { ...SCENERY_DEFAULT_SIZES },
 	}
 }

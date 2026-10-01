@@ -17,6 +17,7 @@ import bakeVertexShader from '../shaders/impostor-bake-vertex.glsl'
 import bakeFragmentShader from '../shaders/impostor-bake-fragment.glsl'
 import fullscreenVertexShader from '../shaders/fullscreen-vertex.glsl'
 import resolveFragmentShader from '../shaders/impostor-resolve-fragment.glsl'
+import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
 import { createImpostorSource } from './impostorArchetypes'
 import { getFrameDirection } from './octahedral'
 import {
@@ -84,7 +85,11 @@ export function bakeImpostorAtlas(
 			uDetailColor: { value: detail?.color ?? 0 },
 		},
 		vertexShader: bakeVertexShader,
-		fragmentShader: bakeFragmentShader,
+		// The near meshes sample the same detail function (sceneryMeshes.js).
+		fragmentShader: bakeFragmentShader.replace(
+			'#include <scenery_detail_pars_fragment>',
+			sceneryDetailParsFragment,
+		),
 	})
 	const resolveMaterial = new ShaderMaterial({
 		glslVersion: GLSL3,

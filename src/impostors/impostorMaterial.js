@@ -12,6 +12,8 @@ import {
 import common from '../shaders/common.glsl'
 import impostorOctahedral from '../shaders/impostor-octahedral.glsl'
 import impostorParsVertex from '../shaders/impostor-pars-vertex.glsl'
+import sceneryInstanceParsVertex from '../shaders/scenery-instance-pars-vertex.glsl'
+import sceneryDitherParsFragment from '../shaders/scenery-dither-pars-fragment.glsl'
 import impostorVertex from '../shaders/impostor-vertex.glsl'
 import impostorParsFragment from '../shaders/impostor-pars-fragment.glsl'
 import impostorColorFragment from '../shaders/impostor-color-fragment.glsl'
@@ -25,7 +27,8 @@ import {
 } from './impostorTypes'
 
 // One shared material for every scenery chunk. It owns the atlas uniforms and
-// must not be disposed by chunks.
+// must not be disposed by chunks. `uniforms` must include `uSceneryMeshRange`,
+// which hands nearby instances over to the real meshes (sceneryMeshes.js).
 // `variation` holds { amount, frequency } uniforms owned by the caller so the
 // GUI can tune them live: `amount.value` is one float per type index.
 export function createImpostorMaterial(
@@ -76,11 +79,14 @@ export function createImpostorMaterial(
 		shader.vertexShader = shader.vertexShader
 			.replace(
 				'#include <common>',
-				`${common}\n${impostorParsVertex}\n${impostorOctahedral}`,
+				`${common}\n${sceneryInstanceParsVertex}\n${impostorParsVertex}\n${impostorOctahedral}`,
 			)
 			.replace('#include <project_vertex>', impostorVertex)
 		shader.fragmentShader = shader.fragmentShader
-			.replace('#include <common>', `${common}\n${impostorParsFragment}`)
+			.replace(
+				'#include <common>',
+				`${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}`,
+			)
 			.replace('#include <color_fragment>', impostorColorFragment)
 			.replace('#include <normal_fragment_begin>', impostorNormalFragment)
 			.replace('#include <lights_fragment_begin>', curvedLightsFragment)

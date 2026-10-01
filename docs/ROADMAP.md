@@ -8,7 +8,7 @@ The first analysis focuses on terrain generation and streaming because they domi
 
 Last baseline review: **2026-09-26**.
 
-Current implementation scope: `worldFeatures` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`) and still disables clouds and boats. The dormant cloud and boat implementations and their historical cost analysis remain in this document for later reintroduction.
+Current implementation scope: `worldFeatures` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and still disables clouds and boats. The dormant cloud and boat implementations and their historical cost analysis remain in this document for later reintroduction.
 
 Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
 
@@ -69,6 +69,7 @@ main.js: tic()
                  -> scenery placement within the radial range (transferred Float32Array)
             -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk
                  -> [disabled] clouds / boats
+  -> SceneryMeshes.update(): select near instances -> one instanced mesh per type
   -> renderer.render()
 ```
 
@@ -83,6 +84,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 - `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and three biome-field samples. Near a biome border the two detail octaves are evaluated twice, for seven terrain samples.
 - Desktop uses `maxDistance = 6`, `lookAhead = 2`, `rearDistance = 3`, terrain density divisor `2`, and a `4`-unit scenery cell.
 - Mobile uses `maxDistance = 5`, `lookAhead = 1`, `rearDistance = 2.5`, terrain density divisor `4`, and an `8`-unit scenery cell.
+- The scenery cells above are the former defaults the scenery counts were computed with. The current defaults are `8` units on desktop and `16` on mobile, a quarter of those candidates; the scenery rows have not been recomputed.
 - Counts model the heading-biased desired set with a northward heading; diagonal headings differ by a few chunks. Keyed pending work prevents duplicate jobs for one coordinate.
 
 ### Desired Window At Startup
@@ -131,7 +133,7 @@ vertices = triangles * 3
 | ----- | -----: | -------------: | ------------: | ---------------------------: |
 | Cloud |     10 |          2,420 |         7,260 |                      232,320 |
 
-The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance. They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
+The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead (264 to 876 triangles per type). They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
 
 Each chunk creates new copies of the cloud base geometry. Instance transforms and colors add more buffers, and GPU vertex work multiplies base geometry by the number of visible instances. Actual instance counts must be measured because placement depends on noise and `Math.random()`.
 
@@ -431,7 +433,7 @@ See the owning guides for current behavior and constraints. Promote an item into
   - Memory: an RGBA8 atlas pair of `3072 × 2048` on desktop (about `67` MB with mips) or `2304 × 1536` on mobile (about `38` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
   - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the `16 × 16` grid, and placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile (measured in Node).
   - Real-GPU frame time has not been measured.
-- **Options:** real low-poly instanced meshes were rejected because the total instance count is high. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. A baked depth channel is reserved for a `gl_FragDepth` correction if slopes clip impostors visibly.
+- **Options:** real low-poly instanced meshes for every instance were rejected because the total instance count is high; `FEAT-004` uses them only for the few instances near the eye. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. A baked depth channel is reserved for a `gl_FragDepth` correction if slopes clip impostors visibly.
 - **Acceptance criteria:**
   - Met so far:
     - JS and GLSL biome values match within `1e-5` (SwiftShader).
@@ -443,8 +445,49 @@ See the owning guides for current behavior and constraints. Promote an item into
     - Art-direction tuning of density, scale (cacti read small), and palette.
     - Real mobile devices.
     - Frame-time and overdraw measurement against `OBS-001`.
-    - Near-camera and steep-slope clipping review.
+    - Steep-slope clipping review. Near-camera parallax and ghosting are handled by `FEAT-004`.
 - **Documentation:** [Terrain](TERRAIN.md#per-chunk-scenery), [Rendering](RENDERING.md#impostor-scenery), [Architecture](ARCHITECTURE.md), [Assets](ASSETS.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), `AGENTS.md`.
+
+### `FEAT-004`: Near Scenery Meshes
+
+- **Status:** In progress
+- **User value:** Trees, cacti, and rocks stay sharp and solid when the airplane passes close to them. Impostors blur up close (64 px frames), their flat quad shows parallax and frame ghosting, and it clips into slopes.
+- **Behavior:**
+  - Inside an eye-distance band, each instance cross-fades from its impostor to its real source mesh: `110 → 150` units on desktop and `60 → 90` on mobile.
+  - The cross-fade is a complementary screen-space dither, so every pixel shows exactly one of the two, with no blending or sorting.
+  - The `?gui=1` **Scenery > Near meshes** folder toggles the system and moves the band live.
+- **Dependencies:** `FEAT-003` (sources, placement layout, shared variation and wood detail). Frame-time acceptance depends on `OBS-001`.
+- **Affected systems:**
+  - Rendering: `src/impostors/sceneryMeshes.js`, the shared `scenery-*` GLSL chunks, the impostor vertex and color shaders, and `uSceneryMeshRange`.
+  - Pure selection rules: `src/sceneryMeshPolicy.js` with tests.
+  - Source geometry detail, which also changes the bake.
+  - Also the frame loop, the GUI, and the stats.
+- **Performance budget:**
+  - Draws: at most six extra draw calls (one per type).
+  - Geometry: source meshes lowered to 264–876 triangles per type, from up to 1,824.
+  - CPU, per frame: a selection that visits only chunks near the eye, reads their instance arrays in place, frustum-culls each instance, and reuses doubling per-type buffers. It allocates nothing in steady state.
+  - Upload: only the used buffer range, 32 bytes per selected instance.
+  - Impostors inside the band start skip their fragments entirely.
+  - Measured on an Apple M1 (Chrome, Metal, `1280 × 800`) at the default band with the default density:
+    - up to 27 mesh instances, about 10,000 triangles, and three draw calls, with selection at or below the `0.1` ms timer resolution;
+    - a stress band of `400 → 500` units reached 101 instances and about 39,000 triangles;
+    - frame time stayed at the `16.7` ms vsync cap in every case.
+- **Options:**
+  - A per-chunk mesh draw without CPU selection was rejected, because every instance of every near chunk would be transformed even when collapsed.
+  - An alpha-blended cross-fade was rejected, because it needs sorting and double-draws pixels.
+  - A temporal dither was rejected, because it flickers without TAA.
+  - The baked depth channel (`gl_FragDepth`) could reduce the remaining silhouette mismatch inside the band but is not used.
+- **Acceptance criteria:**
+  - Met so far:
+    - no shader errors on the desktop and mobile paths;
+    - with the flight paused, toggling the system swaps nearby instances with matching position, scale, color, wood detail, tint, and lighting at day and dusk;
+    - the dither leaves no gaps beyond the small impostor silhouette mismatch;
+    - pure tests pass.
+  - Remaining:
+    - real mobile devices and a mobile run with scenery inside the band;
+    - frame-time measurement on weaker GPUs against `OBS-001`;
+    - art review of the band distances while flying at boost.
+- **Documentation:** [Rendering](RENDERING.md#near-scenery-meshes), [Architecture](ARCHITECTURE.md), [Terrain](TERRAIN.md#resource-lifecycle), [Experience](EXPERIENCE.md#responsive-behavior), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), [Assets](ASSETS.md#textures), `AGENTS.md`.
 
 Add further features with this template:
 

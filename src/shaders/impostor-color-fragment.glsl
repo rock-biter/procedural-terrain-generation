@@ -1,4 +1,8 @@
 // Replaces <color_fragment>.
+// Near the eye the mesh keeps the pixels below the fade; the impostor keeps the
+// rest (scenery-dither-pars-fragment.glsl). Discard before any atlas fetch.
+if (getSceneryDitherNoise() < vSceneryDither.x) discard;
+
 vec4 impostorAlbedo = vec4(0.0);
 vec3 impostorNormalSum = vec3(0.0);
 #ifdef IMPOSTOR_SINGLE_FRAME

@@ -23,8 +23,9 @@ This document maps runtime ownership and data flow. Read it before moving behavi
 | Day/night cycle       | [`src/dayNight.js`](../src/dayNight.js), [`src/dayNightPolicy.js`](../src/dayNightPolicy.js)                             | Advances time of day, owns the sky dome, and drives lights, fog, and atmosphere from pure keyframe data. |
 | Post-processing       | [`src/postProcessing.js`](../src/postProcessing.js), [`src/speedEffect.js`](../src/speedEffect.js)                     | Owns the effect composer, idle bypass, the acceleration blur and chromatic aberration, and the static film-grain overlay.               |
 | Impostor scenery      | [`src/impostors/`](../src/impostors/)                                                                                  | Builds scenery sources from primitives, bakes the octahedral atlas, and provides the shared impostor material and per-chunk quad mesh. |
+| Near scenery meshes   | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js), [`src/sceneryMeshPolicy.js`](../src/sceneryMeshPolicy.js) | Selects nearby scenery instances every frame and draws them as real meshes, cross-fading with the impostors through a shared dither. |
 | Dormant clouds        | [`src/clouds.js`](../src/clouds.js)                                                                                    | Builds an instanced cloud mesh when its feature flag is enabled.                                         |
-| Curved lighting       | [`src/curvedLights.js`](../src/curvedLights.js)                                                                        | Builds the `lights_fragment_begin` copy with the curved-world terminator shared by terrain and scenery.  |
+| Curved lighting       | [`src/curvedLights.js`](../src/curvedLights.js)                                                                        | Builds the `lights_fragment_begin` copy with the curved-world terminator shared by terrain, impostors, and near scenery meshes. |
 | Shader source         | [`src/shaders/`](../src/shaders/)                                                                                      | Supplies GLSL replacements for Three.js shader chunks.                                                   |
 
 ## Startup Sequence
@@ -36,7 +37,7 @@ Importing `main.js` performs the following work:
 3. Start loading the soundtrack, the airplane model, and (with scenery enabled) the wood-grain detail texture through a shared `THREE.LoadingManager`. The terrain normal maps load independently through `src/terrainNormals.js`; the boat request is skipped while its feature flag is disabled.
 4. Create the scene, camera, renderer, post-processing pipeline, lights, fog, timer, and `DayNight` (which adds the sky dome and applies the starting time of day) while those asynchronous requests are in flight.
 5. When the loading manager completes, fade out the loader and call `init(assets)`.
-6. `init()` creates `Plane`, bakes the impostor atlas and creates the shared impostor material when `worldFeatures.scenery` is enabled, creates `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane and its world-space trail mesh in the scene, creates `FlightPauseDebug` when `?debug=1` is set, and schedules `tic()`.
+6. `init()` creates `Plane`, bakes the impostor atlas, creates the shared impostor material, and creates `SceneryMeshes` (added to the scene) when `worldFeatures.scenery` is enabled, creates `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane and its world-space trail mesh in the scene, creates `FlightPauseDebug` when `?debug=1` is set, and schedules `tic()`.
 7. The play action starts audio, accelerates the plane, moves the camera backward, and enables the flight effect. When the camera intro finishes, it also allows the debug pause (`canPause`).
 
 Rendering begins after assets load, before the user presses the play action. The play action starts movement and audio; it is not the application bootstrap.
@@ -50,26 +51,27 @@ Rendering begins after assets load, before the user presses the play action. The
 3. Write elapsed time and plane position to `uTime` and `uCamera`.
 4. Call `dayNight.update(deltaTime)` with the unclamped delta. It advances the time of day, which keeps running during the debug pause, and updates lights, fog, `uAtmosphere`, and the sky. It measures the curved-world horizon dip from the camera's world height. Its state then goes to `plane.setDayNight()` for the trail tint.
 5. Call `chunkManager.updateChunks()` to reconcile on boundary changes or process bounded keyed work.
-6. Pass the larger of `uAcceleration` (or `0` while paused) and the GUI `params.speedEffect` to `postProcessing.setSpeedEffect()`, render through `postProcessing.render(deltaTime)`, and schedule the next frame.
+6. Call `sceneryMeshes.update(chunkManager.chunks, chunkSize, camera)`. It runs after this frame's scenery commits and with the camera that renders, so it selects the near instances that will be drawn as meshes. It must stay between steps 5 and 7.
+7. Pass the larger of `uAcceleration` (or `0` while paused) and the GUI `params.speedEffect` to `postProcessing.setSpeedEffect()`, render through `postProcessing.render(deltaTime)`, and schedule the next frame.
 
 Keep frame-sensitive behavior in this order unless a change explicitly depends on a different update sequence.
 
 ## Shared State And Ownership
 
-- `params` in `main.js` is the mutable source for terrain generation, colors, terrain normal-map tile size and strength (`params.terrainNormals`), peak light intensity, the day/night settings (`params.dayNight`: `timeOfDay`, `cycleDuration`, `paused`), post-processing, scenery placement settings (`params.scenery`, snapshotted into every placement request), and the optional debug GUI. Fog and background colors are no longer parameters; `DayNight` derives them from the time of day.
+- `params` in `main.js` is the mutable source for terrain generation, colors, terrain normal-map tile size and strength (`params.terrainNormals`), peak light intensity, the day/night settings (`params.dayNight`: `timeOfDay`, `cycleDuration`, `paused`), post-processing, scenery placement settings (`params.scenery`, snapshotted into every placement request), the near scenery mesh band (`params.sceneryMeshes`), and the optional debug GUI. Fog and background colors are no longer parameters; `DayNight` derives them from the time of day.
 - `worldSeed` comes from `?seed=<value>` or a random per-load fallback. The same value seeds main-thread height queries and every worker.
 - `worldFeatures` in `main.js` is the frozen runtime switch for scenery, clouds, and boats. Scenery is `true`; clouds and boats are `false`.
-- `uniforms` in `main.js` is shared with chunks, the impostor material, and boat materials. It includes `uBiomeOffset`, derived from `worldSeed`; `ChunkManager` derives the same offset for its workers. It also includes `uCurvature`, whose value is `CURVATURE` exported by `src/chunk.js`, so materials compiled before the first chunk arrives, such as the `?debug=1` terrain-sample markers, still receive a valid uniform.
+- `uniforms` in `main.js` is shared with chunks, the impostor material, the near scenery mesh material, and boat materials. `SceneryMeshes` writes its `uSceneryMeshRange`; the impostor shader reads it to hand nearby instances over. It includes `uBiomeOffset`, derived from `worldSeed`; `ChunkManager` derives the same offset for its workers. It also includes `uCurvature`, whose value is `CURVATURE` exported by `src/chunk.js`, so materials compiled before the first chunk arrives, such as the `?debug=1` terrain-sample markers, still receive a valid uniform.
 - The perspective camera becomes a child of `Plane` through `Plane.addCamera()`. During the debug flight pause, `FlightPauseDebug` temporarily moves it into the scene for `OrbitControls` and re-parents it on resume.
 - `Plane` owns and updates the trail geometry, but the trail mesh is a direct scene child so older sections remain in world space as the plane moves.
 - `DayNight` owns the sky dome mesh and writes into the ambient, sun, and moon lights, `scene.fog`, `scene.background`, and `uniforms.uAtmosphere` created by `main.js`. It never touches `Plane`; `main.js` forwards its state.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
-- Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the boat model is loaded only when its feature is enabled. `init()` adds `assets.impostorMaterial`, which chunks share and never dispose.
+- Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the boat model is loaded only when its feature is enabled. `init()` adds `assets.impostorMaterial`, which chunks share and never dispose. `SceneryMeshes` owns its source geometries, instance buffers, and material; it reads chunk instance arrays but never retains or disposes them. `main.js` owns the `sceneryDetail` uniforms (`uDetail`, `uDetailScale`, `uDetailColor`) that it shares with the near meshes.
 - `ChunkManager` owns `Map` registries for desired, live, pending, and in-flight chunks. A monotonically increasing revision invalidates obsolete work before any worker result becomes a Three.js object.
 - The worker pool uses up to two workers on desktop and one on mobile. Workers cache their seeded simplex functions and transfer typed-array buffers instead of cloning them.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry, its scenery geometry, and its dormant local decorations.
 
-`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, seed, and scenery chunk and instance diagnostics. `getFlightStats()` exposes position, speed effect, pointer input, vertical velocity, camera state, and the current terrain corridor. `getPostProcessingStats()` exposes whether the effect pass is active, the speed-effect intensity, and the MSAA sample count. `getDebugStats()` returns `{ paused, canPause }` with `?debug=1`, and `null` otherwise. `getDayNightStats()` returns time of day, palette time, horizon dip, pause state, cycle duration, the `night` factor, and the apparent elevation and intensity of the sun and moon. None of these APIs exposes mutable runtime state.
+`window.__INFINITE_WORLD__.getChunkStats()` exposes read-only desired/live/queue/in-flight, lifecycle, worker-result, worker-count, revision, seed, and scenery chunk and instance diagnostics. `getFlightStats()` exposes position, speed effect, pointer input, vertical velocity, camera state, and the current terrain corridor. `getPostProcessingStats()` exposes whether the effect pass is active, the speed-effect intensity, and the MSAA sample count. `getDebugStats()` returns `{ paused, canPause }` with `?debug=1`, and `null` otherwise. `getSceneryMeshStats()` returns the near scenery mesh band, instance and triangle counts, draw calls, and selection time, or `null` without scenery. `getDayNightStats()` returns time of day, palette time, horizon dip, pause state, cycle duration, the `night` factor, and the apparent elevation and intensity of the sun and moon. None of these APIs exposes mutable runtime state.
 
 Do not create a second render loop, terrain-parameter store, or chunk registry without an architectural reason documented here.
 
@@ -85,13 +87,15 @@ main.js: LoadingManager -> init(assets)
         |                    |
         |                    +-> impostor bake -> shared impostor material
         |                    |
+        |                    +-> SceneryMeshes (one instanced mesh per type)
+        |                    |
         |                    +-> ChunkManager -> worker pool
         |                           |                |
         |                           |                +-> transferable geometry and scenery buffers
         |                           v
         |                       Chunk instances -> scenery impostor mesh
         v
-tic() -> shared uniforms -> DayNight (sky, lights, fog) -> material shader hooks -> PostProcessing -> WebGLRenderer
+tic() -> shared uniforms -> DayNight (sky, lights, fog) -> ChunkManager -> SceneryMeshes.update() -> material shader hooks -> PostProcessing -> WebGLRenderer
 ```
 
 Terrain CPU calculations and terrain GLSL both consume related world data. When changing height, curvature, or water behavior, verify the CPU geometry path and every affected shader path together.
@@ -99,7 +103,7 @@ Terrain CPU calculations and terrain GLSL both consume related world data. When 
 ## Extension Boundaries
 
 - Add world-streaming policy to `ChunkManager`, not `main.js`.
-- Add scenery placement rules to `sceneryPlacement.js` so they stay deterministic and run in the worker. Add new scenery types to `impostorArchetypes.js` and `impostorTypes.js`. Put other per-chunk generation in `Chunk` or a helper extracted from it.
+- Add scenery placement rules to `sceneryPlacement.js` so they stay deterministic and run in the worker. Add new scenery types to `impostorArchetypes.js` and `impostorTypes.js`. Keep near-mesh fade and selection rules in `sceneryMeshPolicy.js` and their GPU twin in `scenery-instance-pars-vertex.glsl`. Put other per-chunk generation in `Chunk` or a helper extracted from it.
 - Add runtime player input, camera-follow, or trail behavior to `Plane`; keep independently testable scalar flight rules in `flightPolicy.js`.
 - Add shared scene lifecycle behavior to `main.js` only when no narrower owner exists.
 - Keep material-specific GLSL in `src/shaders/` and document new replacement points in [Rendering](RENDERING.md).

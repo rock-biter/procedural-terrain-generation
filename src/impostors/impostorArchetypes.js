@@ -17,9 +17,10 @@ import {
 import { snoise } from '../biome'
 import { IMPOSTOR_TYPE } from './impostorTypes'
 
-// Source models for the impostor baker. They are built from Three.js
-// primitives in world units with the base on y = 0 and are rendered only once,
-// so vertex counts here do not affect runtime cost.
+// Source models for the impostor baker and the near scenery meshes. They are
+// built from Three.js primitives in world units with the base on y = 0. The
+// near meshes draw them at runtime (sceneryMeshes.js), so segment counts are
+// kept low.
 
 const COLORS = {
 	trunk: '#7a4a2a',
@@ -92,12 +93,12 @@ function roundTree() {
 	const trunk = new CylinderGeometry(0.35, 0.55, 2.8, 10, 2)
 	trunk.translate(0, 1.4, 0)
 
-	const crown = new IcosahedronGeometry(2.3, 4)
+	const crown = new IcosahedronGeometry(2.3, 3)
 	crown.scale(1, 0.9, 1)
 	crown.translate(0, 4.3, 0)
-	const sideBlob = new IcosahedronGeometry(1.45, 3)
+	const sideBlob = new IcosahedronGeometry(1.45, 2)
 	sideBlob.translate(1.55, 3.5, 0.5)
-	const backBlob = new IcosahedronGeometry(1.3, 3)
+	const backBlob = new IcosahedronGeometry(1.3, 2)
 	backBlob.translate(-1.2, 3.6, -1.1)
 
 	return [
@@ -131,15 +132,16 @@ function cactusArm(side, startY, reach, rise, radius) {
 		new Vector3(side * reach, startY, 0),
 		new Vector3(side * reach, startY + rise, 0),
 	)
-	const tube = new TubeGeometry(curve, 16, radius, 12, false)
-	const tip = new SphereGeometry(radius, 12, 8)
+	const tube = new TubeGeometry(curve, 10, radius, 8, false)
+	const tip = new SphereGeometry(radius, 8, 6)
 	tip.translate(side * reach, startY + rise, 0)
 
 	return [part(tube, COLORS.cactus), part(tip, COLORS.cactus)]
 }
 
 function cactusTrunk() {
-	const trunk = new CapsuleGeometry(0.6, 3.8, 6, 20, 6)
+	// Two radial segments per rib keep the 9 ribs from aliasing.
+	const trunk = new CapsuleGeometry(0.6, 3.8, 4, 18, 3)
 	trunk.translate(0, 2.3, 0)
 	return part(trunk, COLORS.cactus, { ribs: 9 })
 }
@@ -157,7 +159,7 @@ function cactusTwoArms() {
 }
 
 function boulder() {
-	const rock = new IcosahedronGeometry(1.5, 4)
+	const rock = new IcosahedronGeometry(1.5, 3)
 	rock.scale(1.15, 0.72, 1)
 	rock.translate(0, 0.85, 0)
 	return [part(rock, COLORS.boulder, { lumps: 0.22, lumpScale: 0.9 })]

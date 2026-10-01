@@ -95,7 +95,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ## Per-Chunk Scenery
 
-`main.js` passes `worldFeatures` with `scenery` set to `true` and `clouds` and `boats` set to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor; the rendering side is in [Rendering](RENDERING.md#impostor-scenery). Clouds and boats keep their dormant implementations behind their flags.
+`main.js` passes `worldFeatures` with `scenery` set to `true` and `clouds` and `boats` set to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds and boats keep their dormant implementations behind their flags.
 
 ### Biome Field
 
@@ -148,16 +148,16 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 `params.scenery` holds:
 
-- `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `4` on desktop and `8` on mobile;
+- `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `8` on desktop and `16` on mobile;
 - `maxPerChunk`, default `1000`;
-- density multipliers, with defaults `density.trees = 0.63`, `density.cacti = 0.1`, and `density.rocks = 0.25`;
+- density multipliers, with defaults `density.trees = 0.39`, `density.cacti = 0.2`, and `density.rocks = 0.65`;
 - size multipliers, copied from the `SCENERY_DEFAULT_SIZES` configuration object:
-  - `roundTree`: `0.82`;
-  - `conifer`: `1.03`;
-  - `cactusOneArm`: `1`;
-  - `cactusTwoArms`: `1`;
-  - `boulder`: `0.98`;
-  - `layeredRock`: `0.56`.
+  - `roundTree`: `1.35`;
+  - `conifer`: `1.7`;
+  - `cactusOneArm`: `1.29`;
+  - `cactusTwoArms`: `1.68`;
+  - `boulder`: `0.6`;
+  - `layeredRock`: `0.48`.
 
 Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.
 
@@ -170,7 +170,7 @@ Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacem
 - Missing chunks get `create` jobs, and other live chunks in scenery range get `scenery` jobs.
 - Terrain is never regenerated.
 
-`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing or heading change, so a change made just before it is not lost. The desktop default cell of `4` gives 4,096 candidates per chunk, four times as many as a cell of `8`; measure before using it on mobile.
+`reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing or heading change, so a change made just before it is not lost. A cell of `4` gives 4,096 candidates per chunk, four times as many as the desktop default of `8`; measure before using it on mobile.
 
 ### Clouds (Dormant)
 
@@ -193,6 +193,7 @@ Cloud and boat placement still uses `Math.random()`, so re-enabling them would n
 
 - `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it.
 - The impostor material and its atlas textures are shared through `assets.impostorMaterial` and are never disposed by chunks.
+- `SceneryMeshes` reads each live chunk's instance array (`chunk.scenery.geometry.attributes.aInstanceA.data.array`) every frame and copies the near instances into its own buffers. It never keeps a reference to a chunk or its arrays across frames, so `clearScenery()` and `dispose()` need no coordination with it.
 - `createCloudsMesh()` disposes an existing cloud mesh before replacing it, but the main `Chunk.dispose()` path does not explicitly dispose that mesh. It also does not dispose shared materials or cloned boat resources.
 
 Record and test ownership before changing disposal; shared resources must not be destroyed while another chunk still uses them.

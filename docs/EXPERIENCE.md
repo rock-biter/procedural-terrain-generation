@@ -106,8 +106,9 @@ It controls:
 - Initial camera FOV and zoom.
 - Play-transition camera distance.
 - Chunk radius and per-frame queue throughput.
-- Terrain density and the default scenery grid cell: `4` units on desktop, `8` on mobile. `?gui=1` can change the cell at runtime.
+- Terrain density and the default scenery grid cell: `8` units on desktop, `16` on mobile. `?gui=1` can change the cell at runtime.
 - Scenery impostors: mobile bakes a `12 × 12` view grid instead of `16 × 16` and samples one baked frame instead of three.
+- Near scenery meshes: impostors hand over to real meshes between `60` and `90` units from the eye on mobile, instead of `110` and `150` on desktop.
 
 `handleResize()` updates renderer dimensions and camera projection, but it does not recompute `isMobile` or rebuild terrain. Crossing the breakpoint after startup therefore does not switch runtime policy.
 

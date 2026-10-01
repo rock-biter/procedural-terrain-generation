@@ -8,28 +8,22 @@ vec2 impostorInfo = uImpostorTypes[impostorType];
 float frameRadius = impostorInfo.x;
 
 vec3 impostorBase = (modelMatrix * vec4(aInstanceA.xyz, 1.0)).xyz;
-float baseDistance = length(impostorBase - uCamera);
+float baseDistance;
+vec3 curvedBase;
+vec3 sphereNormal;
+vec3 bendAxis;
+float bendCos;
+float bendSin;
+getSceneryBend(impostorBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
 distanceFromCamera = baseDistance;
 // Shrink into the fog before the scenery LOD limit removes the chunk.
 impostorScale *= smoothstep(950.0, 800.0, baseDistance);
-
-// Same curvature and bend as project-vertex.glsl, evaluated at the base.
-vec3 sphereNormal = vec3(0.0, 1.0, 0.0);
-vec3 bendAxis = vec3(1.0, 0.0, 0.0);
-float bendCos = 1.0;
-float bendSin = 0.0;
-vec2 horizontalOffset = impostorBase.xz - uCamera.xz;
-float horizontalLength = length(horizontalOffset);
-if (horizontalLength > 0.0001) {
-	vec3 awayDirection = vec3(horizontalOffset.x, 0.0, horizontalOffset.y) / horizontalLength;
-	bendAxis = cross(vec3(0.0, 1.0, 0.0), awayDirection);
-	float bendAngle = baseDistance / uCurvature;
-	bendCos = cos(bendAngle);
-	bendSin = sin(bendAngle);
-	sphereNormal = vec3(0.0, bendCos, 0.0) + awayDirection * bendSin;
-}
-vec3 curvedBase = impostorBase;
-curvedBase.y -= uCurvature * (1.0 - cos(baseDistance / uCurvature));
+// Near the eye the real mesh takes over (src/impostors/sceneryMeshes.js): the
+// fragment dither keeps only the pixels the mesh discards, and a fully faded
+// impostor collapses so it costs no fragments.
+float meshFade = getSceneryMeshFade(length(impostorBase - cameraPosition));
+vSceneryDither = vec2(meshFade, impostorYaw);
+if (meshFade >= 1.0) impostorScale = 0.0;
 vec3 impostorCenter = curvedBase + sphereNormal * impostorInfo.y * impostorScale * impostorStretch;
 
 vec3 cameraRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
@@ -74,23 +68,7 @@ vImpostorNormalY = viewRotation * rotateAroundAxis(vec3(0.0, 1.0 / impostorStret
 vImpostorNormalZ = viewRotation * rotateAroundAxis(rotateYaw(vec3(0.0, 0.0, 1.0), yawCos, yawSin), bendAxis, bendCos, bendSin);
 vSphereNormal = normalize(viewRotation * sphereNormal);
 
-// Tint channels are packed as bytes; 255 maps to 2.0.
-float packedTint = aInstanceB.z;
-vTint = vec3(
-	mod(packedTint, 256.0),
-	mod(floor(packedTint / 256.0), 256.0),
-	floor(packedTint / 65536.0)
-) * (2.0 / 255.0);
-
-// Neighbouring instances share a similar shade while distant groups differ.
-// Sampled at the flat world base so the shade never shifts as the plane moves.
-vec2 variationPosition = impostorBase.xz * uImpostorVariationFrequency;
-float variationNoise = snoise(variationPosition) * 0.7
-	+ snoise(variationPosition * 4.3 + 17.0) * 0.3;
-// The summed octaves rarely exceed ±0.7; stretch them so groups reach the
-// extremes. The amount is in stops: 1 spans half to double brightness.
-variationNoise = clamp(variationNoise * 1.6, -1.0, 1.0);
-vTint *= exp2(variationNoise * uImpostorVariationAmount[impostorType]);
+vTint = getSceneryTint(aInstanceB.z, impostorBase.xz, impostorType);
 
 wPosition = impostorVertex;
 vec4 mvPosition = viewMatrix * vec4(impostorVertex, 1.0);
