@@ -11,3 +11,7 @@ varying vec3 vFrameWeights;
 varying vec3 vImpostorNormalX;
 varying vec3 vImpostorNormalY;
 varying vec3 vImpostorNormalZ;
+// Flat-space direction toward the eye and baked-depth scale (world units per
+// normalized depth), to rebuild the surface position for shadows.
+varying vec3 vShadowView;
+varying float vShadowDepthScale;

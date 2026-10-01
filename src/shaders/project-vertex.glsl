@@ -14,6 +14,9 @@ vec4 mvPosition = vec4( transformed, 1.0 );
 
 
 wPosition = (modelMatrix * vec4( transformed, 1.0 )).xyz;
+// Visible flat position for the scenery shadow lookup; wPosition.y becomes
+// the raw height below.
+vShadowPosition = wPosition;
 float wave = sin(uTime * 3. - height * 1.);
 
 float pctWave = smoothstep(-1.,-4.,height) - smoothstep(-10.,-40., height);

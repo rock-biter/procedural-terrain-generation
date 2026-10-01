@@ -194,6 +194,7 @@ Cloud and boat placement still uses `Math.random()`, so re-enabling them would n
 - `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it.
 - The impostor material and its atlas textures are shared through `assets.impostorMaterial` and are never disposed by chunks.
 - `SceneryMeshes` reads each live chunk's instance array (`chunk.scenery.geometry.attributes.aInstanceA.data.array`) every frame and copies the near instances into its own buffers. It never keeps a reference to a chunk or its arrays across frames, so `clearScenery()` and `dispose()` need no coordination with it.
+- `SceneryShadows` points pooled caster proxies at live chunks' scenery geometries. It re-syncs them in every update before rendering any cascade, so proxies of removed chunks are hidden before they could draw. A hidden proxy may still hold a disposed geometry, but it is never rendered and never disposes it.
 - `createCloudsMesh()` disposes an existing cloud mesh before replacing it, but the main `Chunk.dispose()` path does not explicitly dispose that mesh. It also does not dispose shared materials or cloned boat resources.
 
 Record and test ownership before changing disposal; shared resources must not be destroyed while another chunk still uses them.

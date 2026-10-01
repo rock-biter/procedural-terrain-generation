@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. Trees, cacti, and rocks are placed deterministically per biome and drawn as baked octahedral impostors, replaced by their real meshes near the camera; clouds and boats remain disabled behind feature flags.
+This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. Trees, cacti, and rocks are placed deterministically per biome and drawn as baked octahedral impostors, replaced by their real meshes near the camera, and cast soft cascaded shadows with the airplane; clouds and boats remain disabled behind feature flags.
 
 [`README.md`](README.md) is the short human-facing introduction. This file is the entry point for coding agents and routes detailed work to the owning guide.
 
@@ -50,7 +50,8 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
 - [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.
 - [`src/biome.js`](src/biome.js) owns the seeded CPU twin of the shader biome field; [`src/sceneryPlacement.js`](src/sceneryPlacement.js) owns deterministic scenery placement, run in the chunk worker.
-- [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, per-chunk quad meshes, and the two-level near scenery meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk.
+- [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, per-chunk quad meshes, and the two-level near scenery meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk and its scenery-shadow variant.
+- [`src/sceneryShadows.js`](src/sceneryShadows.js) owns the soft scenery and airplane shadows: two light-aligned depth cascades, impostor and airplane casters, and the receiver uniforms; [`src/shadowPolicy.js`](src/shadowPolicy.js) owns the pure light selection, cascade bounds, snapping, scheduling, and defaults.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, and trails.
 - [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
 - [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
@@ -77,7 +78,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, biome, octahedral-mapping, scenery-placement, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, biome, octahedral-mapping, scenery-placement, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

@@ -18,7 +18,8 @@ import impostorVertex from '../shaders/impostor-vertex.glsl'
 import impostorParsFragment from '../shaders/impostor-pars-fragment.glsl'
 import impostorColorFragment from '../shaders/impostor-color-fragment.glsl'
 import impostorNormalFragment from '../shaders/impostor-normal-fragment.glsl'
-import { curvedLightsFragment } from '../curvedLights'
+import sceneryShadowParsFragment from '../shaders/scenery-shadow-pars-fragment.glsl'
+import { createShadowedLightsFragment } from '../curvedLights'
 import {
 	IMPOSTOR_ATLAS_COLUMNS,
 	IMPOSTOR_ATLAS_ROWS,
@@ -31,10 +32,13 @@ import {
 // which hands nearby instances over to the real meshes (sceneryMeshes.js).
 // `variation` holds { amount, frequency } uniforms owned by the caller so the
 // GUI can tune them live: `amount.value` is one float per type index.
+// `uniforms` must also hold the scenery shadow uniforms
+// (createSceneryShadowUniforms() in src/sceneryShadows.js); `shadowTaps` is
+// the PCF sample count of the shadow lookup.
 export function createImpostorMaterial(
 	atlas,
 	uniforms,
-	{ singleFrame = false, variation } = {},
+	{ singleFrame = false, variation, shadowTaps = 2 } = {},
 ) {
 	const material = new MeshStandardMaterial({
 		roughness: 0.9,
@@ -85,11 +89,16 @@ export function createImpostorMaterial(
 		shader.fragmentShader = shader.fragmentShader
 			.replace(
 				'#include <common>',
-				`${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}`,
+				`${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}\n${sceneryShadowParsFragment}`,
 			)
 			.replace('#include <color_fragment>', impostorColorFragment)
 			.replace('#include <normal_fragment_begin>', impostorNormalFragment)
-			.replace('#include <lights_fragment_begin>', curvedLightsFragment)
+			.replace(
+				'#include <lights_fragment_begin>',
+				createShadowedLightsFragment(
+					`getSceneryShadow(impostorShadowPosition, vShadowSelfBias, ${shadowTaps}, ${shadowTaps})`,
+				),
+			)
 	}
 
 	return material

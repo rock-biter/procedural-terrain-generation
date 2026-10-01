@@ -18,8 +18,9 @@ import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
 import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
+import sceneryShadowParsFragment from './shaders/scenery-shadow-pars-fragment.glsl'
 import { getTerrainNormalTexture, TERRAIN_NORMAL_LAYERS } from './terrainNormals'
-import { curvedLightsFragment } from './curvedLights'
+import { createShadowedLightsFragment } from './curvedLights'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import Clouds from './clouds'
 import { getHeight } from './chunkGeometry'
@@ -115,6 +116,7 @@ export default class Chunk extends Mesh {
 					`
 				attribute float height;
 				varying vec3 vSphereNormal;
+				varying vec3 vShadowPosition;
 				`,
 			)
 			shader.vertexShader = shader.vertexShader.replace(
@@ -128,6 +130,8 @@ export default class Chunk extends Mesh {
 					terrainNormalPars +
 					'\n' +
 					terrainColorNoisePars +
+					'\n' +
+					sceneryShadowParsFragment +
 					`
 				varying vec3 vSphereNormal;
 				`,
@@ -136,9 +140,13 @@ export default class Chunk extends Mesh {
 				'#include <color_fragment>',
 				colorFragment,
 			)
+			// Terrain casts no shadows, so it needs no self-shadow bias.
+			const [nearTaps, farTaps] = this.params.shadows.taps.terrain
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <lights_fragment_begin>',
-				curvedLightsFragment,
+				createShadowedLightsFragment(
+					`getSceneryShadow(vShadowPosition, 0.0, ${nearTaps}, ${farTaps})`,
+				),
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <normal_fragment_maps>',

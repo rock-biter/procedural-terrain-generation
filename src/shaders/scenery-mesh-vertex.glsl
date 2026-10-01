@@ -7,6 +7,9 @@ if (levelShare > 0.0) {
 	vec3 sceneryLocal = transformed * vec3(1.0, sceneryStretch, 1.0) * sceneryScale;
 	sceneryVertex += rotateAroundAxis(rotateYaw(sceneryLocal, yawCos, yawSin), bendAxis, bendCos, bendSin);
 }
+// Shadows use the flat instance (no bend), like the shadow casters.
+vShadowPosition = sceneryBase + rotateYaw(transformed * vec3(1.0, sceneryStretch, 1.0) * sceneryScale, yawCos, yawSin);
+vShadowSelfBias = uSceneryBoundRadius[sceneryType] * sceneryScale * max(sceneryStretch, 1.0);
 distanceFromCamera = baseDistance;
 wPosition = sceneryVertex;
 vec4 mvPosition = viewMatrix * vec4(sceneryVertex, 1.0);

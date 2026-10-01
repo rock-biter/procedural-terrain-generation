@@ -112,7 +112,8 @@ export default class DayNight {
 		setSRGB(this.scene.background, state.horizon)
 		setSRGB(this.uniforms.uAtmosphere.value, state.atmosphere)
 
-		// No shadows: only the light direction matters, targets stay at the origin.
+		// No Three.js shadows: only the light direction matters, targets stay at
+		// the origin. SceneryShadows reads the directions from the returned state.
 		// Peaks come from params.directionalLight (sun) and params.moonLight.
 		this.sunLight.position.fromArray(state.sunDirection)
 		setSRGB(this.sunLight.color, state.sunColor)

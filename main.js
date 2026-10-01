@@ -31,6 +31,8 @@ import {
 } from './src/impostors/impostorTypes'
 import SceneryMeshes from './src/impostors/sceneryMeshes'
 import { createSceneryMeshSettings } from './src/sceneryMeshPolicy'
+import SceneryShadows, { createSceneryShadowUniforms } from './src/sceneryShadows'
+import { createSceneryShadowSettings } from './src/shadowPolicy'
 import { isDebugEnabled } from './src/debugPolicy'
 import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
@@ -282,6 +284,9 @@ const params = {
 	// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
 	// beyond `end`, with dithered cross-fades inside each band.
 	sceneryMeshes: createSceneryMeshSettings({ isMobile }),
+	// Soft shadows of scenery and the airplane on terrain and scenery, in two
+	// cascades that fade out with distance; see createSceneryShadowSettings().
+	shadows: createSceneryShadowSettings({ isMobile }),
 	impostorVariation: {
 		frequency: 0.01,
 		amount: Object.fromEntries(
@@ -317,6 +322,8 @@ const uniforms = {
 	...createTerrainNormalUniforms(params.terrainNormals),
 	// Impostor-to-mesh band; written by SceneryMeshes.applySettings().
 	uSceneryMeshRange: { value: new THREE.Vector2(-2, -1) },
+	// Shadow maps, matrices, and fades; written by SceneryShadows.
+	...createSceneryShadowUniforms(params.shadows),
 }
 // Uniforms shared with the impostor material; amount is indexed by type.
 const impostorVariation = {
@@ -671,6 +678,38 @@ if (gui) {
 		}
 	}
 
+	// Live: uniforms only; cascade radii render every cascade again.
+	const updateShadows = () => sceneryShadows?.applySettings()
+	const shadowsFolder = gui.addFolder('Shadows')
+	shadowsFolder.add(params.shadows, 'enabled').name('Enabled')
+	shadowsFolder.add(params.shadows, 'strength', 0, 1, 0.01).name('Strength')
+	shadowsFolder
+		.add(params.shadows.softness, 'near', 0, 4, 0.05)
+		.name('Softness near (units)')
+		.onChange(updateShadows)
+	shadowsFolder
+		.add(params.shadows.softness, 'far', 0, 8, 0.05)
+		.name('Softness far (units)')
+		.onChange(updateShadows)
+	shadowsFolder
+		.add(params.shadows.fade, 'start', 0, 600, 1)
+		.name('Fade start (units)')
+		.onChange(updateShadows)
+	shadowsFolder
+		.add(params.shadows.fade, 'end', 1, 800, 1)
+		.name('Fade end (units)')
+		.onChange(updateShadows)
+	shadowsFolder
+		.add(params.shadows, 'bias', 0, 1, 0.01)
+		.name('Depth bias (units)')
+		.onChange(updateShadows)
+	params.shadows.cascades.forEach((cascade, index) => {
+		shadowsFolder
+			.add(cascade, 'radius', 20, 1000, 1)
+			.name(`${index === 0 ? 'Near' : 'Far'} cascade radius`)
+			.onChange(updateShadows)
+	})
+
 	const trailsFolder = gui.addFolder('Trails')
 	trailsFolder
 		.add(params.trails, 'ribbonWidth', 7.5, 12, 0.1)
@@ -790,7 +829,7 @@ const chunkSize = 256
 // scene.add(plane)
 // plane.camera = camera
 // plane.add(camera)
-let chunkManager, plane, terrainSampleDebug, flightPause, sceneryMeshes
+let chunkManager, plane, terrainSampleDebug, flightPause, sceneryMeshes, sceneryShadows
 
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
@@ -799,6 +838,7 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getDebugStats: () => flightPause?.getStats() ?? null,
 	getDayNightStats: () => dayNight.getStats(),
 	getSceneryMeshStats: () => sceneryMeshes?.getStats() ?? null,
+	getShadowStats: () => sceneryShadows?.getStats() ?? null,
 })
 
 // Bakes every scenery type into the impostor atlas, with the wood detail.
@@ -817,7 +857,11 @@ function init(assets) {
 		assets.impostorMaterial = createImpostorMaterial(
 			bakeImpostors(),
 			uniforms,
-			{ singleFrame: isMobile, variation: impostorVariation },
+			{
+				singleFrame: isMobile,
+				variation: impostorVariation,
+				shadowTaps: params.shadows.taps.impostor,
+			},
 		)
 		sceneryDetail.uDetail.value = assets.woodTexture
 		sceneryMeshes = new SceneryMeshes({
@@ -825,9 +869,19 @@ function init(assets) {
 			variation: impostorVariation,
 			detail: sceneryDetail,
 			settings: params.sceneryMeshes,
+			shadowTaps: params.shadows.taps.mesh,
 		})
 		scene.add(sceneryMeshes)
 	}
+
+	// Without scenery only the airplane casts shadows.
+	sceneryShadows = new SceneryShadows({
+		renderer,
+		uniforms,
+		settings: params.shadows,
+		impostorMaterial: assets.impostorMaterial,
+	})
+	sceneryShadows.setAirplane(plane.model)
 
 	// Terrain
 	chunkManager = new ChunkManager(
@@ -935,11 +989,14 @@ function tic(timestamp) {
 	uniforms.uTime.value = time
 	uniforms.uCamera.value.copy(plane.position)
 
-	plane.setDayNight(dayNight.update(deltaTime))
+	const dayNightState = dayNight.update(deltaTime)
+	plane.setDayNight(dayNightState)
 
 	chunkManager.updateChunks()
 	// After this frame's scenery commits, with the camera that renders it.
 	sceneryMeshes?.update(chunkManager.chunks, chunkSize, camera)
+	// Shadow maps for this frame's scenery and airplane pose, before the main pass.
+	sceneryShadows.update(chunkManager.chunks, chunkSize, plane, dayNightState)
 
 	// controls.update(deltaTime)
 

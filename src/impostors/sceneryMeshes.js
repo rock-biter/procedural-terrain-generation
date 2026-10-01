@@ -21,7 +21,8 @@ import sceneryDitherParsFragment from '../shaders/scenery-dither-pars-fragment.g
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
 import sceneryMeshParsFragment from '../shaders/scenery-mesh-pars-fragment.glsl'
 import sceneryMeshColorFragment from '../shaders/scenery-mesh-color-fragment.glsl'
-import { curvedLightsFragment } from '../curvedLights'
+import sceneryShadowParsFragment from '../shaders/scenery-shadow-pars-fragment.glsl'
+import { createShadowedLightsFragment } from '../curvedLights'
 import { createScenerySources } from './impostorArchetypes'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE_COUNT } from './impostorTypes'
 import {
@@ -51,16 +52,20 @@ const CULL_RADIUS_OFFSET = 0.5
 // Ownership: this object owns its source geometries, instance buffers,
 // materials, and the LOD range uniform. `uniforms` (shared with the terrain and
 // impostors) must include uCamera, uCurvature, uAtmosphere, and
-// uSceneryMeshRange; this object writes uSceneryMeshRange. `variation` and
-// `detail` are uniform objects owned by main.js and shared with the impostor
-// material and bake settings.
+// uSceneryMeshRange, plus the scenery shadow uniforms; this object writes
+// uSceneryMeshRange. `variation` and `detail` are uniform objects owned by
+// main.js and shared with the impostor material and bake settings.
+// `shadowTaps` is the PCF sample count of the shadow lookup.
 export default class SceneryMeshes extends Group {
-	constructor({ uniforms, variation, detail, settings }) {
+	constructor({ uniforms, variation, detail, settings, shadowTaps = 4 }) {
 		super()
 		this.name = 'scenery-meshes'
 		this.uniforms = uniforms
 		this.settings = settings
+		this.shadowTaps = shadowTaps
 		this.lodRange = { value: new Vector2() }
+		// Filled below from each type's LOD 0 bounds.
+		this.boundRadius = { value: new Array(IMPOSTOR_TYPE_COUNT).fill(0) }
 		this.outerRadius = 0
 		this.lastUpdateMs = 0
 
@@ -88,6 +93,7 @@ export default class SceneryMeshes extends Group {
 			const sources = createScenerySources(type, SCENERY_MESH_LOD_COUNT)
 			const { center, radius } = sources[0].boundingSphere
 			this.bounds.push({ centerY: center.y, radius })
+			this.boundRadius.value[type] = radius
 
 			sources.forEach((source, lod) => {
 				const level = this.levels[lod]
@@ -129,6 +135,7 @@ export default class SceneryMeshes extends Group {
 				...shader.uniforms,
 				...this.uniforms,
 				uSceneryMeshLodRange: this.lodRange,
+				uSceneryBoundRadius: this.boundRadius,
 				uImpostorVariationAmount: variation.amount,
 				uImpostorVariationFrequency: variation.frequency,
 				...detail,
@@ -144,10 +151,15 @@ export default class SceneryMeshes extends Group {
 			shader.fragmentShader = shader.fragmentShader
 				.replace(
 					'#include <common>',
-					`${common}\n${sceneryDitherParsFragment}\n${sceneryDetailParsFragment}\n${sceneryMeshParsFragment}`,
+					`${common}\n${sceneryDitherParsFragment}\n${sceneryDetailParsFragment}\n${sceneryMeshParsFragment}\n${sceneryShadowParsFragment}`,
 				)
 				.replace('#include <color_fragment>', sceneryMeshColorFragment)
-				.replace('#include <lights_fragment_begin>', curvedLightsFragment)
+				.replace(
+					'#include <lights_fragment_begin>',
+					createShadowedLightsFragment(
+						`getSceneryShadow(vShadowPosition, vShadowSelfBias, ${this.shadowTaps}, ${this.shadowTaps})`,
+					),
+				)
 		}
 		return material
 	}

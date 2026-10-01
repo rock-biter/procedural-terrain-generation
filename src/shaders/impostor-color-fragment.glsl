@@ -5,20 +5,26 @@ if (getSceneryDitherNoise() < vSceneryDither.x) discard;
 
 vec4 impostorAlbedo = vec4(0.0);
 vec3 impostorNormalSum = vec3(0.0);
+float impostorDepthSum = 0.0;
 #ifdef IMPOSTOR_SINGLE_FRAME
 // Cheaper path: only the dominant frame, with visible switches between views.
 vec4 dominantFrame = vFrameWeights.x >= max(vFrameWeights.y, vFrameWeights.z)
 	? vFrame0
 	: (vFrameWeights.y >= vFrameWeights.z ? vFrame1 : vFrame2);
-sampleImpostorFrame(dominantFrame, 1.0, impostorAlbedo, impostorNormalSum);
+sampleImpostorFrame(dominantFrame, 1.0, impostorAlbedo, impostorNormalSum, impostorDepthSum);
 #else
-sampleImpostorFrame(vFrame0, vFrameWeights.x, impostorAlbedo, impostorNormalSum);
-sampleImpostorFrame(vFrame1, vFrameWeights.y, impostorAlbedo, impostorNormalSum);
-sampleImpostorFrame(vFrame2, vFrameWeights.z, impostorAlbedo, impostorNormalSum);
+sampleImpostorFrame(vFrame0, vFrameWeights.x, impostorAlbedo, impostorNormalSum, impostorDepthSum);
+sampleImpostorFrame(vFrame1, vFrameWeights.y, impostorAlbedo, impostorNormalSum, impostorDepthSum);
+sampleImpostorFrame(vFrame2, vFrameWeights.z, impostorAlbedo, impostorNormalSum, impostorDepthSum);
 #endif
 // <alphatest_fragment> discards or converts this coverage to MSAA samples.
 diffuseColor.rgb = impostorSRGBToLinear(impostorAlbedo.rgb / max(impostorAlbedo.a, 1e-4)) * vTint;
 diffuseColor.a = impostorAlbedo.a;
+
+// Surface position for the shadow lookup: the baked depth moves the quad
+// point along the view ray (positive toward the eye).
+float impostorDepth = impostorDepthSum / max(impostorAlbedo.a, 1e-4) * 2.0 - 1.0;
+vec3 impostorShadowPosition = vShadowPosition + normalize(vShadowView) * impostorDepth * vShadowDepthScale;
 
 // Atmosphere clamp shared with the terrain and dormant scenery.
 diffuseColor.rgb = mix(min(uAtmosphere, diffuseColor.rgb), diffuseColor.rgb, smoothstep(700.0, 400.0, distanceFromCamera));

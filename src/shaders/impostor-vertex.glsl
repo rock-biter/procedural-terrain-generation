@@ -70,6 +70,14 @@ vSphereNormal = normalize(viewRotation * sphereNormal);
 
 vTint = getSceneryTint(aInstanceB.z, impostorBase.xz, impostorType);
 
+// Shadows use flat world space: undo the bend around the curved center. The
+// map is affine, so the quad position interpolates exactly.
+vec3 flatCenter = impostorBase + vec3(0.0, impostorInfo.y * impostorScale * impostorStretch, 0.0);
+vShadowPosition = flatCenter + rotateAroundAxis(impostorVertex - impostorCenter, bendAxis, bendCos, -bendSin);
+vShadowView = rotateAroundAxis(normalize(cameraPosition - impostorCenter), bendAxis, bendCos, -bendSin);
+vShadowDepthScale = frameRadius * impostorScale;
+vShadowSelfBias = halfSize;
+
 wPosition = impostorVertex;
 vec4 mvPosition = viewMatrix * vec4(impostorVertex, 1.0);
 gl_Position = projectionMatrix * mvPosition;

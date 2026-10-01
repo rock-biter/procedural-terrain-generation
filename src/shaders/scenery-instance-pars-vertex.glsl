@@ -16,6 +16,11 @@ varying vec3 vTint;
 varying vec3 vSphereNormal;
 // x: mesh fade (1 mesh, 0 impostor), y: per-instance dither seed.
 varying vec2 vSceneryDither;
+// Scenery shadow lookup (scenery-shadow-pars-fragment.glsl): flat world
+// position, and the instance radius that keeps it out of its own flat caster
+// quad.
+varying vec3 vShadowPosition;
+varying float vShadowSelfBias;
 
 vec3 rotateYaw(vec3 v, float c, float s) {
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);

@@ -15,3 +15,24 @@ export const curvedLightsFragment = ShaderChunk.lights_fragment_begin.replace(
 	DIRECTIONAL_LIGHT_INFO,
 	`${DIRECTIONAL_LIGHT_INFO}\n${curvedLightTerminator}`,
 )
+
+// Scenery shadows (src/sceneryShadows.js) dim only the direct light of the
+// light that casts them. Sun and moon are always opposite, so the sign of the
+// dot product with uSceneryShadowLight picks that light without relying on
+// the order of Three.js's directional light array.
+const SHADOWED_DIRECTIONAL_LIGHT =
+	'directLight.color *= mix(1.0, sceneryShadow, step(0.0, dot(directLight.direction, sceneryShadowLightView)));'
+
+const curvedShadowedLightsBody = ShaderChunk.lights_fragment_begin.replace(
+	DIRECTIONAL_LIGHT_INFO,
+	`${DIRECTIONAL_LIGHT_INFO}\n${curvedLightTerminator}\n${SHADOWED_DIRECTIONAL_LIGHT}`,
+)
+
+// curvedLightsFragment plus the scenery shadow. `shadowExpression` is a GLSL
+// float expression evaluated once per fragment, usually a getSceneryShadow()
+// call (scenery-shadow-pars-fragment.glsl must be included).
+export function createShadowedLightsFragment(shadowExpression) {
+	return `float sceneryShadow = ${shadowExpression};
+vec3 sceneryShadowLightView = normalize((viewMatrix * vec4(uSceneryShadowLight, 0.0)).xyz);
+${curvedShadowedLightsBody}`
+}

@@ -404,7 +404,7 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Behavior:** Time of day advances continuously (default `240` seconds per day, start `0.3`). The sky dome shows a horizon-to-zenith gradient, sun and moon discs, and stars at night. Lights, fog, background, and the distant-terrain atmosphere follow keyframed palettes; shading follows the sun and moon. Everything is aligned with the curved world: the horizon dip sets the sky gradient, disc visibility, palette timing, and light fades, and terrain normals bend with the curvature and have a per-fragment terminator. The wing trails are tinted pink at dawn, orange at sunset, and blue at night; the airplane has no navigation lights for now. `?time=` sets the start, the `?gui=1` **Day/night** folder scrubs, pauses, or changes the duration, and the **Sky** folder tunes the gradient height, the radial fog range, and every keyframe's palette live.
 - **Dependencies:** None blocking. Scenery impostors use `uAtmosphere`, and dormant clouds share it for reactivation. Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:** Rendering (sky `ShaderMaterial`, shared `uAtmosphere`, lights, fog), terrain lighting (bent normals, `lights_fragment_begin` terminator), `Plane` (trail tint), frame loop, debug GUI, tests.
-- **Performance budget:** One extra draw call for the sky (32×16 sphere, stars branch skipped by day), one extra directional light (moon), a few ALU ops per terrain vertex and per directional light per fragment, no `PointLight`, no shadows, and no per-frame allocation in the policy or runtime.
+- **Performance budget:** One extra draw call for the sky (32×16 sphere, stars branch skipped by day), one extra directional light (moon), a few ALU ops per terrain vertex and per directional light per fragment, no `PointLight`, no Three.js shadow maps, and no per-frame allocation in the policy or runtime. Scenery shadows from the sun or moon are a separate feature (`FEAT-005`).
 - **Options:** Palette interpolation with a gradient dome was chosen over the Three.js `Sky` addon (physically based but less stylized, and it needs tone mapping) and over flat background colors (no celestial bodies).
 - **Acceptance criteria:** No shader errors. The horizon has no seam between the sky and fogged terrain. No light switches direction while lit. The sun rises and sets on the curved edge in sync with the palette. The dusk keyframe keeps the original static sky colors. Stars appear only at night. Pure policy tests pass. Verified so far in headless Chrome (SwiftShader) on desktop and a 390 px mobile viewport. Remaining: real mobile devices, frame-time measurement (`OBS-001`), and art-direction tuning of the palettes, especially night water saturation without tone mapping.
 - **Follow-ups:** decide on airplane lights later (the first sprite version was removed); align cloud and boat lighting with curved normals when they are re-enabled (scenery impostors already use bent normals and the terminator).
@@ -433,7 +433,7 @@ See the owning guides for current behavior and constraints. Promote an item into
   - Memory: an RGBA8 atlas pair of `3072 × 2048` on desktop (about `67` MB with mips) or `2304 × 1536` on mobile (about `38` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
   - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the `16 × 16` grid, and placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile (measured in Node).
   - Real-GPU frame time has not been measured.
-- **Options:** real low-poly instanced meshes for every instance were rejected because the total instance count is high; `FEAT-004` uses them only for the few instances near the eye. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. A baked depth channel is reserved for a `gl_FragDepth` correction if slopes clip impostors visibly.
+- **Options:** real low-poly instanced meshes for every instance were rejected because the total instance count is high; `FEAT-004` uses them only for the few instances near the eye. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. The baked depth channel could also drive a `gl_FragDepth` correction if slopes clip impostors visibly; `FEAT-005` reads it to rebuild impostor surfaces for shadows.
 - **Acceptance criteria:**
   - Met so far:
     - JS and GLSL biome values match within `1e-5` (SwiftShader).
@@ -493,6 +493,40 @@ See the owning guides for current behavior and constraints. Promote an item into
     - frame-time measurement on weaker GPUs against `OBS-001`;
     - art review of the band distances while flying at boost.
 - **Documentation:** [Rendering](RENDERING.md#near-scenery-meshes), [Architecture](ARCHITECTURE.md), [Terrain](TERRAIN.md#resource-lifecycle), [Experience](EXPERIENCE.md#responsive-behavior), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), [Assets](ASSETS.md#textures), `AGENTS.md`.
+
+### `FEAT-005`: Soft Scenery Shadows
+
+- **Status:** In progress
+- **User value:** Trees, cacti, rocks, and the airplane cast shadows on the ground and on neighboring scenery, which anchors objects to the terrain and shows the sun direction.
+- **Behavior:**
+  - The sun by day and the moon by night cast shadows. Shadows fade in with the light's elevation, so they are gone at the hand-over and never pop.
+  - Two light-aligned cascades: a sharper near one around the plane and a coarser far one. The near cascade renders every frame and the far one every 2 frames (3 on mobile).
+  - Edges are always soft and grow softer with distance. Shadows weaken with distance and vanish at `450` units (`360` on mobile). The cascade hand-over is a radial blend.
+  - The `?gui=1` **Shadows** folder sets enable, strength, softness, fade, bias, and cascade radii live.
+- **Dependencies:** `FEAT-002` (light directions), `FEAT-003` (atlas, instance layout, baked depth), `FEAT-004` (near-mesh receivers). Frame-time acceptance depends on `OBS-001`.
+- **Affected systems:** `src/sceneryShadows.js`, `src/shadowPolicy.js` with tests, the caster and receiver GLSL, `curvedLights.js`, terrain, impostor, and near-mesh materials, the frame loop, the GUI, and the stats.
+- **Performance budget:**
+  - GPU passes: about 5–25 instanced quad draws per rendered cascade plus one for the airplane, depth only.
+  - CPU: one loop over live chunks and a few matrix updates per frame, with no per-instance work and no per-frame allocation. `updateMs` was about `0.3` ms in headless Chrome.
+  - Fragments: terrain samples 8 PCF taps near, 4 far, and at most 12 in the blend band (4/2 on mobile); scenery uses 4 (mesh) or 2 (impostor) taps. Pixels beyond the fade only pay a branch.
+  - Memory: about `64` MB on desktop (two `2048²` depth targets and their required color attachments), a quarter on mobile.
+  - Real-GPU frame time has not been measured.
+- **Options:**
+  - Three.js `renderer.shadowMap` was rejected: it has no cascades or distance fade, and every patched material would need custom depth materials.
+  - Real meshes as near casters were rejected: they need a CPU selection outside the camera frustum. Light-facing impostor silhouettes match the near-cascade texel density.
+  - Blob decals were rejected: they have no shape and z-fight on slopes.
+- **Acceptance criteria:**
+  - Met so far:
+    - no shader errors on the desktop and 390 px mobile paths in headless Chrome;
+    - soft rock and cactus shadows attached at the base, in the right direction, by day and under the moon;
+    - with the flight paused and shadows toggled, objects are not self-shadowed;
+    - pure tests pass.
+  - Remaining:
+    - visual confirmation of the airplane shadow and of tree-on-tree shadows on impostors;
+    - shimmer review during long flights;
+    - real mobile devices;
+    - frame-time measurement against `OBS-001`.
+- **Documentation:** [Rendering](RENDERING.md#scenery-shadows), [Architecture](ARCHITECTURE.md), [Quality](QUALITY.md), `AGENTS.md`.
 
 Add further features with this template:
 
