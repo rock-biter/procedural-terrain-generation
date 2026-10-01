@@ -23,7 +23,7 @@ Resize changes the camera aspect, projection matrix, capped pixel ratio, and the
 
 [`src/postProcessing.js`](../src/postProcessing.js) owns a `postprocessing` `EffectComposer` with 2x MSAA buffers (clamped to the device limit), a `RenderPass`, and one `EffectPass` containing `SpeedEffect`. `main.js` calls `postProcessing.render(deltaTime)` instead of `renderer.render()`; the composer disables `renderer.autoClear` and clears through the render pass.
 
-- **Idle bypass:** when the speed-effect intensity is `0`, the effect pass is disabled and the render pass draws straight to the antialiased canvas. No offscreen buffer, blur pyramid, or fullscreen pass runs. The first frame always runs the full chain so the effect shader compiles before the first boost.
+- **Idle bypass:** when the speed-effect intensity is `0`, the effect pass is disabled and the render pass draws straight to the antialiased canvas. No offscreen buffer, blur pyramid, or fullscreen pass runs. The first frame always runs the full chain so the effect shader compiles before the first boost. With the default idle level (see **Intensity**) the intensity never reaches `0`, so the composer chain runs every frame; set `params.postProcessing.idleSpeedEffect` to `0` to restore the bypass.
 - **Tone mapping:** Three.js tone maps only draws to the canvas, so the idle path uses the renderer operator directly, while the composer's offscreen render pass writes untone-mapped linear color. When `renderer.toneMapping` is not `NoToneMapping`, the `EffectPass` also holds a `postprocessing` `ToneMappingEffect` after `SpeedEffect`, with the matching mode (`TONE_MAPPING_MODES`) and the renderer exposure, and the composer buffers are `HalfFloatType` so values above `1` survive until tone mapping. With `NoToneMapping` the buffers stay 8-bit sRGB, keeping the MSAA resolve at half the bandwidth. Passes cannot change frame-buffer type after initialization, so switching between None and a tone-mapped mode disposes and rebuilds the composer, render pass, `SpeedEffect`, and effect pass (`createComposer()`); switching between two tone-mapped modes only changes the effect mode. Both cases rerun the warm-up frame. `getPostProcessingStats()` reports `toneMapping`, `toneMappingExposure`, and `frameBufferType`.
 - **Film grain:** after the composer, `PostProcessing.renderGrain()` draws one fullscreen quad straight onto the canvas ([`film-grain-fragment.glsl`](../src/shaders/film-grain-fragment.glsl)). It is not a composer pass, so the idle bypass keeps working.
   - The grain is static: a per-pixel hash of `gl_FragCoord` with no time input, so the pattern stays fixed on screen.
@@ -31,7 +31,11 @@ Resize changes the camera aspect, projection matrix, capped pixel ratio, and the
   - `params.postProcessing.grain.intensity` (default `0.025`) is read every frame; `0` skips the pass.
   - The grain has no texture reads and no offscreen target.
 - **MSAA cost:** without `WEBGL_multisampled_render_to_texture` (absent in desktop Chrome on Apple M1), the composer writes its whole multisampled scene target to memory and resolves it with a blit, while the canvas MSAA of the idle path is almost free. This is the largest cost of the active effect, larger than blur and aberration together (see `FEAT-001` in [Roadmap](ROADMAP.md)). The composer therefore uses 2x MSAA, so edges are slightly less smooth only while the effect is active.
-- **Intensity:** `main.js` passes the larger of the positive visual speed effect (`uAcceleration`, `0` during the debug pause) and the GUI `params.speedEffect`; `setSpeedEffect()` maps it through `smoothstep(0.1, 1)`, raised to at least `params.postProcessing.preview`.
+- **Intensity:**
+  - `main.js` passes the larger of the positive visual speed effect (`uAcceleration`, `0` during the debug pause) and the GUI `params.speedEffect`.
+  - `setSpeedEffect()` first remaps that value from `0 → 1` onto `idle → 1`, with `idle = params.postProcessing.idleSpeedEffect` (default `0.3`). It then maps the result through `smoothstep(0.1, 1)` and raises it to at least `params.postProcessing.preview`.
+  - At cruise, while braking, and during the debug pause, the edges therefore keep the blur and aberration of a `0.3` speed effect (intensity about `0.126`). A boost animates the rest up to full strength.
+  - The remap affects only the post-processing. `Plane` drives the camera FOV and distance kick from the same visual speed effect without it, so cruise keeps the base FOV and camera distance.
 - **Future passes:** add them to `PostProcessing`; keep the bypass condition in sync so a new always-on pass disables it.
 
 ### `SpeedEffect`
@@ -66,7 +70,7 @@ Scene materials other than the sky dome do not use `ShaderMaterial`. They start 
 | Terrain and water surface | [`src/chunk.js`](../src/chunk.js)   | `MeshStandardMaterial`             | `common` (fragment also gets `terrain-normal-pars.glsl` and `terrain-color-noise-pars.glsl`), `project_vertex`, `color_fragment`, `normal_fragment_maps`, `lights_fragment_begin` |
 | Boats                     | [`src/chunk.js`](../src/chunk.js)   | Materials from the glTF model      | `common`, `project_vertex`                                           |
 | Scenery impostors         | [`src/impostors/impostorMaterial.js`](../src/impostors/impostorMaterial.js) | `MeshStandardMaterial` (`alphaTest`, `alphaToCoverage`) | `common`, `project_vertex`, `color_fragment`, `normal_fragment_begin`, `lights_fragment_begin` |
-| Near scenery meshes       | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js) | `MeshStandardMaterial` (`vertexColors`) | `common`, `beginnormal_vertex`, `project_vertex`, `color_fragment`, `lights_fragment_begin` |
+| Near scenery meshes       | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js) | `MeshStandardMaterial` (`vertexColors`), one per level of detail | `common`, `beginnormal_vertex`, `project_vertex`, `color_fragment`, `lights_fragment_begin` |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
 | Plane trails              | [`src/plane.js`](../src/plane.js)   | Transparent `MeshBasicMaterial`    | `common`, `project_vertex`, `color_fragment`                         |
 
@@ -117,7 +121,7 @@ The curvature in `project-vertex.glsl` moves vertices down by `R * (1 - cos(dist
 
 Trees, cacti, and rocks are octahedral impostors: each instance is one camera-facing quad (2 triangles), shaded from baked color and normal images.
 
-- **Sources:** [`src/impostors/impostorArchetypes.js`](../src/impostors/impostorArchetypes.js) builds the six types from Three.js primitives. They are merged, smooth-shaded, lightly noise-deformed, and carry vertex colors with a baked vertical occlusion. Colors come from `COLORS` in that file; all scenery has a wooden-toy palette: light brown round-tree crowns (`leaves`), darker brown conifers (`needles`) and cacti (`cactus`, same color) over a dark brown trunk, and the lightest woods for boulders and the alternating bands of layered rocks (`boulder`, `rockLight`, `rockDark`). Bounding spheres are recentered on the Y axis so yaw rotates around the base. The same geometry is baked and drawn by the [near scenery meshes](#near-scenery-meshes), so segment counts stay low: 740 triangles for the round tree, 292 for the conifer, 636 and 876 for the one- and two-arm cacti, 320 for the boulder, and 264 for the layered rock. The cactus trunk keeps 18 radial segments, two per rib, so its 9 ribs do not alias.
+- **Sources:** [`src/impostors/impostorArchetypes.js`](../src/impostors/impostorArchetypes.js) builds the six types from Three.js primitives. They are merged, smooth-shaded, lightly noise-deformed, and carry vertex colors with a baked vertical occlusion. Colors come from `COLORS` in that file; all scenery has a wooden-toy palette: light brown round-tree crowns (`leaves`), darker brown conifers (`needles`) and cacti (`cactus`, same color) over a dark brown trunk, and the lightest woods for boulders and the alternating bands of layered rocks (`boulder`, `rockLight`, `rockDark`). Bounding spheres are recentered on the Y axis so yaw rotates around the base. The same geometry is baked and drawn as LOD 0 by the [near scenery meshes](#near-scenery-meshes), so segment counts stay low: 740 triangles for the round tree, 292 for the conifer, 636 and 876 for the one- and two-arm cacti, 320 for the boulder, and 264 for the layered rock. The cactus trunk keeps 18 radial segments, two per rib, so its 9 ribs do not alias.
 - **Types:** the type indices, atlas layout, and instance stride live in [`src/impostors/impostorTypes.js`](../src/impostors/impostorTypes.js).
 - **Bake:** [`src/impostors/impostorBaker.js`](../src/impostors/impostorBaker.js) runs in `init()`, before chunks exist, and again when a **Scenery > Wood detail** control is released. `setImpostorAtlas()` swaps the new atlas into the shared material's uniforms and disposes the old one without recompiling.
   - It renders every type from a grid of `frames × frames` hemi-octahedral directions (see [`src/impostors/octahedral.js`](../src/impostors/octahedral.js)) with an orthographic camera framed on the bounding sphere plus a `4%` margin.
@@ -156,22 +160,39 @@ Trees, cacti, and rocks are octahedral impostors: each instance is one camera-fa
 
 ### Near Scenery Meshes
 
-Close to the eye, scenery instances are drawn as their real source meshes instead of impostors. [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js) owns them; [`src/sceneryMeshPolicy.js`](../src/sceneryMeshPolicy.js) holds the pure fade, range, and selection rules.
+Close to the eye, scenery instances are drawn as their real source meshes in two levels of detail instead of impostors. [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js) owns them; [`src/sceneryMeshPolicy.js`](../src/sceneryMeshPolicy.js) holds the pure fade, range, and selection rules.
 
-- **Band:** `params.sceneryMeshes` (`createSceneryMeshSettings()`) sets `enabled`, `start`, and `end`, in units from the eye (`cameraPosition`) to the instance's flat world base. Defaults: `110 → 150` on desktop and `60 → 90` on mobile. Within `start` instances are meshes only, beyond `end` impostors only. `SceneryMeshes.applySettings()` writes the shared `uSceneryMeshRange` uniform: `getSceneryMeshRange()` keeps `end ≥ start + 1`, and while disabled it is `(-2, -1)`, so the fade is `0` everywhere and impostors render exactly as before.
-- **Cross-fade:** both shaders compute `meshFade = 1 - smoothstep(start, end, distance)` per instance. [`scenery-dither-pars-fragment.glsl`](../src/shaders/scenery-dither-pars-fragment.glsl) gives each pixel one interleaved-gradient-noise value, shifted per instance by its yaw. The mesh keeps a pixel where the noise is below `meshFade`, and the impostor keeps the rest. Each pixel therefore shows exactly one of the two, with no blending, sorting, or double coverage. A fully faded impostor collapses its quad; a mesh instance with `meshFade = 0` collapses to its base, so its triangles have zero area.
+- **Levels:** LOD 0 is the geometry the impostor was baked from. LOD 1 (`createScenerySources(type, 2)` in `impostorArchetypes.js`) builds the same parts with fewer segments, shifted by the LOD 0 recentering so both share one local frame. LOD 1 triangles: 364 round tree, 78 conifer, 170 and 250 for the one- and two-arm cacti (a plain 9-sided trunk without ribs), 180 boulder, and 112 layered rock.
+- **Bands:** `params.sceneryMeshes` (`createSceneryMeshSettings()`) sets `enabled`, `lodStart`, `lodEnd`, `start`, and `end`, in units from the eye (`cameraPosition`) to the instance's flat world base.
+
+  | Range | Desktop | Mobile | Hand-over |
+  | --- | --- | --- | --- |
+  | `lodStart → lodEnd` | `110 → 150` | `60 → 90` | LOD 0 to LOD 1 |
+  | `start → end` | `220 → 300` | `120 → 180` | LOD 1 to impostor |
+
+  `SceneryMeshes.applySettings()` writes the shared `uSceneryMeshRange` uniform (`getSceneryMeshRange()`) and its own `uSceneryMeshLodRange` (`getSceneryMeshLodRange()`). Each band keeps `end ≥ start + 1`, and the LOD band is clamped inside the mesh range. While disabled, both are `(-2, -1)`, so the mesh fade is `0` everywhere and impostors render exactly as before.
+- **Cross-fade:**
+  - Every shader computes `meshFade = 1 - smoothstep(start, end, distance)` per instance. The mesh shader also computes `lodFade = min(1 - smoothstep(lodStart, lodEnd, distance), meshFade)`.
+  - [`scenery-dither-pars-fragment.glsl`](../src/shaders/scenery-dither-pars-fragment.glsl) gives each pixel one interleaved-gradient-noise value `n`, shifted per instance by its yaw.
+  - LOD 0 keeps `n < lodFade`, LOD 1 keeps `lodFade ≤ n < meshFade`, and the impostor keeps `n ≥ meshFade`. Each pixel therefore shows exactly one of the three, with no blending, sorting, or double coverage.
+  - A fully faded impostor collapses its quad. A mesh instance whose level has no share collapses to its base, so its triangles have zero area.
 - **Matching the impostor:**
-  - The vertex shader ([`scenery-mesh-normal-vertex.glsl`](../src/shaders/scenery-mesh-normal-vertex.glsl), replacing `beginnormal_vertex`, and [`scenery-mesh-vertex.glsl`](../src/shaders/scenery-mesh-vertex.glsl), replacing `project_vertex`) applies stretch, scale, yaw, and the rigid bend at the curved base, the inverse of the impostor's world-to-baked-frame transform. Normals use the inverse-transpose stretch, yaw, and bend.
-  - [`scenery-mesh-color-fragment.glsl`](../src/shaders/scenery-mesh-color-fragment.glsl) multiplies the vertex color by the shared wood detail in object space, then by the instance tint and position variation, and applies the impostor's atmosphere clamp (`700 → 400`).
+  - The vertex shader ([`scenery-mesh-normal-vertex.glsl`](../src/shaders/scenery-mesh-normal-vertex.glsl), replacing `beginnormal_vertex`, and [`scenery-mesh-vertex.glsl`](../src/shaders/scenery-mesh-vertex.glsl), replacing `project_vertex`) applies stretch, scale, yaw, and the rigid bend at the curved base. This is the inverse of the impostor's world-to-baked-frame transform. Normals use the inverse-transpose stretch, yaw, and bend.
+  - [`scenery-mesh-color-fragment.glsl`](../src/shaders/scenery-mesh-color-fragment.glsl) multiplies the vertex color by the shared wood detail in object space, then by the instance tint and position variation. It applies the impostor's atmosphere clamp (`700 → 400`).
   - Lighting uses `roughness 0.9`, `metalness 0`, the curved terminator, and a view-space `vSphereNormal`, as the impostor does. Vertex colors stay linear; the bake's sRGB encoding is undone by the impostor.
-  - The quad's flat-plane parallax and frame ghosting still make the two silhouettes differ by a few pixels inside the band. At the default band the difference is hard to see; moving the band much closer makes it visible as a dithered double outline.
-- **Draws:** one `InstancedBufferGeometry` per type (six draw calls at most) shares the source index and `position`, `normal`, and `color` attributes, plus its own `DynamicDrawUsage` instance buffer in the 8-float placement layout with a world-space base. One material serves all six. Meshes sit at the world origin with frustum culling disabled; a type with no instances is hidden.
+  - In the LOD 1 to impostor band, both are small on screen and their silhouettes agree closely; LOD 1 crowns are slightly smoother. LOD 1 facets become visible close up, which is why LOD 0 takes over in the nearer band.
+  - Moving the impostor band much closer shows the quad's flat-plane parallax and frame ghosting as a dithered double outline.
+- **Draws:**
+  - Each level has one material, compiled with `SCENERY_MESH_LOD` `0` or `1`, and one `InstancedBufferGeometry` per type: at most twelve draw calls.
+  - Each geometry shares its source index and its `position`, `normal`, and `color` attributes. It adds its own `DynamicDrawUsage` instance buffer in the 8-float placement layout, with a world-space base.
+  - Meshes sit at the world origin with frustum culling disabled; a mesh with no instances is hidden.
 - **Selection (CPU, every frame):** `update()` runs in `tic()` after `ChunkManager.updateChunks()` and before rendering, so scenery committed this frame is already included.
-  - It visits live chunks with scenery whose square lies within `end + 2` units of the eye, and reads their instance arrays without copying.
-  - It keeps instances within that radius whose curved bounding sphere intersects the camera frustum.
-  - It appends them into per-type arrays that double when full and are otherwise reused, then uploads only the used range.
-  - The radius exceeds `end`, and the GPU computes the fade from the same eye, so every visible instance with a nonzero fade has a mesh.
-- **Stats:** `window.__INFINITE_WORLD__.getSceneryMeshStats()` reports `enabled`, `range`, `selectionRadius`, `instances`, `triangles`, `drawCalls`, `updateMs`, and per type `instances`, `capacity`, `reallocations`, and `sourceTriangles`.
+  - `getSceneryMeshSelection()` gives each level a distance window: LOD 0 from `0` to `lodEnd + 2`, LOD 1 from `lodStart - 2` to `end + 2`.
+  - The update visits live chunks with scenery whose square lies within the outer window of the eye, and reads their instance arrays without copying.
+  - It tests each instance's curved bounding sphere against the camera frustum at most once, then appends it to every level whose window holds it. Instances in the LOD band go to both levels.
+  - Per-type arrays double when full and are otherwise reused, and only the used range is uploaded.
+  - The windows cover every distance where a level has a share, and the GPU computes the fades from the same eye, so every visible pixel share has its mesh.
+- **Stats:** `window.__INFINITE_WORLD__.getSceneryMeshStats()` reports `enabled`, `range`, `lodRange`, `instances`, `triangles`, `drawCalls`, and `updateMs`. Under `levels`, it reports for each level its `window`, `instances`, and `triangles`, and per type `instances`, `capacity`, `reallocations`, and `sourceTriangles`.
 
 ### Clouds (Dormant)
 

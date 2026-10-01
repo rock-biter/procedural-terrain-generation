@@ -4,20 +4,25 @@ import {
 } from './impostors/impostorTypes.js'
 
 // Pure rules for the near scenery meshes (src/impostors/sceneryMeshes.js).
-// Inside a distance band around the eye each instance cross-fades from its
-// impostor to its real mesh through a complementary screen-space dither; both
-// shaders compute the same fade, so this file mirrors that formula and decides
-// which instances need a mesh.
+// Near the eye each instance is a real mesh in two levels of detail: LOD 0
+// (the baked source geometry) closest, LOD 1 (reduced geometry) farther out,
+// then the impostor. Every hand-over is a complementary screen-space dither
+// driven by the same per-pixel noise, so the shaders mirror the fades below
+// and this file decides which instances each level must draw.
 
-// Distance band from the eye to an instance's flat world base: fully the mesh
-// below `start`, fully the impostor beyond `end`.
+// Distances from the eye to an instance's flat world base:
+// - `start → end`: LOD 1 mesh to impostor (mesh only below `start`, impostor
+//   only beyond `end`);
+// - `lodStart → lodEnd`: LOD 0 to LOD 1.
 export const SCENERY_MESH_RANGES = Object.freeze({
-	desktop: Object.freeze({ start: 110, end: 150 }),
-	mobile: Object.freeze({ start: 60, end: 90 }),
+	desktop: Object.freeze({ start: 220, end: 300, lodStart: 110, lodEnd: 150 }),
+	mobile: Object.freeze({ start: 120, end: 180, lodStart: 60, lodEnd: 90 }),
 })
 
-// Extra selection distance beyond `end`, against float differences between the
-// CPU and GPU distance.
+export const SCENERY_MESH_LOD_COUNT = 2
+
+// Extra selection distance around each band, against float differences
+// between the CPU and GPU distance.
 export const SCENERY_MESH_SELECTION_MARGIN = 2
 
 // Shader range while disabled: the fade is 0 at every distance.
@@ -31,26 +36,69 @@ export const SCENERY_MESH_INITIAL_CAPACITY = 128
 
 export function createSceneryMeshSettings({ isMobile = false } = {}) {
 	const range = isMobile ? SCENERY_MESH_RANGES.mobile : SCENERY_MESH_RANGES.desktop
-	return { enabled: true, start: range.start, end: range.end }
+	return { enabled: true, ...range }
 }
 
-// [start, end] for the shader uniform, kept valid for smoothstep().
+// [start, end] of the impostor band for the shader uniform, kept valid for
+// smoothstep().
 export function getSceneryMeshRange({ enabled, start, end }) {
 	if (!enabled) return [...SCENERY_MESH_DISABLED_RANGE]
 	const safeStart = Math.max(start, 0)
 	return [safeStart, Math.max(end, safeStart + SCENERY_MESH_MIN_BAND)]
 }
 
-// 1 = only the mesh, 0 = only the impostor. Mirrors getSceneryMeshFade() in
+// [lodStart, lodEnd] of the LOD band, kept inside the impostor band's end so
+// LOD 0 is never selected beyond the meshes' reach.
+export function getSceneryMeshLodRange(settings) {
+	if (!settings.enabled) return [...SCENERY_MESH_DISABLED_RANGE]
+	const meshEnd = getSceneryMeshRange(settings)[1]
+	const lodEnd = Math.min(
+		Math.max(settings.lodEnd, SCENERY_MESH_MIN_BAND),
+		meshEnd,
+	)
+	const lodStart = Math.min(
+		Math.max(settings.lodStart, 0),
+		lodEnd - SCENERY_MESH_MIN_BAND,
+	)
+	return [lodStart, lodEnd]
+}
+
+// 1 - smoothstep(start, end, distance). For the impostor band: 1 = mesh only,
+// 0 = impostor only. Mirrors getSceneryMeshFade() in
 // src/shaders/scenery-instance-pars-vertex.glsl.
 export function getSceneryMeshFade(distance, start, end) {
 	const t = Math.min(Math.max((distance - start) / (end - start), 0), 1)
 	return 1 - t * t * (3 - 2 * t)
 }
 
-export function getSceneryMeshSelectionRadius(settings) {
-	if (!settings.enabled) return 0
-	return getSceneryMeshRange(settings)[1] + SCENERY_MESH_SELECTION_MARGIN
+// Share of pixels drawn by LOD 0; never above the mesh share, so the pixel
+// noise splits into [0, lod) LOD 0, [lod, mesh) LOD 1, [mesh, 1) impostor.
+// Mirrors scenery-mesh-normal-vertex.glsl.
+export function getSceneryLodFade(distance, meshRange, lodRange) {
+	return Math.min(
+		getSceneryMeshFade(distance, ...lodRange),
+		getSceneryMeshFade(distance, ...meshRange),
+	)
+}
+
+// Distance window per level: [minRadius, maxRadius]. LOD 0 covers its band's
+// end; LOD 1 spans from its band's start to the impostor band's end.
+export function getSceneryMeshSelection(settings) {
+	if (!settings.enabled) {
+		return [
+			{ minRadius: 0, maxRadius: 0 },
+			{ minRadius: 0, maxRadius: 0 },
+		]
+	}
+	const [, meshEnd] = getSceneryMeshRange(settings)
+	const [lodStart, lodEnd] = getSceneryMeshLodRange(settings)
+	return [
+		{ minRadius: 0, maxRadius: lodEnd + SCENERY_MESH_SELECTION_MARGIN },
+		{
+			minRadius: Math.max(lodStart - SCENERY_MESH_SELECTION_MARGIN, 0),
+			maxRadius: meshEnd + SCENERY_MESH_SELECTION_MARGIN,
+		},
+	]
 }
 
 // True when a square chunk centered on (centerX, centerZ) can hold a base
@@ -99,12 +147,27 @@ export function ensureSceneryBucketCapacity(bucket, count) {
 	return true
 }
 
-// Appends every instance of one chunk whose world base lies within `radius` of
-// the eye and that `isVisible(type, x, y, z, scale, stretch)` accepts (pass
-// null to skip culling). `instances` holds chunk-local bases; (originX,
-// originY, originZ) is the chunk position. Returns the number appended.
+function appendInstance(bucket, instances, i, x, y, z) {
+	ensureSceneryBucketCapacity(bucket, bucket.count + 1)
+	const offset = bucket.count * IMPOSTOR_INSTANCE_STRIDE
+	const target = bucket.array
+	target[offset] = x
+	target[offset + 1] = y
+	target[offset + 2] = z
+	for (let field = 3; field < IMPOSTOR_INSTANCE_STRIDE; field++) {
+		target[offset + field] = instances[i + field]
+	}
+	bucket.count++
+}
+
+// Appends every instance of one chunk to each level ({ buckets, minRadius,
+// maxRadius }) whose distance window holds its world base, when
+// `isVisible(type, x, y, z, scale, stretch)` accepts it (pass null to skip
+// culling; it runs at most once per instance). `instances` holds chunk-local
+// bases; (originX, originY, originZ) is the chunk position. Returns the number
+// of appends over all levels.
 export function appendNearSceneryInstances(
-	buckets,
+	levels,
 	instances,
 	originX,
 	originY,
@@ -112,11 +175,13 @@ export function appendNearSceneryInstances(
 	eyeX,
 	eyeY,
 	eyeZ,
-	radius,
 	isVisible = null,
 ) {
-	const radiusSquared = radius * radius
+	let outerRadius = 0
+	for (const level of levels) outerRadius = Math.max(outerRadius, level.maxRadius)
+	const outerSquared = outerRadius * outerRadius
 	let appended = 0
+
 	for (let i = 0; i < instances.length; i += IMPOSTOR_INSTANCE_STRIDE) {
 		const x = instances[i] + originX
 		const y = instances[i + 1] + originY
@@ -124,29 +189,25 @@ export function appendNearSceneryInstances(
 		const dx = x - eyeX
 		const dy = y - eyeY
 		const dz = z - eyeZ
-		if (dx * dx + dy * dy + dz * dz > radiusSquared) continue
+		const distanceSquared = dx * dx + dy * dy + dz * dz
+		if (distanceSquared > outerSquared) continue
 
 		const type = Math.round(instances[i + 5])
-		const bucket = buckets[type]
-		if (!bucket) continue
-		if (
-			isVisible &&
-			!isVisible(type, x, y, z, instances[i + 3], instances[i + 7])
-		) {
-			continue
+		let visible = null
+		for (const level of levels) {
+			const bucket = level.buckets[type]
+			if (!bucket) continue
+			if (distanceSquared > level.maxRadius * level.maxRadius) continue
+			if (distanceSquared < level.minRadius * level.minRadius) continue
+			if (visible === null) {
+				visible =
+					!isVisible ||
+					isVisible(type, x, y, z, instances[i + 3], instances[i + 7])
+			}
+			if (!visible) break
+			appendInstance(bucket, instances, i, x, y, z)
+			appended++
 		}
-
-		ensureSceneryBucketCapacity(bucket, bucket.count + 1)
-		const offset = bucket.count * IMPOSTOR_INSTANCE_STRIDE
-		const target = bucket.array
-		target[offset] = x
-		target[offset + 1] = y
-		target[offset + 2] = z
-		for (let field = 3; field < IMPOSTOR_INSTANCE_STRIDE; field++) {
-			target[offset + field] = instances[i + field]
-		}
-		bucket.count++
-		appended++
 	}
 	return appended
 }

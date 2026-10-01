@@ -112,9 +112,14 @@ export default class PostProcessing {
 		this.composer.addPass(this.effectPass)
 	}
 
+	// Edge blur and aberration only; the camera FOV and distance kick stays in
+	// Plane. The effect never drops below the level of a speed effect of
+	// `idleSpeedEffect`, and acceleration (0 to 1) animates the rest.
 	setSpeedEffect(acceleration) {
+		const idle = MathUtils.clamp(this.params.idleSpeedEffect, 0, 1)
+		const effect = idle + (1 - idle) * MathUtils.clamp(acceleration, 0, 1)
 		this.speedEffect.intensity = Math.max(
-			MathUtils.smoothstep(acceleration, 0.1, 1),
+			MathUtils.smoothstep(effect, 0.1, 1),
 			this.params.preview,
 		)
 	}

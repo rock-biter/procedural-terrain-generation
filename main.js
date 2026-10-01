@@ -245,14 +245,18 @@ const params = {
 	postProcessing: {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
+		// Edge blur and aberration always shown, as for a speed effect of this
+		// value; boosting animates the rest. 0 restores the idle bypass. The
+		// camera FOV kick ignores it.
+		idleSpeedEffect: 0.4,
 		// Static screen-space grain; intensity is the maximum brightness change
 		// (0.05 = ±5%). 0 skips the overlay pass.
 		grain: { intensity: 0.035 },
 		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
 		// verticalScale shrinks only the vertical distance (1 = circular falloff).
 		verticalScale: 0.78,
-		blur: { strength: 0.09, start: 0.35, end: 1.5, curve: 1.2 },
-		aberration: { strength: 0.02, start: 0.28, end: 0.9, curve: 2.2 },
+		blur: { strength: 0.075, start: 0.35, end: 1.5, curve: 1.2 },
+		aberration: { strength: 0.016, start: 0.28, end: 0.9, curve: 2.2 },
 	},
 	// Placement settings sent to the chunk workers; see createScenerySettings().
 	scenery: createScenerySettings({ isMobile }),
@@ -262,8 +266,9 @@ const params = {
 	// strength (0 = vertex color only, 1 = vertex color × texture). Changing
 	// them re-bakes the atlas.
 	impostorDetail: { scale: 0.01, color: 0.1 },
-	// Near scenery meshes: below `start` units from the eye instances are real
-	// meshes, beyond `end` impostors, with a dithered cross-fade in between.
+	// Near scenery meshes, in units from the eye: full-detail meshes below
+	// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
+	// beyond `end`, with dithered cross-fades inside each band.
 	sceneryMeshes: createSceneryMeshSettings({ isMobile }),
 	impostorVariation: {
 		frequency: 0.01,
@@ -485,6 +490,9 @@ if (gui) {
 	})
 	speedFolder.add(params.postProcessing, 'preview', 0, 1, 0.01)
 	speedFolder
+		.add(params.postProcessing, 'idleSpeedEffect', 0, 1, 0.01)
+		.name('Idle level')
+	speedFolder
 		.add(params.postProcessing, 'verticalScale', 0, 1, 0.01)
 		.name('Vertical scale')
 		.onChange(updatePost)
@@ -551,11 +559,19 @@ if (gui) {
 		.name('Enabled')
 		.onChange(updateSceneryMeshes)
 	meshFolder
-		.add(params.sceneryMeshes, 'start', 0, 400, 1)
+		.add(params.sceneryMeshes, 'lodStart', 0, 400, 1)
+		.name('Full detail until (units)')
+		.onChange(updateSceneryMeshes)
+	meshFolder
+		.add(params.sceneryMeshes, 'lodEnd', 1, 500, 1)
+		.name('Reduced detail from (units)')
+		.onChange(updateSceneryMeshes)
+	meshFolder
+		.add(params.sceneryMeshes, 'start', 0, 600, 1)
 		.name('Mesh until (units)')
 		.onChange(updateSceneryMeshes)
 	meshFolder
-		.add(params.sceneryMeshes, 'end', 1, 500, 1)
+		.add(params.sceneryMeshes, 'end', 1, 700, 1)
 		.name('Impostor from (units)')
 		.onChange(updateSceneryMeshes)
 	sceneryFolder

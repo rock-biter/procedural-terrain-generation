@@ -69,7 +69,7 @@ main.js: tic()
                  -> scenery placement within the radial range (transferred Float32Array)
             -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk
                  -> [disabled] clouds / boats
-  -> SceneryMeshes.update(): select near instances -> one instanced mesh per type
+  -> SceneryMeshes.update(): select near instances per level -> one instanced mesh per type and LOD
   -> renderer.render()
 ```
 
@@ -133,7 +133,7 @@ vertices = triangles * 3
 | ----- | -----: | -------------: | ------------: | ---------------------------: |
 | Cloud |     10 |          2,420 |         7,260 |                      232,320 |
 
-The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead (264 to 876 triangles per type). They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
+The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead, in two levels of detail (264 to 876 triangles per type at LOD 0, 78 to 364 at LOD 1). They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
 
 Each chunk creates new copies of the cloud base geometry. Instance transforms and colors add more buffers, and GPU vertex work multiplies base geometry by the number of visible instances. Actual instance counts must be measured because placement depends on noise and `Math.random()`.
 
@@ -389,12 +389,12 @@ See the owning guides for current behavior and constraints. Promote an item into
 
 - **Status:** In progress
 - **User value:** Makes acceleration feel faster without affecting the sharp center of the view.
-- **Behavior:** While boosting, blur and chromatic aberration grow from configurable radii toward the viewport edges. Idle frames bypass post-processing.
+- **Behavior:** A minimum edge blur and chromatic aberration is always on, equal to a `0.3` speed effect (`params.postProcessing.idleSpeedEffect`). While boosting they grow from configurable radii toward the viewport edges up to full strength. The FOV kick is unchanged. With the idle level at `0`, idle frames bypass post-processing as before.
 - **Dependencies:** `postprocessing` 6.x within its `three` peer range.
 - **Affected systems:** Rendering, frame loop, debug GUI.
-- **Performance budget:** No idle cost beyond the canvas render and, when the grain intensity is above `0`, one fullscreen canvas overlay without texture reads. While active: one 2x MSAA scene target, up to four downsample and three upsample passes at half resolution and below, and one fullscreen composite that samples only where masks are nonzero.
+- **Performance budget:** With the default idle level the composer chain runs every frame, so the active-path cost below (mostly the 2x MSAA resolve, measured at about +3–4 ms at 2560×1600 on an Apple M1) now applies at cruise too; at the low idle intensity only the first pyramid levels render. With the idle level at `0`: no idle cost beyond the canvas render and, when the grain intensity is above `0`, one fullscreen canvas overlay without texture reads. While active: one 2x MSAA scene target, up to four downsample and three upsample passes at half resolution and below, and one fullscreen composite that samples only where masks are nonzero.
 - **Options:** Hardware mipmap blur was rejected because box-filtered mips looked blocky. A single-level blurred image mixed with the sharp image was rejected because it ghosts. The pyramid with B-spline sampling gives a variable radius at low cost. Its downsample started as the 13-tap Jimenez filter and now uses a 5-tap dual filter (Bjørge 2015), about 60% fewer pyramid reads. Measured in headless Chrome on an Apple M1 at 2560×1600 with the flight paused, as frame time over idle at full intensity: the composer path alone cost about +6 ms with 4x MSAA, +3–4 ms with 2x, and +0.5 ms without MSAA; blur and aberration together add only 1–2 ms. The composer therefore uses 2x MSAA. Skipping the MSAA depth resolve (`resolveDepthBuffer`/`storeMultisampledDepthBuffer`) gave no measurable gain and was reverted. A masked upsample chain that moves the two-level blend from the full-resolution composite to the reduced levels (24 to 12 composite taps per aberrated pixel) also showed no measurable gain on the M1, where the whole blur costs 1–2 ms; it was later reintroduced to cut composite reads after reading red and blue with one bilinear tap per level visibly degraded the blur. Untried options for the remaining MSAA cost: rendering the scene to the MSAA canvas and copying it to a texture only while active (same quality), or SMAA with an unsampled composer (about −5 ms, different antialiasing in the sharp center).
-- **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; bypass restored after the boost. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
+- **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; bypass restored after the boost when the idle level is `0`, and the cruise minimum restored with the default idle level. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
 - **Documentation:** [Rendering](RENDERING.md), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
 
 ### `FEAT-002`: Day/Night Cycle
@@ -453,24 +453,28 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Status:** In progress
 - **User value:** Trees, cacti, and rocks stay sharp and solid when the airplane passes close to them. Impostors blur up close (64 px frames), their flat quad shows parallax and frame ghosting, and it clips into slopes.
 - **Behavior:**
-  - Inside an eye-distance band, each instance cross-fades from its impostor to its real source mesh: `110 → 150` units on desktop and `60 → 90` on mobile.
-  - The cross-fade is a complementary screen-space dither, so every pixel shows exactly one of the two, with no blending or sorting.
-  - The `?gui=1` **Scenery > Near meshes** folder toggles the system and moves the band live.
+  - Near the eye each instance is a real mesh in two levels of detail.
+    - Impostor to reduced-detail mesh (LOD 1): `220 → 300` units on desktop and `120 → 180` on mobile.
+    - LOD 1 to full-detail mesh (LOD 0): `110 → 150` on desktop and `60 → 90` on mobile.
+  - Every hand-over is a complementary screen-space dither, so every pixel shows exactly one of LOD 0, LOD 1, or the impostor, with no blending or sorting.
+  - The `?gui=1` **Scenery > Near meshes** folder toggles the system and moves both bands live.
+  - The first version used a single level with the impostor band at `110 → 150` / `60 → 90`. The meshes now appear from twice that distance, and LOD 1 keeps the extra instances cheap.
 - **Dependencies:** `FEAT-003` (sources, placement layout, shared variation and wood detail). Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:**
-  - Rendering: `src/impostors/sceneryMeshes.js`, the shared `scenery-*` GLSL chunks, the impostor vertex and color shaders, and `uSceneryMeshRange`.
+  - Rendering: `src/impostors/sceneryMeshes.js`, the shared `scenery-*` GLSL chunks, the impostor vertex and color shaders, `uSceneryMeshRange`, and `uSceneryMeshLodRange`.
   - Pure selection rules: `src/sceneryMeshPolicy.js` with tests.
-  - Source geometry detail, which also changes the bake.
+  - Source geometry detail, which also changes the bake, plus the reduced LOD 1 builders.
   - Also the frame loop, the GUI, and the stats.
 - **Performance budget:**
-  - Draws: at most six extra draw calls (one per type).
-  - Geometry: source meshes lowered to 264–876 triangles per type, from up to 1,824.
+  - Draws: at most twelve extra draw calls (one per type and level).
+  - Geometry: LOD 0 source meshes lowered to 264–876 triangles per type, from up to 1,824. LOD 1 uses 78–364.
   - CPU, per frame: a selection that visits only chunks near the eye, reads their instance arrays in place, frustum-culls each instance, and reuses doubling per-type buffers. It allocates nothing in steady state.
   - Upload: only the used buffer range, 32 bytes per selected instance.
   - Impostors inside the band start skip their fragments entirely.
-  - Measured on an Apple M1 (Chrome, Metal, `1280 × 800`) at the default band with the default density:
-    - up to 27 mesh instances, about 10,000 triangles, and three draw calls, with selection at or below the `0.1` ms timer resolution;
-    - a stress band of `400 → 500` units reached 101 instances and about 39,000 triangles;
+  - Measured on an Apple M1 (Chrome, Metal, `1280 × 800`, default density), on the same paused forest view:
+    - with the two-level defaults: 48 mesh instances (5 at LOD 0, 43 at LOD 1), about 10,300 triangles, and six draw calls, with selection at or below the `0.1` ms timer resolution;
+    - the same view with LOD 0 everywhere: about 18,900 triangles;
+    - the earlier single-level stress band of `400 → 500` units: 101 instances and about 39,000 triangles;
     - frame time stayed at the `16.7` ms vsync cap in every case.
 - **Options:**
   - A per-chunk mesh draw without CPU selection was rejected, because every instance of every near chunk would be transformed even when collapsed.
@@ -481,6 +485,7 @@ See the owning guides for current behavior and constraints. Promote an item into
   - Met so far:
     - no shader errors on the desktop and mobile paths;
     - with the flight paused, toggling the system swaps nearby instances with matching position, scale, color, wood detail, tint, and lighting at day and dusk;
+    - at its distances, LOD 1 is indistinguishable from the impostor and from LOD 0;
     - the dither leaves no gaps beyond the small impostor silhouette mismatch;
     - pure tests pass.
   - Remaining:

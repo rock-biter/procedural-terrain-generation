@@ -1,6 +1,12 @@
-// Replaces <color_fragment>. Keeps the pixels the impostor discards
-// (scenery-dither-pars-fragment.glsl), so the two together cover each pixel once.
-if (getSceneryDitherNoise() >= vSceneryDither.x) discard;
+// Replaces <color_fragment>. LOD 0 keeps the pixels whose noise is below the
+// LOD fade, LOD 1 those between it and the mesh fade, and the impostor the
+// rest (scenery-dither-pars-fragment.glsl), so each pixel is drawn once.
+float sceneryNoise = getSceneryDitherNoise();
+#if SCENERY_MESH_LOD == 0
+if (sceneryNoise >= vSceneryLodFade) discard;
+#else
+if (sceneryNoise < vSceneryLodFade || sceneryNoise >= vSceneryDither.x) discard;
+#endif
 
 // The same albedo the bake stores: vertex color times the wood detail, then
 // the instance tint and variation like impostor-color-fragment.glsl.

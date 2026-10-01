@@ -23,7 +23,7 @@ This document maps runtime ownership and data flow. Read it before moving behavi
 | Day/night cycle       | [`src/dayNight.js`](../src/dayNight.js), [`src/dayNightPolicy.js`](../src/dayNightPolicy.js)                             | Advances time of day, owns the sky dome, and drives lights, fog, and atmosphere from pure keyframe data. |
 | Post-processing       | [`src/postProcessing.js`](../src/postProcessing.js), [`src/speedEffect.js`](../src/speedEffect.js)                     | Owns the effect composer, idle bypass, the acceleration blur and chromatic aberration, and the static film-grain overlay.               |
 | Impostor scenery      | [`src/impostors/`](../src/impostors/)                                                                                  | Builds scenery sources from primitives, bakes the octahedral atlas, and provides the shared impostor material and per-chunk quad mesh. |
-| Near scenery meshes   | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js), [`src/sceneryMeshPolicy.js`](../src/sceneryMeshPolicy.js) | Selects nearby scenery instances every frame and draws them as real meshes, cross-fading with the impostors through a shared dither. |
+| Near scenery meshes   | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js), [`src/sceneryMeshPolicy.js`](../src/sceneryMeshPolicy.js) | Selects nearby scenery instances every frame and draws them as real meshes in two levels of detail, cross-fading with each other and the impostors through a shared dither. |
 | Dormant clouds        | [`src/clouds.js`](../src/clouds.js)                                                                                    | Builds an instanced cloud mesh when its feature flag is enabled.                                         |
 | Curved lighting       | [`src/curvedLights.js`](../src/curvedLights.js)                                                                        | Builds the `lights_fragment_begin` copy with the curved-world terminator shared by terrain, impostors, and near scenery meshes. |
 | Shader source         | [`src/shaders/`](../src/shaders/)                                                                                      | Supplies GLSL replacements for Three.js shader chunks.                                                   |
@@ -66,7 +66,7 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 - `Plane` owns and updates the trail geometry, but the trail mesh is a direct scene child so older sections remain in world space as the plane moves.
 - `DayNight` owns the sky dome mesh and writes into the ambient, sun, and moon lights, `scene.fog`, `scene.background`, and `uniforms.uAtmosphere` created by `main.js`. It never touches `Plane`; `main.js` forwards its state.
 - The constructor parameter named `camera` in `ChunkManager` is currently the `Plane`. `getCoordsByCamera()` therefore reads the moving plane's world position.
-- Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the boat model is loaded only when its feature is enabled. `init()` adds `assets.impostorMaterial`, which chunks share and never dispose. `SceneryMeshes` owns its source geometries, instance buffers, and material; it reads chunk instance arrays but never retains or disposes them. `main.js` owns the `sceneryDetail` uniforms (`uDetail`, `uDetailScale`, `uDetailColor`) that it shares with the near meshes.
+- Loaded startup assets are collected before `init()`. `Plane` requires the airplane mesh; the boat model is loaded only when its feature is enabled. `init()` adds `assets.impostorMaterial`, which chunks share and never dispose. `SceneryMeshes` owns its source geometries for both levels, instance buffers, materials, and the `uSceneryMeshLodRange` uniform; it reads chunk instance arrays but never retains or disposes them. `main.js` owns the `sceneryDetail` uniforms (`uDetail`, `uDetailScale`, `uDetailColor`) that it shares with the near meshes.
 - `ChunkManager` owns `Map` registries for desired, live, pending, and in-flight chunks. A monotonically increasing revision invalidates obsolete work before any worker result becomes a Three.js object.
 - The worker pool uses up to two workers on desktop and one on mobile. Workers cache their seeded simplex functions and transfer typed-array buffers instead of cloning them.
 - `ChunkManager` owns chunk membership in the scene. Each `Chunk` owns its terrain geometry, its scenery geometry, and its dormant local decorations.
@@ -87,7 +87,7 @@ main.js: LoadingManager -> init(assets)
         |                    |
         |                    +-> impostor bake -> shared impostor material
         |                    |
-        |                    +-> SceneryMeshes (one instanced mesh per type)
+        |                    +-> SceneryMeshes (one instanced mesh per type and level of detail)
         |                    |
         |                    +-> ChunkManager -> worker pool
         |                           |                |
