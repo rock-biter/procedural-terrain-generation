@@ -2,6 +2,8 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
 	advanceTimeOfDay,
+	copyKeyframe,
+	createDayNightPalette,
 	createDayNightState,
 	DAY_NIGHT_DEFAULTS,
 	getApparentElevation,
@@ -9,6 +11,7 @@ import {
 	getDayNightState,
 	getHorizonDip,
 	getPaletteTime,
+	getTimeOfDayForPaletteTime,
 	parseTimeOfDay,
 	wrapTimeOfDay,
 } from '../src/dayNightPolicy.js'
@@ -126,6 +129,40 @@ test('keeps palette time continuous and monotonic with a dip', () => {
 		assert.ok(delta > 0 && delta < 0.005, `jump at ${step / 1000}: ${delta}`)
 		previous = step === 1000 ? current + 1 : current
 	}
+})
+
+test('inverts palette time at any dip', () => {
+	for (const dip of [0, CRUISE_DIP, getHorizonDip(150, CURVATURE)]) {
+		for (let step = 0; step < 100; step++) {
+			const timeOfDay = step / 100
+			const paletteTime = getPaletteTime(timeOfDay, dip)
+			assertClose(getTimeOfDayForPaletteTime(paletteTime, dip), timeOfDay, 1e-9)
+		}
+	}
+	for (const { t } of DAY_NIGHT_DEFAULTS.keyframes) {
+		const timeOfDay = getTimeOfDayForPaletteTime(t, CRUISE_DIP)
+		assertClose(getPaletteTime(timeOfDay, CRUISE_DIP), t, 1e-9)
+	}
+})
+
+test('edits a palette copy without touching the defaults', () => {
+	const palette = createDayNightPalette()
+	const noonIndex = DAY_NIGHT_DEFAULTS.keyframes.findIndex((frame) => frame.t === 0.5)
+	const defaultHorizon = [...DAY_NIGHT_DEFAULTS.keyframes[noonIndex].horizon]
+	assert.deepEqual(palette, DAY_NIGHT_DEFAULTS.keyframes)
+
+	palette[noonIndex].horizon[0] = 0.123
+	palette[noonIndex].sunIntensity = 0.5
+	assert.deepEqual(DAY_NIGHT_DEFAULTS.keyframes[noonIndex].horizon, defaultHorizon)
+	const options = { ...DAY_NIGHT_DEFAULTS, keyframes: palette }
+	const state = getDayNightState(0.5, options)
+	assert.equal(state.horizon[0], 0.123)
+	assert.equal(state.sunIntensity < getDayNightState(0.5).sunIntensity, true)
+
+	const horizon = palette[noonIndex].horizon
+	copyKeyframe(DAY_NIGHT_DEFAULTS.keyframes[noonIndex], palette[noonIndex])
+	assert.equal(palette[noonIndex].horizon, horizon)
+	assert.deepEqual(palette, DAY_NIGHT_DEFAULTS.keyframes)
 })
 
 test('lights the world only while each body is above the apparent horizon', () => {

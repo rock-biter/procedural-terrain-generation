@@ -18,6 +18,7 @@ const TWO_PI = Math.PI * 2
 // blue at night, bright enough to stay readable against the sky.
 const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
+		name: 'Midnight',
 		t: 0,
 		zenith: [0.008, 0.012, 0.04],
 		horizon: [0.035, 0.045, 0.11],
@@ -33,6 +34,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 1,
 	}),
 	Object.freeze({
+		name: 'Pre-dawn',
 		t: 0.21,
 		zenith: [0.03, 0.04, 0.12],
 		horizon: [0.25, 0.18, 0.3],
@@ -48,6 +50,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 0.8,
 	}),
 	Object.freeze({
+		name: 'Sunrise',
 		t: 0.28,
 		zenith: [0.2, 0.3, 0.55],
 		horizon: [0.95, 0.55, 0.35],
@@ -63,6 +66,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 0.2,
 	}),
 	Object.freeze({
+		name: 'Morning',
 		t: 0.36,
 		zenith: [0.22, 0.45, 0.85],
 		horizon: [0.65, 0.78, 0.92],
@@ -78,6 +82,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 0,
 	}),
 	Object.freeze({
+		name: 'Noon',
 		t: 0.5,
 		zenith: [0.15, 0.4, 0.85],
 		horizon: [0.7, 0.82, 0.95],
@@ -93,6 +98,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 0,
 	}),
 	Object.freeze({
+		name: 'Afternoon',
 		t: 0.64,
 		zenith: [0.2, 0.42, 0.82],
 		horizon: [0.72, 0.76, 0.86],
@@ -108,6 +114,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 0,
 	}),
 	Object.freeze({
+		name: 'Sunset',
 		t: 0.72,
 		zenith: [0.25, 0.25, 0.5],
 		horizon: [1, 0.45, 0.25],
@@ -123,6 +130,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		night: 0.2,
 	}),
 	Object.freeze({
+		name: 'Dusk',
 		t: 0.8,
 		zenith: [0.04, 0.03, 0.18],
 		horizon: [25 / 255, 19 / 255, 98 / 255],
@@ -147,10 +155,13 @@ export const DAY_NIGHT_DEFAULTS = Object.freeze({
 	// Sun/moon light fades in over this apparent-elevation band, in radians.
 	lightFadeStart: -0.03,
 	lightFadeEnd: 0.05,
+	// Angular falloff of the sky gradient above the curved edge, in radians:
+	// about 63% of the way from horizon to zenith color at this elevation.
+	skyGradientHeight: 0.095,
 	keyframes: DAY_NIGHT_KEYFRAMES,
 })
 
-const COLOR_FIELDS = Object.freeze([
+export const DAY_NIGHT_COLOR_FIELDS = Object.freeze([
 	'zenith',
 	'horizon',
 	'sunColor',
@@ -159,7 +170,7 @@ const COLOR_FIELDS = Object.freeze([
 	'atmosphere',
 	'trailTint',
 ])
-const SCALAR_FIELDS = Object.freeze([
+export const DAY_NIGHT_SCALAR_FIELDS = Object.freeze([
 	'sunIntensity',
 	'moonIntensity',
 	'ambientIntensity',
@@ -223,6 +234,47 @@ export function getPaletteTime(
 	)
 }
 
+// Inverse of getPaletteTime(): the time of day whose palette time is
+// `paletteTime` at this dip.
+export function getTimeOfDayForPaletteTime(
+	paletteTime,
+	dip,
+	tilt = DAY_NIGHT_DEFAULTS.orbitTilt,
+) {
+	const wrapped = wrapTimeOfDay(paletteTime)
+	const ratio = Math.min(Math.sin(Math.max(dip, 0)) / Math.cos(tilt), 0.999)
+	const shift = Math.asin(ratio) / TWO_PI
+	const sunrise = 0.25 - shift
+	const sunset = 0.75 + shift
+
+	if (wrapped >= 0.25 && wrapped <= 0.75) {
+		return sunrise + ((wrapped - 0.25) * (sunset - sunrise)) / 0.5
+	}
+	const nightPalette = wrapped < 0.25 ? wrapped + 1 : wrapped
+	return wrapTimeOfDay(
+		sunset + ((nightPalette - 0.75) * (sunrise + 1 - sunset)) / 0.5,
+	)
+}
+
+// Mutable deep copy of the keyframes, for live palette editing.
+export function createDayNightPalette(keyframes = DAY_NIGHT_KEYFRAMES) {
+	return keyframes.map((keyframe) => copyKeyframe(keyframe, {}))
+}
+
+// Writes `source` into `target` in place, reusing its color arrays.
+export function copyKeyframe(source, target) {
+	target.name = source.name
+	target.t = source.t
+	for (const field of DAY_NIGHT_COLOR_FIELDS) {
+		target[field] ??= [0, 0, 0]
+		for (let channel = 0; channel < 3; channel++) {
+			target[field][channel] = source[field][channel]
+		}
+	}
+	for (const field of DAY_NIGHT_SCALAR_FIELDS) target[field] = source[field]
+	return target
+}
+
 export function createDayNightState() {
 	const state = {
 		timeOfDay: 0,
@@ -233,8 +285,8 @@ export function createDayNightState() {
 		sunElevation: 0,
 		moonElevation: 0,
 	}
-	for (const field of COLOR_FIELDS) state[field] = [0, 0, 0]
-	for (const field of SCALAR_FIELDS) state[field] = 0
+	for (const field of DAY_NIGHT_COLOR_FIELDS) state[field] = [0, 0, 0]
+	for (const field of DAY_NIGHT_SCALAR_FIELDS) state[field] = 0
 	return state
 }
 
@@ -291,7 +343,7 @@ export function getDayNightState(
 	out.timeOfDay = wrapped
 	out.paletteTime = paletteTime
 	out.horizonDip = dip
-	for (const field of COLOR_FIELDS) {
+	for (const field of DAY_NIGHT_COLOR_FIELDS) {
 		const target = out[field]
 		for (let channel = 0; channel < 3; channel++) {
 			target[channel] =
@@ -299,7 +351,7 @@ export function getDayNightState(
 				(to[field][channel] - from[field][channel]) * weight
 		}
 	}
-	for (const field of SCALAR_FIELDS) {
+	for (const field of DAY_NIGHT_SCALAR_FIELDS) {
 		out[field] = from[field] + (to[field] - from[field]) * weight
 	}
 

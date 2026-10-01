@@ -1,10 +1,17 @@
 import './style.css'
 import * as THREE from 'three'
+// Patches the fog shader chunk before any material compiles.
+import './src/radialFog'
 import * as dat from 'lil-gui'
 import Chunk, { CURVATURE } from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import DayNight from './src/dayNight'
-import { DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './src/dayNightPolicy'
+import {
+	copyKeyframe,
+	createDayNightPalette,
+	DAY_NIGHT_DEFAULTS,
+	parseTimeOfDay,
+} from './src/dayNightPolicy'
 import { DESERT_TERRAIN_DEFAULTS, getHeight } from './src/chunkGeometry'
 import { createBiomeOffset } from './src/biome'
 import {
@@ -206,7 +213,12 @@ const params = {
 		timeOfDay: parseTimeOfDay(urlParams) ?? DAY_NIGHT_DEFAULTS.startTimeOfDay,
 		cycleDuration: DAY_NIGHT_DEFAULTS.cycleDuration,
 		paused: false,
+		// Editable copy of DAY_NIGHT_DEFAULTS.keyframes (sRGB colors).
+		keyframes: createDayNightPalette(),
+		skyGradientHeight: DAY_NIGHT_DEFAULTS.skyGradientHeight,
 	},
+	// Radial fog range in world units from the eye; DayNight applies it.
+	fog: { near: 200, far: 2100 },
 	amplitude: 32,
 	frequency: {
 		x: 0.5,
@@ -451,7 +463,68 @@ if (gui) {
 	dayNightFolder
 		.add(params.dayNight, 'cycleDuration', 10, 1200, 1)
 		.name('Cycle duration (s)')
-	dayNightFolder.add(params.dayNight, 'paused').name('Paused')
+	dayNightFolder.add(params.dayNight, 'paused').name('Paused').listen()
+
+	const skyFolder = gui.addFolder('Sky')
+	skyFolder
+		.add(params.dayNight, 'skyGradientHeight', 0.02, 1, 0.005)
+		.name('Gradient height (rad)')
+	skyFolder.add(params.fog, 'near', 0, 2000, 10).name('Fog near')
+	skyFolder.add(params.fog, 'far', 100, 3000, 10).name('Fog far')
+
+	// One folder per keyframe; Preview pauses the cycle on that keyframe.
+	const paletteFolder = skyFolder.addFolder('Palette')
+	const paletteColors = {
+		zenith: 'Zenith',
+		horizon: 'Horizon / fog',
+		atmosphere: 'Atmosphere',
+		sunColor: 'Sun',
+		moonColor: 'Moon',
+		ambientColor: 'Ambient',
+		trailTint: 'Trail tint',
+	}
+	const paletteScalars = {
+		sunIntensity: ['Sun intensity', 2],
+		moonIntensity: ['Moon intensity', 2],
+		ambientIntensity: ['Ambient intensity', 2],
+		stars: ['Stars', 1],
+	}
+	const paletteActions = {
+		copy() {
+			const json = JSON.stringify(
+				params.dayNight.keyframes,
+				(key, value) =>
+					typeof value === 'number' ? Math.round(value * 1000) / 1000 : value,
+				'\t',
+			)
+			console.log(json)
+			navigator.clipboard?.writeText(json).catch(() => {})
+		},
+		reset() {
+			DAY_NIGHT_DEFAULTS.keyframes.forEach((keyframe, index) =>
+				copyKeyframe(keyframe, params.dayNight.keyframes[index]),
+			)
+			for (const controller of paletteFolder.controllersRecursive()) {
+				controller.updateDisplay()
+			}
+		},
+	}
+	paletteFolder.add(paletteActions, 'copy').name('Copy palette JSON')
+	paletteFolder.add(paletteActions, 'reset').name('Reset palette')
+	for (const keyframe of params.dayNight.keyframes) {
+		const folder = paletteFolder.addFolder(
+			`${keyframe.name} (${keyframe.t.toFixed(2)})`,
+		)
+		folder
+			.add({ preview: () => dayNight.previewKeyframe(keyframe) }, 'preview')
+			.name('Preview')
+		for (const [field, label] of Object.entries(paletteColors)) {
+			folder.addColor(keyframe, field).name(label)
+		}
+		for (const [field, [label, max]] of Object.entries(paletteScalars)) {
+			folder.add(keyframe, field, 0, max, 0.01).name(label)
+		}
+	}
 
 	const toneMappingFolder = gui.addFolder('Tone mapping')
 	toneMappingFolder
@@ -817,8 +890,9 @@ scene.add(ambientLight, sunLight, moonLight)
 const timer = new THREE.Timer()
 timer.connect(document)
 
-// Fog and background colors follow the day/night horizon color.
-scene.fog = new THREE.Fog(0x000000, 250, 900)
+// Fog and background colors follow the day/night horizon color; radialFog.js
+// measures fog distance from the eye.
+scene.fog = new THREE.Fog(0x000000, params.fog.near, params.fog.far)
 scene.background = new THREE.Color()
 // scene.background = new THREE.Color('white')
 

@@ -7,6 +7,8 @@ uniform vec3 uMoonDirection;
 uniform float uStarVisibility;
 // sin() of the curved world's horizon dip below the horizontal.
 uniform float uHorizonDip;
+// Angular falloff of the gradient above the curved edge, in radians.
+uniform float uGradientHeight;
 varying vec3 vDirection;
 
 float hash(vec3 p) {
@@ -18,12 +20,14 @@ float hash(vec3 p) {
 void main() {
 	vec3 direction = normalize(vDirection);
 
-	// The gradient starts at the curved world's visible edge, not at y = 0.
-	// Below it stays at the horizon color, which fog also fades terrain into.
-	float horizonY = -uHorizonDip;
-	float height = clamp((direction.y - horizonY) / (1.0 - horizonY), 0.0, 1.0);
-	// Smooth start avoids a visible crease exactly at the horizon line.
-	vec3 color = mix(uHorizon, uZenith, smoothstep(0.0, 0.5, height));
+	// The gradient is a function of the elevation above the curved world's
+	// visible edge. Below the edge it stays at the horizon color, which fog
+	// also fades terrain into. An exponential falloff concentrates the change
+	// near the edge, where lines of equal elevation still follow its arc on
+	// screen; a wide gradient would read as flat horizontal bands.
+	float aboveEdge = max(asin(clamp(direction.y, -1.0, 1.0)) + asin(uHorizonDip), 0.0);
+	float height = 1.0 - exp(-aboveEdge / uGradientHeight);
+	vec3 color = mix(uHorizon, uZenith, height);
 
 	// Discs fade with their elevation above the dipped horizon; terrain covers
 	// anything below it.
@@ -53,7 +57,7 @@ void main() {
 		float star = step(0.985, seed);
 		float shape = smoothstep(0.3, 0.0, length(fract(cellPosition) - 0.5));
 		float twinkle = 0.65 + 0.35 * sin(uTime * 2.5 + seed * 200.0);
-		float horizonFade = smoothstep(0.0, 0.2, height);
+		float horizonFade = smoothstep(0.0, 0.1, aboveEdge);
 		color += vec3(star * shape * twinkle * horizonFade * uStarVisibility);
 	}
 

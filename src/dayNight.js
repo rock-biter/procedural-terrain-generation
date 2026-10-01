@@ -14,6 +14,7 @@ import {
 	DAY_NIGHT_DEFAULTS,
 	getDayNightState,
 	getHorizonDip,
+	getTimeOfDayForPaletteTime,
 } from './dayNightPolicy'
 import skyVertex from './shaders/sky.vert.glsl'
 import skyFragment from './shaders/sky.frag.glsl'
@@ -45,6 +46,12 @@ export default class DayNight {
 		this.moonLight = moonLight
 		this.uniforms = uniforms
 		this.params = params
+		const settings = params.dayNight
+		// params.dayNight.keyframes is edited live from the GUI.
+		this.options = {
+			...DAY_NIGHT_DEFAULTS,
+			keyframes: settings.keyframes,
+		}
 
 		this.skyUniforms = {
 			uTime: uniforms.uTime,
@@ -55,6 +62,7 @@ export default class DayNight {
 			uMoonDirection: { value: new Vector3() },
 			uStarVisibility: { value: 0 },
 			uHorizonDip: { value: 0 },
+			uGradientHeight: { value: settings.skyGradientHeight },
 		}
 
 		// The only ShaderMaterial in the scene: the sky is unlit and ignores fog.
@@ -93,12 +101,14 @@ export default class DayNight {
 
 		const state = getDayNightState(
 			settings.timeOfDay,
-			DAY_NIGHT_DEFAULTS,
+			this.options,
 			this.state,
 			dip,
 		)
 
 		setSRGB(this.scene.fog.color, state.horizon)
+		this.scene.fog.near = this.params.fog.near
+		this.scene.fog.far = this.params.fog.far
 		setSRGB(this.scene.background, state.horizon)
 		setSRGB(this.uniforms.uAtmosphere.value, state.atmosphere)
 
@@ -122,10 +132,26 @@ export default class DayNight {
 		this.skyUniforms.uMoonDirection.value.fromArray(state.moonDirection)
 		this.skyUniforms.uStarVisibility.value = state.stars
 		this.skyUniforms.uHorizonDip.value = Math.sin(dip)
+		this.skyUniforms.uGradientHeight.value = Math.max(
+			settings.skyGradientHeight,
+			0.001,
+		)
 
 		this.sky.position.copy(this.cameraPosition)
 
 		return state
+	}
+
+	// Pauses the cycle where the keyframe's colors apply unblended at the
+	// current camera height.
+	previewKeyframe(keyframe) {
+		const settings = this.params.dayNight
+		settings.paused = true
+		settings.timeOfDay = getTimeOfDayForPaletteTime(
+			keyframe.t,
+			this.state.horizonDip,
+			this.options.orbitTilt,
+		)
 	}
 
 	getStats() {
