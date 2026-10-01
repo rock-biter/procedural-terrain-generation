@@ -33,6 +33,11 @@ const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
 const TRAIL_LENGTH = 60
 const TRAIL_SEGMENTS = 30
+// Trail emission point in the airplane model's geometry units: the wings'
+// trailing edge at tip height (plane-toy.glb, tips at x = ±0.49). It follows
+// the model's pitch and roll; the stripes sit near the ribbon edges, at about
+// the tips with the default ribbon width.
+const TRAIL_ANCHOR = new Vector3(0, 0.014, 0.05)
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 35)
@@ -247,11 +252,11 @@ export default class Plane extends Object3D {
 
 	recordTrailPose() {
 		this.updateWorldMatrix(true, false)
+		// Also refreshes the model's world matrix for localToWorld() below.
 		this.model.getWorldQuaternion(this.trailQuaternion)
 		this.trailForward.set(0, 0, 1).applyQuaternion(this.quaternion)
 		this.trailWing.set(1, 0, 0).applyQuaternion(this.trailQuaternion)
-		this.trailCenter.copy(this.position).addScaledVector(this.trailForward, -1.2)
-		this.trailCenter.y -= 0.15
+		this.model.localToWorld(this.trailCenter.copy(TRAIL_ANCHOR))
 
 		getTrailWidths(
 			this.cursor.x,

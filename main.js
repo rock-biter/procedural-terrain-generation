@@ -44,9 +44,10 @@ import {
 	SCENERY_TYPE_KEYS,
 	createScenerySettings,
 } from './src/sceneryPlacement'
-import airplane from '/airplane/scene.gltf?url'
+import airplane from '/plane-toy/plane-toy.glb?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import gsap from 'gsap'
 import woodGrainSrc from './src/textures/white_oak/white_oak_veneer_diff_1k.jpg'
 
@@ -145,7 +146,8 @@ loaderManager.onStart = () => {
 	gsap.to(loadingEl, { autoAlpha: 1, duration: 0 })
 }
 
-const gltfLoader = new GLTFLoader(loaderManager)
+// plane-toy.glb is packed with gltfpack (EXT_meshopt_compression).
+const gltfLoader = new GLTFLoader(loaderManager).setMeshoptDecoder(MeshoptDecoder)
 const audioLoader = new THREE.AudioLoader(loaderManager)
 const textureLoader = new THREE.TextureLoader(loaderManager)
 
@@ -182,21 +184,22 @@ if (worldFeatures.boats) {
 	})
 }
 
+// The toy plane is authored nose toward +Z, wings along X, and wheels down,
+// which already matches the flight direction. It is scaled to this wingspan in
+// world units, the former airplane's, so the default trail stripes leave the
+// wing tips (see TRAIL_ANCHOR in src/plane.js).
+const AIRPLANE_WINGSPAN = 7.6
 gltfLoader.load(airplane, (gltf) => {
 	gltf.scene.traverse((el) => {
 		if (el instanceof THREE.Mesh) {
-			el.scale.setScalar(0.005)
 			el.geometry.center()
-			el.geometry.rotateX(-Math.PI * 0.5)
+			el.geometry.computeBoundingBox()
+			const { min, max } = el.geometry.boundingBox
+			el.scale.setScalar(AIRPLANE_WINGSPAN / (max.x - min.x))
 			el.name = 'plane'
 			assets.planeModel = el
-
-			// plane.model = el
-			// plane.add(el)
 		}
 	})
-
-	// console.log(gltf.scene)
 })
 
 /**

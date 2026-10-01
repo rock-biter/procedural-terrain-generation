@@ -231,6 +231,9 @@ export default class SceneryShadows {
 				return
 			}
 			this.placeCascade(cascade, config, index, plane)
+			// The airplane's shadow only matters near it; the far cascade skips
+			// its dense mesh.
+			if (this.airplane) this.airplane.visible = index === 0
 			const before = renderer.info.render.calls
 			renderer.setRenderTarget(cascade.target)
 			renderer.clear(false, true, false)

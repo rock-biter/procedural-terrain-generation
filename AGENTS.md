@@ -60,7 +60,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/clouds.js`](src/clouds.js) owns the dormant instanced cloud mesh.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
-- [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets; model license files must remain with their assets.
+- [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets.
 
 ## Project Rules
 
@@ -70,7 +70,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - Remember that `ChunkManager` currently tracks the `Plane` even though its constructor field and coordinate helper use camera terminology.
 - Reuse values in frame-sensitive code and avoid adding synchronous bulk work to the animation loop without profiling.
 - Keep DOM IDs synchronized between `index.html` and `main.js`, and keep audio playback behind a user interaction.
-- Preserve the CC BY 4.0 attribution files for the airplane and boat. Do not assume the project MIT license covers third-party assets.
+- Preserve the CC BY 4.0 attribution files for the former airplane and the boat. The player model is now `public/plane-toy/plane-toy.glb`, whose provenance is not yet recorded. Do not assume the project MIT license covers third-party assets.
 - Do not silently resolve unrelated known gaps while completing a focused task. Document intentional architectural changes in the same change.
 - Follow the documentation-sync workflow when commands, ownership, runtime behavior, shader contracts, assets, validation requirements, or any other documented contract change.
 

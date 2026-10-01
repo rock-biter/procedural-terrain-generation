@@ -8,7 +8,8 @@ This document inventories runtime assets and records the checks required when ad
 
 | Asset              | Path                                                                                | Runtime use                                  | License metadata                                                |
 | ------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------- |
-| Airplane model     | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`       | Player model loaded in `main.js`             | [`public/airplane/license.txt`](../public/airplane/license.txt) |
+| Toy airplane model | [`public/plane-toy/plane-toy.glb`](../public/plane-toy/plane-toy.glb)               | Player model loaded in `main.js`             | No provenance file in the repository; node and material names (`tripo_*`) suggest a Tripo AI generation |
+| Former airplane model | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`    | Not loaded since the toy airplane replaced it | [`public/airplane/license.txt`](../public/airplane/license.txt) |
 | Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Dormant while `worldFeatures.boats` is false | [`public/boat/license.txt`](../public/boat/license.txt)         |
 | Sea normal map     | [`src/textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg`](../src/textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg) | Sea layer of the terrain; dormant cloud material path | Naming and embedded metadata suggest Poly Haven; no provenance file in the repository |
 | Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Imported as the `fabric` option; no layer uses it by default | No dedicated provenance file in the repository                  |
@@ -21,9 +22,9 @@ Do not infer redistribution rights for an asset that lacks provenance metadata. 
 
 ## Required Model Attribution
 
-Both bundled models use CC BY 4.0 and require author credit:
+Both Sketchfab models in the repository use CC BY 4.0 and require author credit:
 
-- **Airplane** by TheTime1337, sourced from Sketchfab. Preserve the complete credit and links in `public/airplane/license.txt` wherever the model is shared.
+- **Airplane** by TheTime1337, sourced from Sketchfab. It is no longer loaded, but its files stay in the repository and are bundled from `public/`. Preserve the complete credit and links in `public/airplane/license.txt` wherever the model is shared.
 - **Boat** by Mario Libera, sourced from Sketchfab. Preserve the complete credit and links in `public/boat/license.txt` wherever the model is shared.
 
 Never delete, rename, or replace either license file without updating the corresponding asset and distribution attribution.
@@ -32,9 +33,15 @@ Never delete, rename, or replace either license file without updating the corres
 
 ### Airplane
 
-`main.js` imports `/airplane/scene.gltf?url` and loads it through the shared `GLTFLoader`. Every mesh found during traversal is scaled to `0.005`; its geometry is centered and rotated by `-PI / 2` around X. The selected mesh is stored as `assets.planeModel` and passed to `Plane`.
+`main.js` imports `/plane-toy/plane-toy.glb?url` and loads it through the shared `GLTFLoader`.
 
-Changing model hierarchy, pivot, units, or orientation can affect steering, camera composition, and trail alignment.
+- **File:** the GLB is packed with gltfpack and requires `EXT_meshopt_compression` and `KHR_mesh_quantization`, so the loader has `MeshoptDecoder` from `three/examples/jsm/libs/meshopt_decoder.module.js`.
+- **Contents:** one node with one mesh (about 126,000 vertices and 206,000 triangles) and one `MeshStandardMaterial` with embedded base color, ORM (roughness and metalness), and normal textures, about `4.2` MB in total.
+- **Orientation:** the model is authored nose toward +Z, wings along X, and wheels toward -Y, which already matches the flight direction, so it is not rotated.
+- **Transform:** the geometry is centered and the mesh is scaled uniformly so its X extent equals `AIRPLANE_WINGSPAN` (`7.6` world units, the former airplane's wingspan). The result is about `4.7` units long and `2.1` units tall.
+- **Use:** the mesh is stored as `assets.planeModel` and passed to `Plane`. `SceneryShadows` also draws it in the near shadow cascade.
+
+`TRAIL_ANCHOR` in `src/plane.js` is the trail emission point in the model's geometry units: the wings' trailing edge at tip height, `(0, 0.014, 0.05)`, where the tips reach `x = ±0.49`. With the default ribbon width the stripes leave the wing tips. Changing the model, its pivot, units, orientation, or `AIRPLANE_WINGSPAN` can affect steering, camera composition, and trail alignment; re-measure the anchor after a model change.
 
 ### Boat
 
@@ -73,6 +80,6 @@ Scenery (trees, cacti, rocks) has no model files. Its source meshes are built fr
 
 ## Open Questions
 
-- What are the source and redistribution terms for the soundtrack, `white_oak`, `olive_veneer`, and the other texture files without a provenance file?
+- What are the source and redistribution terms for `plane-toy.glb`, the soundtrack, `white_oak`, `olive_veneer`, and the other texture files without a provenance file?
 - Is `tessuto.jpg` intentionally reserved for future work or safe to remove?
 - Should model extraction use names instead of hierarchy indices?

@@ -506,7 +506,7 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Dependencies:** `FEAT-002` (light directions), `FEAT-003` (atlas, instance layout, baked depth), `FEAT-004` (near-mesh receivers). Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:** `src/sceneryShadows.js`, `src/shadowPolicy.js` with tests, the caster and receiver GLSL, `curvedLights.js`, terrain, impostor, and near-mesh materials, the frame loop, the GUI, and the stats.
 - **Performance budget:**
-  - GPU passes: about 5–25 instanced quad draws per rendered cascade plus one for the airplane, depth only.
+  - GPU passes: about 5–25 instanced quad draws per rendered cascade plus the airplane mesh in the near cascade only, depth only.
   - CPU: one loop over live chunks and a few matrix updates per frame, with no per-instance work and no per-frame allocation. `updateMs` was about `0.3` ms in headless Chrome.
   - Fragments: terrain samples 8 PCF taps near, 4 far, and at most 12 in the blend band (4/2 on mobile); scenery uses 4 (mesh) or 2 (impostor) taps. Pixels beyond the fade only pay a branch.
   - Memory: about `64` MB on desktop (two `2048²` depth targets and their required color attachments), a quarter on mobile.
