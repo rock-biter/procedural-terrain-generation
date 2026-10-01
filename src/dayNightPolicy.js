@@ -68,8 +68,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
 		name: 'Morning',
 		t: 0.36,
-		zenith: [0.22, 0.45, 0.85],
-		horizon: [0.65, 0.78, 0.92],
+		zenith: [0.1, 0.45, 1],
+		horizon: [0.58, 0.8, 1],
 		sunColor: [1, 0.95, 0.85],
 		sunIntensity: 1,
 		moonColor: [0.6, 0.7, 1],
@@ -84,8 +84,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
 		name: 'Noon',
 		t: 0.5,
-		zenith: [0.15, 0.4, 0.85],
-		horizon: [0.7, 0.82, 0.95],
+		zenith: [0.04, 0.42, 1],
+		horizon: [0.55, 0.8, 1],
 		sunColor: [1, 1, 0.97],
 		sunIntensity: 1.1,
 		moonColor: [0.6, 0.7, 1],
@@ -100,8 +100,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
 		name: 'Afternoon',
 		t: 0.64,
-		zenith: [0.2, 0.42, 0.82],
-		horizon: [0.72, 0.76, 0.86],
+		zenith: [0.08, 0.42, 0.98],
+		horizon: [0.62, 0.78, 0.96],
 		sunColor: [1, 0.92, 0.8],
 		sunIntensity: 1,
 		moonColor: [0.6, 0.7, 1],
