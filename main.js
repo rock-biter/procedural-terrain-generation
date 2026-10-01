@@ -34,6 +34,7 @@ import { createSceneryMeshSettings } from './src/sceneryMeshPolicy'
 import SceneryShadows, { createSceneryShadowUniforms } from './src/sceneryShadows'
 import { createSceneryShadowSettings } from './src/shadowPolicy'
 import { isDebugEnabled } from './src/debugPolicy'
+import { AIRPLANE_MODELS, getAirplaneModelKey } from './src/airplaneModels'
 import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
@@ -44,7 +45,6 @@ import {
 	SCENERY_TYPE_KEYS,
 	createScenerySettings,
 } from './src/sceneryPlacement'
-import airplane from '/plane-toy/plane-toy.glb?url'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
@@ -146,7 +146,7 @@ loaderManager.onStart = () => {
 	gsap.to(loadingEl, { autoAlpha: 1, duration: 0 })
 }
 
-// plane-toy.glb is packed with gltfpack (EXT_meshopt_compression).
+// The airplane GLBs are packed with gltfpack (EXT_meshopt_compression).
 const gltfLoader = new GLTFLoader(loaderManager).setMeshoptDecoder(MeshoptDecoder)
 const audioLoader = new THREE.AudioLoader(loaderManager)
 const textureLoader = new THREE.TextureLoader(loaderManager)
@@ -184,18 +184,18 @@ if (worldFeatures.boats) {
 	})
 }
 
-// The toy plane is authored nose toward +Z, wings along X, and wheels down,
-// which already matches the flight direction. It is scaled to this wingspan in
-// world units, the former airplane's, so the default trail stripes leave the
-// wing tips (see TRAIL_ANCHOR in src/plane.js).
-const AIRPLANE_WINGSPAN = 7.6
-gltfLoader.load(airplane, (gltf) => {
+// `?plane=toy` loads the monoplane; the biplane is the default. The geometry
+// is centered and turned so the nose points to +Z, then the mesh is scaled to
+// the model's wingspan (src/airplaneModels.js).
+const airplaneModel = AIRPLANE_MODELS[getAirplaneModelKey(urlParams)]
+gltfLoader.load(airplaneModel.path, (gltf) => {
 	gltf.scene.traverse((el) => {
 		if (el instanceof THREE.Mesh) {
 			el.geometry.center()
+			if (airplaneModel.rotationY) el.geometry.rotateY(airplaneModel.rotationY)
 			el.geometry.computeBoundingBox()
 			const { min, max } = el.geometry.boundingBox
-			el.scale.setScalar(AIRPLANE_WINGSPAN / (max.x - min.x))
+			el.scale.setScalar(airplaneModel.wingspan / (max.x - min.x))
 			el.name = 'plane'
 			assets.planeModel = el
 		}
@@ -862,7 +862,7 @@ function bakeImpostors() {
 }
 
 function init(assets) {
-	plane = new Plane(assets.planeModel, null, params, camera)
+	plane = new Plane(assets.planeModel, null, params, camera, airplaneModel)
 
 	if (worldFeatures.scenery) {
 		assets.impostorMaterial = createImpostorMaterial(

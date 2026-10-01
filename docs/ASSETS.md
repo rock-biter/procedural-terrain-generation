@@ -8,7 +8,8 @@ This document inventories runtime assets and records the checks required when ad
 
 | Asset              | Path                                                                                | Runtime use                                  | License metadata                                                |
 | ------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------- |
-| Toy airplane model | [`public/plane-toy/plane-toy.glb`](../public/plane-toy/plane-toy.glb)               | Player model loaded in `main.js`             | No provenance file in the repository; node and material names (`tripo_*`) suggest a Tripo AI generation |
+| Toy biplane model  | [`public/plane-toy/plane-toy-2.glb`](../public/plane-toy/plane-toy-2.glb)           | Default player model loaded in `main.js`     | No provenance file in the repository; node and material names (`tripo_*`) suggest a Tripo AI generation |
+| Toy monoplane model | [`public/plane-toy/plane-toy.glb`](../public/plane-toy/plane-toy.glb)              | Player model with `?plane=toy`               | No provenance file in the repository; node and material names (`tripo_*`) suggest a Tripo AI generation |
 | Former airplane model | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`    | Not loaded since the toy airplane replaced it | [`public/airplane/license.txt`](../public/airplane/license.txt) |
 | Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Dormant while `worldFeatures.boats` is false | [`public/boat/license.txt`](../public/boat/license.txt)         |
 | Sea normal map     | [`src/textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg`](../src/textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg) | Sea layer of the terrain; dormant cloud material path | Naming and embedded metadata suggest Poly Haven; no provenance file in the repository |
@@ -33,24 +34,32 @@ Never delete, rename, or replace either license file without updating the corres
 
 ### Airplane
 
-`main.js` imports `/plane-toy/plane-toy.glb?url` and loads it through the shared `GLTFLoader`.
+`main.js` loads the airplane picked by `?plane=<key>` from `AIRPLANE_MODELS` in [`src/airplaneModels.js`](../src/airplaneModels.js): the biplane by default, and `toy` for the monoplane. Unknown keys fall back to the default. Each entry holds the model's public `path`, its load transform, its trail anchor, and its propeller data.
 
-- **File:** the GLB is packed with gltfpack and requires `EXT_meshopt_compression` and `KHR_mesh_quantization`, so the loader has `MeshoptDecoder` from `three/examples/jsm/libs/meshopt_decoder.module.js`.
-- **Contents:** one node with one mesh (about 126,000 vertices and 206,000 triangles) and one `MeshStandardMaterial` with embedded base color, ORM (roughness and metalness), and normal textures, about `4.2` MB in total.
-- **Orientation:** the model is authored nose toward +Z, wings along X, and wheels toward -Y, which already matches the flight direction, so it is not rotated.
-- **Transform:** the geometry is centered and the mesh is scaled uniformly so its X extent equals `AIRPLANE_WINGSPAN` (`7.6` world units, the former airplane's wingspan). The result is about `4.7` units long and `2.1` units tall.
-- **Use:** the mesh is stored as `assets.planeModel` and passed to `Plane`. `SceneryShadows` also draws it in the near shadow cascade.
+- **File:** both GLBs are packed with gltfpack and require `EXT_meshopt_compression` and `KHR_mesh_quantization`, so the shared `GLTFLoader` has `MeshoptDecoder` from `three/examples/jsm/libs/meshopt_decoder.module.js`. Each holds one node with one mesh and one `MeshStandardMaterial` with embedded base color, ORM (roughness and metalness), and normal textures.
+- **Transform:** the geometry is centered, turned about Y by `rotationY` so the nose points to +Z with the wings along X and +Y up, and the mesh is scaled uniformly so its X extent equals `wingspan` (`7.6` world units for both). With the default ribbon width, that puts the trail stripes at the wing tips.
+- **Use:** the mesh is stored as `assets.planeModel` and passed to `Plane` with its `AIRPLANE_MODELS` entry. `SceneryShadows` also draws it in the near shadow cascade.
 
-`TRAIL_ANCHOR` in `src/plane.js` is the trail emission point in the model's geometry units: the wings' trailing edge at tip height, `(0, 0.014, 0.05)`, where the tips reach `x = ±0.49`. With the default ribbon width the stripes leave the wing tips. Changing the model, its pivot, units, orientation, or `AIRPLANE_WINGSPAN` can affect steering, camera composition, and trail alignment; re-measure the anchor after a model change.
+All measurements below are in geometry units after `center()` and `rotationY`. `trailAnchor` is the trail emission point, the trailing edge at the wing tips. The propeller is fused into each mesh, so it is selected as the set of UV charts that reach beyond `propeller.minZ` and turned about `propeller.axis` by the [propeller shader](RENDERING.md#airplane-propeller). Changing a model, its pivot, units, orientation, or `wingspan` can affect steering, camera composition, and trail alignment; re-measure its entry after a model change.
 
-The propeller is fused into the mesh. All measurements below are in geometry units after `center()`. They live in `src/plane.js` and are applied by the [propeller shader](RENDERING.md#airplane-propeller).
+**Biplane** ([`plane-toy-2.glb`](../public/plane-toy/plane-toy-2.glb), key `biplane`, default)
 
-- **Axis:** parallel to +Z through `(0, 0.0346)`, a circle fit of the spinner sections. The cowl is not coaxial: its center is about `(0, 0.022–0.026)`, which is why cowl vertices must not turn.
-- **Depth:** the nose cowl ends at `z = 0.2742`. The blades span about `0.2687`–`0.292`, the spinner tip reaches `0.305`, and the blades are about `0.135` long from the axis.
-- **Selection (`PROPELLER_MIN_Z`):** the propeller is the set of UV charts that reach beyond `0.28`: two blade charts, two blade-tip charts, and two spinner charts.
-- **Fused root and plugs:** the lower-right blade root is fused into the cowl face, which has no surface under it. Turning the blade opens a hole between radii `0.042` and `0.061` from the axis, at angles `-75°` to `-15°` from +X seen from the front, with its rim back to `z = 0.2536`. `COWL_PLUG` closes it from inside the cowl, with a ring sector at `z = 0.252`. Thin slits open around the spinner base, at radii `0.028`–`0.042` with the rim back to `z = 0.2437`, and `SPINNER_PLUG` closes them with a disc at `z = 0.243`.
+- **Contents:** about 105,000 vertices and 183,000 triangles, about `3.6` MB.
+- **Orientation:** authored with the nose toward +X, so `rotationY` is `-π/2`. Scaled, it is about `7.6` units long and `3.0` tall.
+- **Trails:** they leave the upper wing. Its tips reach `x = ±0.488` at heights `0.150`–`0.183`, and the trailing edge at the tip is at `z ≈ 0.148`, so `trailAnchor` is `(0, 0.166, 0.15)`. The lower wing is at about `y = -0.04`.
+- **Propeller:** the axis is parallel to +Z through `(-0.0005, 0.0406)`, from spinner circle fits. The cowl is not coaxial: its center is at `y ≈ 0.031`. The cowl charts end at `z = 0.4400`. The blades span about `0.438`–`0.461` and are about `0.18` long from the axis, and the spinner tip reaches `0.49`.
+- **Selection:** `minZ = 0.445` selects four blade charts and three spinner charts. A 90-vertex chart near the spinner base, ending at `z = 0.4424`, stays fixed. Turning leaves no openings, so the biplane has no plugs.
 
-A model with a separate propeller node would remove the mask and both plugs.
+**Monoplane** ([`plane-toy.glb`](../public/plane-toy/plane-toy.glb), key `toy`)
+
+- **Contents:** about 126,000 vertices and 206,000 triangles, about `4.2` MB.
+- **Orientation:** authored with the nose toward +Z, so `rotationY` is `0`. Scaled, it is about `4.7` units long and `2.1` tall.
+- **Trails:** the tips reach `x = ±0.49`, and `trailAnchor` is `(0, 0.014, 0.05)`.
+- **Propeller:** the axis is parallel to +Z through `(0, 0.0346)`. The cowl's center is at about `(0, 0.022–0.026)`. The cowl ends at `z = 0.2742`. The blades span about `0.2687`–`0.292` and are about `0.135` long from the axis, and the spinner tip reaches `0.305`.
+- **Selection:** `minZ = 0.28` selects two blade charts, two blade-tip charts, and two spinner charts.
+- **Fused root and plugs:** the lower-right blade root is fused into the cowl face, which has no surface under it. Turning the blade opens a hole between radii `0.042` and `0.061` from the axis, at angles `-75°` to `-15°` from +X seen from the front, with its rim back to `z = 0.2536`. A ring sector plug at `z = 0.252` (radii `0.03`–`0.062`, `-120°` to `+10°`) closes it from inside the cowl. Thin slits open around the spinner base, at radii `0.028`–`0.042` with the rim back to `z = 0.2437`, and a disc plug at `z = 0.243` (radius `0.043`) closes them.
+
+A model with a separate propeller node would need neither the mask nor plugs.
 
 ### Boat
 
@@ -89,6 +98,6 @@ Scenery (trees, cacti, rocks) has no model files. Its source meshes are built fr
 
 ## Open Questions
 
-- What are the source and redistribution terms for `plane-toy.glb`, the soundtrack, `white_oak`, `olive_veneer`, and the other texture files without a provenance file?
+- What are the source and redistribution terms for `plane-toy.glb`, `plane-toy-2.glb`, the soundtrack, `white_oak`, `olive_veneer`, and the other texture files without a provenance file?
 - Is `tessuto.jpg` intentionally reserved for future work or safe to remove?
 - Should model extraction use names instead of hierarchy indices?

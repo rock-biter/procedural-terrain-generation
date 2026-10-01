@@ -38,35 +38,9 @@ const V3 = new Vector3(0, 0, 0)
 const isMobile = window.innerWidth < 768
 const TRAIL_LENGTH = 60
 const TRAIL_SEGMENTS = 30
-// Trail emission point in the airplane model's geometry units: the wings'
-// trailing edge at tip height (plane-toy.glb, tips at x = ±0.49). It follows
-// the model's pitch and roll; the stripes sit near the ribbon edges, at about
-// the tips with the default ribbon width.
-const TRAIL_ANCHOR = new Vector3(0, 0.014, 0.05)
-// Propeller of plane-toy.glb in the same units: its axis (parallel to +Z)
-// passes through this XY point, and its UV charts are the only ones that
-// reach beyond this Z (the cowl stops at 0.2742).
-const PROPELLER_AXIS = new Vector2(0, 0.0346)
-const PROPELLER_MIN_Z = 0.28
-// The lower-right blade root is fused into the cowl face, which has no
-// surface under it: turning the blade opens a hole between radii 0.042 and
-// 0.061 from the axis and angles -75° to -15° (from +X, seen from the front),
-// whose rim reaches back to z 0.2536. This ring sector sits just behind it and
-// inside the cowl, wider than the hole so oblique views through it are closed
-// too, and shows only through that hole, as a dark recess matching the gap
-// between the spinner and the cowl.
-const COWL_PLUG = Object.freeze({
-	innerRadius: 0.03,
-	outerRadius: 0.062,
-	thetaStart: MathUtils.degToRad(-120),
-	thetaLength: MathUtils.degToRad(130),
-	z: 0.252,
-	color: '#3b291c',
-})
-// The spinner base is not perfectly round, so turning it opens thin slits
-// into the cowl opening (radii 0.028 to 0.042, rim back to z 0.2437). This
-// disc closes the opening's floor behind the spinner, in the same color.
-const SPINNER_PLUG = Object.freeze({ radius: 0.043, z: 0.243 })
+// Dark plugs inside the cowl (AIRPLANE_MODELS[*].propeller.plugs), matching
+// the gap between the spinner and the cowl.
+const PROPELLER_PLUG_COLOR = '#3b291c'
 
 export default class Plane extends Object3D {
 	velocity = new Vector3(0, 0, 35)
@@ -94,7 +68,9 @@ export default class Plane extends Object3D {
 		uAcceleration: { value: 0 },
 	}
 
-	constructor(airplane, noise, params, camera) {
+	// `modelConfig` is the airplane's entry in AIRPLANE_MODELS
+	// (src/airplaneModels.js): trail anchor and propeller data.
+	constructor(airplane, noise, params, camera, modelConfig) {
 		// const geometry = new BoxGeometry(1, 1, 1)
 		// const material = new MeshNormalMaterial()
 
@@ -104,6 +80,8 @@ export default class Plane extends Object3D {
 		this.noise = noise
 		this.params = params
 		this.model = airplane
+		this.modelConfig = modelConfig
+		this.trailAnchor = new Vector3().fromArray(modelConfig.trailAnchor)
 		this.add(airplane)
 		camera && this.addCamera(camera)
 		this.addTrails()
@@ -273,12 +251,14 @@ export default class Plane extends Object3D {
 		const position = geometry.attributes.position
 		const zValues = new Float32Array(position.count)
 		for (let i = 0; i < position.count; i++) zValues[i] = position.getZ(i)
-		const mask = getPropellerMask(zValues, geometry.index.array, PROPELLER_MIN_Z)
+		const { propeller } = this.modelConfig
+		const axis = new Vector2().fromArray(propeller.axis)
+		const mask = getPropellerMask(zValues, geometry.index.array, propeller.minZ)
 		// Not normalized: the bytes 0 and 1 reach the shader as 0.0 and 1.0.
 		geometry.setAttribute('propeller', new BufferAttribute(mask, 1))
 		this.propellerUniforms = {
 			uPropellerAngle: { value: 0 },
-			uPropellerAxis: { value: PROPELLER_AXIS },
+			uPropellerAxis: { value: axis },
 		}
 		material.onBeforeCompile = (shader) => {
 			Object.assign(shader.uniforms, this.propellerUniforms)
@@ -300,28 +280,28 @@ export default class Plane extends Object3D {
 		}
 		material.needsUpdate = true
 
+		if (propeller.plugs.length === 0) return
 		const plugMaterial = new MeshStandardMaterial({
-			color: COWL_PLUG.color,
+			color: PROPELLER_PLUG_COLOR,
 			roughness: 1,
 			metalness: 0,
 		})
-		const cowlPlug = new Mesh(
-			new RingGeometry(
-				COWL_PLUG.innerRadius,
-				COWL_PLUG.outerRadius,
-				16,
-				1,
-				COWL_PLUG.thetaStart,
-				COWL_PLUG.thetaLength,
-			),
-			plugMaterial,
-		)
-		cowlPlug.name = 'cowl-plug'
-		cowlPlug.position.set(PROPELLER_AXIS.x, PROPELLER_AXIS.y, COWL_PLUG.z)
-		const spinnerPlug = new Mesh(new CircleGeometry(SPINNER_PLUG.radius, 32), plugMaterial)
-		spinnerPlug.name = 'spinner-plug'
-		spinnerPlug.position.set(PROPELLER_AXIS.x, PROPELLER_AXIS.y, SPINNER_PLUG.z)
-		this.model.add(cowlPlug, spinnerPlug)
+		for (const plug of propeller.plugs) {
+			const plugGeometry = plug.radius === undefined
+				? new RingGeometry(
+					plug.innerRadius,
+					plug.outerRadius,
+					16,
+					1,
+					MathUtils.degToRad(plug.thetaStart),
+					MathUtils.degToRad(plug.thetaLength),
+				)
+				: new CircleGeometry(plug.radius, 32)
+			const mesh = new Mesh(plugGeometry, plugMaterial)
+			mesh.name = 'propeller-plug'
+			mesh.position.set(axis.x, axis.y, plug.z)
+			this.model.add(mesh)
+		}
 	}
 
 	updatePropeller(dt) {
@@ -350,7 +330,7 @@ export default class Plane extends Object3D {
 		this.model.getWorldQuaternion(this.trailQuaternion)
 		this.trailForward.set(0, 0, 1).applyQuaternion(this.quaternion)
 		this.trailWing.set(1, 0, 0).applyQuaternion(this.trailQuaternion)
-		this.model.localToWorld(this.trailCenter.copy(TRAIL_ANCHOR))
+		this.model.localToWorld(this.trailCenter.copy(this.trailAnchor))
 
 		getTrailWidths(
 			this.cursor.x,

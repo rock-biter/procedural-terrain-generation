@@ -35,7 +35,7 @@ Importing `main.js` performs the following work:
 
 1. Resolve the loader, progress, play, and sound-toggle elements from `index.html`.
 2. Create the shared `assets`, `params`, and `uniforms` objects.
-3. Start loading the soundtrack, the airplane model, and (with scenery enabled) the wood-grain detail texture through a shared `THREE.LoadingManager`. The terrain normal maps load independently through `src/terrainNormals.js`; the boat request is skipped while its feature flag is disabled.
+3. Start loading the soundtrack, the airplane model picked by `?plane=` from `AIRPLANE_MODELS`, and (with scenery enabled) the wood-grain detail texture through a shared `THREE.LoadingManager`. The terrain normal maps load independently through `src/terrainNormals.js`; the boat request is skipped while its feature flag is disabled.
 4. Create the scene, camera, renderer, post-processing pipeline, lights, fog, timer, and `DayNight` (which adds the sky dome and applies the starting time of day) while those asynchronous requests are in flight.
 5. When the loading manager completes, fade out the loader and call `init(assets)`.
 6. `init()` creates `Plane`, bakes the impostor atlas, creates the shared impostor material, and creates `SceneryMeshes` (added to the scene) when `worldFeatures.scenery` is enabled, creates `SceneryShadows` (with the impostor caster only when scenery is enabled) and registers the airplane mesh as a caster, creates `ChunkManager`, gives the plane a world-height sampler backed by the manager's seeded terrain noise, places the plane and its world-space trail mesh in the scene, creates `FlightPauseDebug` when `?debug=1` is set, and schedules `tic()`.
