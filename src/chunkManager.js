@@ -370,6 +370,18 @@ export default class ChunkManager {
 		this.disposed++
 	}
 
+	// Replaces the world seed: terrain noise, biome offset (CPU and the shared
+	// uBiomeOffset uniform), and scenery placement all follow it. Every desired
+	// chunk is regenerated; in-flight results for the old seed become stale.
+	setSeed(seed) {
+		if (seed === this.seed) return
+
+		this.seed = seed
+		this.biomeOffset = createBiomeOffset(seed)
+		this.uniforms.uBiomeOffset.value.fromArray(this.biomeOffset)
+		this.onParamsChange()
+	}
+
 	onParamsChange(LOD) {
 		this.revision++
 		this.noise = createTerrainNoises(this.seed, this.params.octaves)

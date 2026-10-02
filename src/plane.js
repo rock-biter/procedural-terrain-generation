@@ -466,6 +466,14 @@ export default class Plane extends Object3D {
 		this.terrainSampler = sampleHeight
 	}
 
+	// Forgets the smoothed terrain corridor after the terrain changes under the
+	// plane (a new world seed), so the altitude jump does not trigger a brake.
+	resetTerrainState() {
+		this.smoothedMinimumAltitude = null
+		this.terrainBrakeEffect = 0
+		this.terrainSlowdown = 0
+	}
+
 	updateAltitude(dt) {
 		if (!this.terrainSampler) return
 

@@ -34,6 +34,21 @@ export const SCENERY_MESH_MIN_BAND = 1
 // Initial instances per type before the first buffer growth.
 export const SCENERY_MESH_INITIAL_CAPACITY = 128
 
+// Debug wireframe overlay (src/impostors/sceneryWireframe.js), off by default.
+// Colors are sRGB hex: one per near-mesh LOD, then the impostor quads.
+export const SCENERY_WIREFRAME_COLORS = Object.freeze({
+	meshes: Object.freeze([0xff4d4d, 0xffd23f]),
+	impostor: 0x3fd5ff,
+})
+
+export function createSceneryWireframeSettings() {
+	return {
+		enabled: false,
+		meshColors: [...SCENERY_WIREFRAME_COLORS.meshes],
+		impostorColor: SCENERY_WIREFRAME_COLORS.impostor,
+	}
+}
+
 export function createSceneryMeshSettings({ isMobile = false } = {}) {
 	const range = isMobile ? SCENERY_MESH_RANGES.mobile : SCENERY_MESH_RANGES.desktop
 	return { enabled: true, ...range }

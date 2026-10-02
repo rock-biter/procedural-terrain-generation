@@ -73,6 +73,7 @@ Scene materials other than the sky dome do not use `ShaderMaterial`. They start 
 | Boats                     | [`src/chunk.js`](../src/chunk.js)   | Materials from the glTF model      | `common`, `project_vertex`                                           |
 | Scenery impostors         | [`src/impostors/impostorMaterial.js`](../src/impostors/impostorMaterial.js) | `MeshStandardMaterial` (`alphaTest`, `alphaToCoverage`) | `common`, `project_vertex`, `color_fragment`, `normal_fragment_begin`, `lights_fragment_begin` |
 | Near scenery meshes       | [`src/impostors/sceneryMeshes.js`](../src/impostors/sceneryMeshes.js) | `MeshStandardMaterial` (`vertexColors`), one per level of detail | `common`, `beginnormal_vertex`, `project_vertex`, `color_fragment`, `lights_fragment_begin` |
+| Scenery wireframe overlay | [`src/impostors/sceneryWireframe.js`](../src/impostors/sceneryWireframe.js) | A wireframe twin of the impostor or near-mesh material | The twin's replacements, plus `opaque_fragment` |
 | Clouds                    | [`src/clouds.js`](../src/clouds.js) | Transparent `MeshStandardMaterial` | `common`, `project_vertex`, `color_fragment`, `normal_fragment_maps` |
 | Airplane                  | [`src/plane.js`](../src/plane.js)   | `MeshStandardMaterial` from the airplane GLB | `common`, `beginnormal_vertex`, `begin_vertex` (propeller rotation) |
 | Plane trails              | [`src/plane.js`](../src/plane.js)   | Transparent `MeshBasicMaterial`    | `common`, `project_vertex`, `color_fragment`                         |
@@ -195,7 +196,17 @@ Close to the eye, scenery instances are drawn as their real source meshes in two
   - It tests each instance's curved bounding sphere against the camera frustum at most once, then appends it to every level whose window holds it. Instances in the LOD band go to both levels.
   - Per-type arrays double when full and are otherwise reused, and only the used range is uploaded.
   - The windows cover every distance where a level has a share, and the GPU computes the fades from the same eye, so every visible pixel share has its mesh.
+- **Wireframe overlay:** see [Scenery Wireframe Overlay](#scenery-wireframe-overlay).
 - **Stats:** `window.__INFINITE_WORLD__.getSceneryMeshStats()` reports `enabled`, `range`, `lodRange`, `instances`, `triangles`, `drawCalls`, and `updateMs`. Under `levels`, it reports for each level its `window`, `instances`, and `triangles`, and per type `instances`, `capacity`, `reallocations`, and `sourceTriangles`.
+
+### Scenery Wireframe Overlay
+
+A debug view that outlines the scenery triangles in one flat color per level of detail. [`src/impostors/sceneryWireframe.js`](../src/impostors/sceneryWireframe.js) owns the material patch; `params.sceneryWireframe` (`createSceneryWireframeSettings()` in [`src/sceneryMeshPolicy.js`](../src/sceneryMeshPolicy.js)) holds `enabled` (default `false`), `meshColors` (LOD 0 `#ff4d4d`, LOD 1 `#ffd23f`), and `impostorColor` (`#3fd5ff`).
+
+- **Twins:** every near-mesh level has a second material from the same `createMaterial()`, and `createImpostorWireframeMaterial()` builds one from the impostor material. Each twin draws a mesh that shares its solid mesh's geometry with `wireframe: true` and `renderOrder` `1`. The impostor twin is a child of each chunk's scenery mesh and shares the impostor's `impostorUniforms`, so a re-bake reaches both; it never owns the atlas. Near-mesh twins follow their solid mesh's visibility every frame.
+- **Shader:** `makeSceneryWireframeMaterial()` adds the `SCENERY_WIREFRAME` define (the twins share their solid material's `onBeforeCompile` source, so without it they would reuse its program), drops the impostor's `alphaTest` and `alphaToCoverage` so quad edges are not discarded, and stores the `uSceneryWireframeColor` uniform. `patchSceneryWireframeShader()` inserts [`scenery-wireframe-fragment.glsl`](../src/shaders/scenery-wireframe-fragment.glsl) after `opaque_fragment`: the flat color replaces the shaded one (fog and tone mapping still apply), and the logarithmic depth moves `1e-5` toward the eye so edges do not z-fight their own surface.
+- **Coverage:** the twins keep the vertex collapse and the dither discard, so in each cross-fade band an edge pixel shows only the level that draws it, and the dither breaks the lines into dots.
+- **Toggle:** `setSceneryWireframe()` sets the twin material's `visible` and color. Hidden materials are skipped by the renderer, so the disabled overlay costs only the twins' scene traversal and the impostor twins' frustum tests. The GUI and `SceneryMeshes.applyWireframe()` apply changes live.
 
 ### Scenery Shadows
 
@@ -269,7 +280,7 @@ Both toy airplanes have the propeller fused into their single mesh, so `Plane.ad
 - `main.js` creates `uAtmosphere` in the shared uniform object; `DayNight` writes it in its constructor (before the first compile) and on every frame after `uCamera`.
 - `main.js` creates `uCurvature` in the shared uniform object from `CURVATURE` in `src/chunk.js`, the same constant used by the CPU curvature helper. Do not recreate it per chunk: materials that compile before the first chunk exists read it immediately.
 - Biome colors are initialized from `params.colors`; the disabled GUI can mutate them.
-- `uBiomeOffset` is set once from the world seed and never changes at runtime.
+- `uBiomeOffset` is derived from the world seed. `ChunkManager.setSeed()` rewrites it in place when the `?gui=1` **World** folder changes the seed. Before `init()`, `main.js` writes it directly.
 - `uTerrainNormalFade` holds the fade start and end distances from `params.terrainNormals.fade`; `updateTerrainNormalUniforms()` keeps the end at least `1` unit past the start, because `smoothstep()` is undefined otherwise.
 - `uTerrainNormalMaps`, `uTerrainNormalScale`, `uTerrainNormalStrength`, and `uTerrainNormalRotation` (the `(cos, sin)` of each layer's rotation, computed on the CPU) are arrays indexed by `TERRAIN_BANDS` in [`src/terrainNormals.js`](../src/terrainNormals.js). `main.js` adds them to the shared uniform object from `params.terrainNormals`. The **Terrain > Normal maps** GUI calls `updateTerrainNormalUniforms()`, which writes the values in place. `uTerrainNormalStrength` is a `vec2` per layer, and its Y includes the texture's `invertGreen` sign.
 - The impostor material adds its own atlas uniforms (`uImpostorAlbedo`, `uImpostorNormal`, and `uImpostorTypes` with per-type frame radius and center height) next to the shared uniforms at compile time.
@@ -287,7 +298,7 @@ Do not replace the shared uniform wrapper objects each frame. Update their `.val
 - The material's `normalMap` is the sea layer's texture. It only enables Three's tangent-space path; the terrain shader samples `uTerrainNormalMaps` instead, and `normalScale` is unused.
 - When enabled, clouds receive the sea layer's normal map after construction.
 - Terrain and cloud materials are module-level shared instances. Their shader hooks and mutable properties therefore affect every instance using that material.
-- The impostor material is created once in `init()` and shared through `assets.impostorMaterial`. It owns the atlas render target. Chunks dispose only their own scenery geometry.
+- The impostor material is created once in `init()` and shared through `assets.impostorMaterial`. It owns the atlas render target. Its wireframe twin, `assets.impostorWireframeMaterial`, shares those uniforms without owning them. Chunks dispose only their own scenery geometry.
 - Boats originate from cloned glTF scene nodes; verify whether geometry and material resources remain shared before disposing or mutating them.
 
 See [Assets](ASSETS.md) for load paths, transforms, and licensing.

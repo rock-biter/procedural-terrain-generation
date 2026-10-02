@@ -8,11 +8,14 @@ import {
 import {
 	SCENERY_MESH_DISABLED_RANGE,
 	SCENERY_MESH_RANGES,
+	SCENERY_MESH_LOD_COUNT,
 	SCENERY_MESH_SELECTION_MARGIN,
+	SCENERY_WIREFRAME_COLORS,
 	appendNearSceneryInstances,
 	chunkIntersectsSelection,
 	createSceneryBuckets,
 	createSceneryMeshSettings,
+	createSceneryWireframeSettings,
 	ensureSceneryBucketCapacity,
 	getSceneryLodFade,
 	getSceneryMeshFade,
@@ -50,6 +53,17 @@ test('uses nearer bands on mobile and puts the LOD band inside the mesh range', 
 		assert.ok(range.start < range.end)
 	}
 	assert.ok(SCENERY_MESH_RANGES.mobile.end < SCENERY_MESH_RANGES.desktop.end)
+})
+
+test('wireframe starts off with a distinct color per mesh LOD and the impostor', () => {
+	const settings = createSceneryWireframeSettings()
+	assert.equal(settings.enabled, false)
+	assert.equal(settings.meshColors.length, SCENERY_MESH_LOD_COUNT)
+	const colors = [...settings.meshColors, settings.impostorColor]
+	assert.equal(new Set(colors).size, colors.length)
+	// Each call returns its own editable copy of the defaults.
+	settings.meshColors[0] = 0
+	assert.equal(createSceneryWireframeSettings().meshColors[0], SCENERY_WIREFRAME_COLORS.meshes[0])
 })
 
 test('fade is 1 inside the band start and 0 beyond its end', () => {

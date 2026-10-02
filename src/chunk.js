@@ -175,6 +175,7 @@ export default class Chunk extends Mesh {
 			instances,
 			this.assets.impostorMaterial,
 			this.size * 0.75 + 40,
+			this.assets.impostorWireframeMaterial,
 		)
 		this.add(this.scenery)
 	}

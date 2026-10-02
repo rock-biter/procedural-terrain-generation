@@ -23,6 +23,7 @@ import {
 import { bakeImpostorAtlas } from './src/impostors/impostorBaker'
 import {
 	createImpostorMaterial,
+	createImpostorWireframeMaterial,
 	setImpostorAtlas,
 } from './src/impostors/impostorMaterial'
 import {
@@ -30,10 +31,19 @@ import {
 	IMPOSTOR_FRAMES_MOBILE,
 } from './src/impostors/impostorTypes'
 import SceneryMeshes from './src/impostors/sceneryMeshes'
-import { createSceneryMeshSettings } from './src/sceneryMeshPolicy'
+import { setSceneryWireframe } from './src/impostors/sceneryWireframe'
+import {
+	createSceneryMeshSettings,
+	createSceneryWireframeSettings,
+} from './src/sceneryMeshPolicy'
 import SceneryShadows, { createSceneryShadowUniforms } from './src/sceneryShadows'
 import { createSceneryShadowSettings } from './src/shadowPolicy'
 import { isDebugEnabled } from './src/debugPolicy'
+import {
+	createRandomSeed,
+	normalizeWorldSeed,
+	parseWorldSeed,
+} from './src/worldSeed'
 import { AIRPLANE_MODELS, getAirplaneModelKey } from './src/airplaneModels'
 import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
@@ -59,7 +69,8 @@ const cameraTarget = new THREE.Vector3(0, 6.9, 0)
 let volume = true
 const isMobile = window.innerWidth < 768
 const urlParams = new URLSearchParams(window.location.search)
-const worldSeed = urlParams.get('seed') ?? `${Date.now()}-${Math.random()}`
+// Replaced at runtime by the ?gui=1 World folder through applyWorldSeed().
+let worldSeed = parseWorldSeed(urlParams) ?? createRandomSeed()
 const worldFeatures = Object.freeze({
 	scenery: true,
 	clouds: false,
@@ -74,6 +85,7 @@ const assets = {
 	planeModel: null,
 	boatModel: null,
 	impostorMaterial: null,
+	impostorWireframeMaterial: null,
 	woodTexture: null,
 	soundtrack: null,
 }
@@ -287,6 +299,9 @@ const params = {
 	// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
 	// beyond `end`, with dithered cross-fades inside each band.
 	sceneryMeshes: createSceneryMeshSettings({ isMobile }),
+	// Debug overlay outlining scenery triangles in one color per level of
+	// detail: LOD 0 mesh, LOD 1 mesh, impostor quad.
+	sceneryWireframe: createSceneryWireframeSettings(),
 	// Soft shadows of scenery and the airplane on terrain and scenery, in two
 	// cascades that fade out with distance; see createSceneryShadowSettings().
 	shadows: createSceneryShadowSettings({ isMobile }),
@@ -343,6 +358,14 @@ function updateImpostorVariation() {
 	impostorVariation.frequency.value = params.impostorVariation.frequency
 }
 updateImpostorVariation()
+// Shows or recolors the debug wireframe on the near meshes and impostors.
+function applySceneryWireframe() {
+	sceneryMeshes?.applyWireframe()
+	const { enabled, impostorColor } = params.sceneryWireframe
+	if (assets.impostorWireframeMaterial) {
+		setSceneryWireframe(assets.impostorWireframeMaterial, enabled, impostorColor)
+	}
+}
 // Wood detail shared by the near meshes; the bake reads params.impostorDetail.
 // The texture is assigned in init().
 const sceneryDetail = {
@@ -352,6 +375,27 @@ const sceneryDetail = {
 }
 
 if (gui) {
+	const worldSettings = {
+		seed: worldSeed,
+		randomSeed() {
+			worldSettings.seed = createRandomSeed()
+			applyWorldSeed(worldSettings.seed)
+			seedController.updateDisplay()
+		},
+	}
+	const worldFolder = gui.addFolder('World')
+	const seedController = worldFolder
+		.add(worldSettings, 'seed')
+		.name('Seed')
+		.onFinishChange((value) => {
+			const seed = normalizeWorldSeed(value)
+			// A blank value restores the current seed.
+			worldSettings.seed = seed ?? worldSeed
+			seedController.updateDisplay()
+			if (seed) applyWorldSeed(seed)
+		})
+	worldFolder.add(worldSettings, 'randomSeed').name('Random seed')
+
 	const terrainFolder = gui.addFolder('Terrain')
 	terrainFolder.addColor(params.colors, 'uGrass').onChange((val) => {
 		uniforms.uGrass.value.set(val)
@@ -637,6 +681,22 @@ if (gui) {
 		.add(params.impostorDetail, 'color', 0, 1, 0.01)
 		.name('Color strength')
 		.onFinishChange(rebakeImpostors)
+	const wireframeSettings = params.sceneryWireframe
+	const wireframeFolder = sceneryFolder.addFolder('Wireframe')
+	wireframeFolder
+		.add(wireframeSettings, 'enabled')
+		.name('Show wireframe')
+		.onChange(applySceneryWireframe)
+	wireframeSettings.meshColors.forEach((_, lod) =>
+		wireframeFolder
+			.addColor(wireframeSettings.meshColors, lod)
+			.name(`LOD ${lod} mesh`)
+			.onChange(applySceneryWireframe),
+	)
+	wireframeFolder
+		.addColor(wireframeSettings, 'impostorColor')
+		.name('Impostor')
+		.onChange(applySceneryWireframe)
 	// Live: only the shader band and the CPU selection radius change.
 	const updateSceneryMeshes = () => sceneryMeshes?.applySettings()
 	const meshFolder = sceneryFolder.addFolder('Near meshes')
@@ -852,6 +912,35 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getShadowStats: () => sceneryShadows?.getStats() ?? null,
 })
 
+// Height above the terrain (or the sea) the airplane starts at, and the floor
+// it is lifted to when a new seed raises the ground under it.
+function getSpawnAltitude(x, z) {
+	return (
+		Math.max(
+			getHeight(x, z, chunkManager.noise, params, chunkManager.biomeOffset),
+			0,
+		) + 60
+	)
+}
+
+// Switches the world to a new seed: terrain noise, biomes (CPU and shader),
+// and scenery regenerate around the airplane. Before init() only the seed and
+// the biome uniform change; ChunkManager is then created with the new seed.
+function applyWorldSeed(seed) {
+	if (seed === worldSeed) return
+	worldSeed = seed
+
+	if (!chunkManager) {
+		uniforms.uBiomeOffset.value.fromArray(createBiomeOffset(seed))
+		return
+	}
+
+	chunkManager.setSeed(seed)
+	const floor = getSpawnAltitude(plane.position.x, plane.position.z)
+	if (plane.position.y < floor) plane.position.y = floor
+	plane.resetTerrainState()
+}
+
 // Bakes every scenery type into the impostor atlas, with the wood detail.
 function bakeImpostors() {
 	return bakeImpostorAtlas(renderer, {
@@ -874,15 +963,21 @@ function init(assets) {
 				shadowTaps: params.shadows.taps.impostor,
 			},
 		)
+		assets.impostorWireframeMaterial = createImpostorWireframeMaterial(
+			assets.impostorMaterial,
+			params.sceneryWireframe.impostorColor,
+		)
 		sceneryDetail.uDetail.value = assets.woodTexture
 		sceneryMeshes = new SceneryMeshes({
 			uniforms,
 			variation: impostorVariation,
 			detail: sceneryDetail,
 			settings: params.sceneryMeshes,
+			wireframe: params.sceneryWireframe,
 			shadowTaps: params.shadows.taps.mesh,
 		})
 		scene.add(sceneryMeshes)
+		applySceneryWireframe()
 	}
 
 	// Without scenery only the airplane casts shadows.
@@ -913,11 +1008,7 @@ function init(assets) {
 	 * Plane
 	 */
 
-	plane.position.y =
-		Math.max(
-			getHeight(0, 0, chunkManager.noise, params, chunkManager.biomeOffset),
-			0,
-		) + 60
+	plane.position.y = getSpawnAltitude(0, 0)
 	scene.add(plane)
 	scene.add(plane.trails)
 	if (debugFeatures.terrainSamples) {

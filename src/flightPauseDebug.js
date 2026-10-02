@@ -37,7 +37,9 @@ export default class FlightPauseDebug {
 		if (!this.controls) {
 			this.controls = new OrbitControls(this.camera, this.domElement)
 			this.controls.enableDamping = true
-			this.controls.screenSpacePanning = true
+			// Map-style pan: drag across the horizontal world plane (orthogonal
+			// to camera.up), so panning never changes the camera height.
+			this.controls.screenSpacePanning = false
 			this.controls.minDistance = 2
 			// Keep the orbit inside the fog range so the loaded terrain stays readable.
 			this.controls.maxDistance = 600

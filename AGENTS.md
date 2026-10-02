@@ -49,8 +49,9 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
 - [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
 - [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.
+- [`src/worldSeed.js`](src/worldSeed.js) owns the pure `?seed=` parsing, GUI seed normalization, and the random fallback seed; `ChunkManager.setSeed()` applies a runtime seed change from the `?gui=1` **World** folder.
 - [`src/biome.js`](src/biome.js) owns the seeded CPU twin of the shader biome field; [`src/sceneryPlacement.js`](src/sceneryPlacement.js) owns deterministic scenery placement, run in the chunk worker.
-- [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, per-chunk quad meshes, and the two-level near scenery meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk and its scenery-shadow variant.
+- [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, per-chunk quad meshes, the two-level near scenery meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)), and the per-LOD debug wireframe overlay (`sceneryWireframe.js`); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk and its scenery-shadow variant.
 - [`src/sceneryShadows.js`](src/sceneryShadows.js) owns the soft scenery and airplane shadows: two light-aligned depth cascades, impostor and airplane casters, and the receiver uniforms; [`src/shadowPolicy.js`](src/shadowPolicy.js) owns the pure light selection, cascade bounds, snapping, scheduling, and defaults.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, trails, and the shader-driven propeller rotation; [`src/propellerMask.js`](src/propellerMask.js) owns the pure selection of the propeller's UV charts in the fused airplane mesh; [`src/airplaneModels.js`](src/airplaneModels.js) owns the per-model data (path, load transform, trail anchor, propeller axis, threshold, plugs) and the `?plane=` choice.
 - [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
@@ -78,7 +79,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, biome, octahedral-mapping, scenery-placement, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

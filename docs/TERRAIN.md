@@ -35,7 +35,14 @@ The desert is lower and softer than the temperate biome, while the large-scale s
 - Defaults live in `DESERT_TERRAIN_DEFAULTS`; `main.js` copies them into `params.desert`, and `ChunkManager` snapshots them into every worker request. The **Terrain > Desert topography** GUI edits them and regenerates the chunks when a control is released.
 - **Cost:** each height sample also evaluates the biome field (three `snoise` calls). In Node, a LOD `0` chunk at density `1` went from about `86` to `130`–`140` ms. The work runs in the workers.
 
-`ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random per-load seed. Each worker caches its noise functions until the seed or octave count changes.
+`ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random eight-character base-36 seed (`createRandomSeed()` in [`src/worldSeed.js`](../src/worldSeed.js)). One seed drives both topology (`seed:octave` noises) and biomes (`seed:biome` offset). Each worker caches its noise functions until the seed or octave count changes.
+
+With `?gui=1`, the **World** folder shows the current seed and changes it at runtime. Text is trimmed, and a blank value restores the current seed. **Random seed** picks a new one. The address bar is not updated. `ChunkManager.setSeed()` then:
+- rebuilds the noises and the biome offset;
+- writes `uBiomeOffset` in place;
+- regenerates every desired chunk, terrain and scenery, through the same revisioned path as a parameter change, so in-flight results for the old seed are discarded.
+
+`main.js` then lifts the airplane to the spawn floor (`max(height, 0) + 60`) if the new ground is above it and resets its smoothed terrain corridor. While chunks regenerate, the new biome colors briefly shade the old geometry, because `uBiomeOffset` is global. Entering the original seed again reproduces the original world.
 
 `main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path, with `chunkManager.biomeOffset`. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
 
@@ -191,7 +198,7 @@ Cloud and boat placement still uses `Math.random()`, so re-enabling them would n
 
 `Chunk.dispose()` removes the chunk from its parent, disposes the terrain geometry, clears the scenery, and removes boat clones. Review all owned GPU resources when adding new per-chunk content.
 
-- `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it.
+- `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it. The scenery mesh has one child, the debug wireframe overlay, which shares that geometry and the shared `assets.impostorWireframeMaterial`.
 - The impostor material and its atlas textures are shared through `assets.impostorMaterial` and are never disposed by chunks.
 - `SceneryMeshes` reads each live chunk's instance array (`chunk.scenery.geometry.attributes.aInstanceA.data.array`) every frame and copies the near instances into its own buffers. It never keeps a reference to a chunk or its arrays across frames, so `clearScenery()` and `dispose()` need no coordination with it.
 - `SceneryShadows` points pooled caster proxies at live chunks' scenery geometries. It re-syncs them in every update before rendering any cascade, so proxies of removed chunks are hidden before they could draw. A hidden proxy may still hold a disposed geometry, but it is never rendered and never disposes it.
@@ -213,7 +220,7 @@ Record and test ownership before changing disposal; shared resources must not be
 
 ## Open Questions
 
-- Should a generated terrain seed be persisted or shown to the user when no URL seed is supplied?
+- Should a generated terrain seed be persisted when no URL seed is supplied? It is shown in the `?gui=1` **World** folder but not written to the URL.
 - What frame-time budget should govern queue throughput and chunk radius?
 - Should chunk resources be pooled rather than recreated after disposal?
 - Should clouds have an LOD policy independent of scenery?

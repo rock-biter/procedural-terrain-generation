@@ -26,6 +26,10 @@ import {
 	IMPOSTOR_INSTANCE_STRIDE,
 	IMPOSTOR_TYPE_COUNT,
 } from './impostorTypes'
+import {
+	makeSceneryWireframeMaterial,
+	patchSceneryWireframeShader,
+} from './sceneryWireframe'
 
 // One shared material for every scenery chunk. It owns the atlas uniforms and
 // must not be disposed by chunks. `uniforms` must include `uSceneryMeshRange`,
@@ -40,22 +44,6 @@ export function createImpostorMaterial(
 	uniforms,
 	{ singleFrame = false, variation, shadowTaps = 2 } = {},
 ) {
-	const material = new MeshStandardMaterial({
-		roughness: 0.9,
-		metalness: 0,
-		// With MSAA, coverage turns the baked fractional alpha into smooth edges.
-		alphaTest: 0.5,
-		alphaToCoverage: true,
-	})
-	material.defines = {
-		// Must match the grid the atlas was baked with.
-		IMPOSTOR_FRAMES: atlas.frames,
-		IMPOSTOR_ATLAS_COLUMNS,
-		IMPOSTOR_ATLAS_ROWS,
-		IMPOSTOR_TYPE_COUNT,
-	}
-	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
-
 	const impostorUniforms = {
 		uImpostorVariationAmount:
 			variation?.amount ?? { value: new Array(IMPOSTOR_TYPE_COUNT).fill(0) },
@@ -68,10 +56,55 @@ export function createImpostorMaterial(
 			),
 		},
 	}
+	const material = buildImpostorMaterial(atlas.frames, uniforms, impostorUniforms, {
+		singleFrame,
+		shadowTaps,
+	})
+	material.userData.atlas = atlas
+	return material
+}
+
+// Debug wireframe overlay of the impostor quads (sceneryWireframe.js), in
+// sRGB hex `color`. It shares `material`'s atlas uniforms, so a re-bake
+// reaches both, and never owns or disposes the atlas.
+export function createImpostorWireframeMaterial(material, color) {
+	const { uniforms, ...options } = material.userData.impostorOptions
+	return makeSceneryWireframeMaterial(
+		buildImpostorMaterial(
+			material.defines.IMPOSTOR_FRAMES,
+			uniforms,
+			material.userData.impostorUniforms,
+			options,
+		),
+		color,
+	)
+}
+
+function buildImpostorMaterial(
+	frames,
+	uniforms,
+	impostorUniforms,
+	{ singleFrame, shadowTaps },
+) {
+	const material = new MeshStandardMaterial({
+		roughness: 0.9,
+		metalness: 0,
+		// With MSAA, coverage turns the baked fractional alpha into smooth edges.
+		alphaTest: 0.5,
+		alphaToCoverage: true,
+	})
+	material.defines = {
+		// Must match the grid the atlas was baked with.
+		IMPOSTOR_FRAMES: frames,
+		IMPOSTOR_ATLAS_COLUMNS,
+		IMPOSTOR_ATLAS_ROWS,
+		IMPOSTOR_TYPE_COUNT,
+	}
+	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
 
 	// Lets a re-bake swap the atlas without recompiling the material.
 	material.userData.impostorUniforms = impostorUniforms
-	material.userData.atlas = atlas
+	material.userData.impostorOptions = { uniforms, singleFrame, shadowTaps }
 
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms = {
@@ -99,6 +132,7 @@ export function createImpostorMaterial(
 					`getSceneryShadow(impostorShadowPosition, vShadowSelfBias, ${shadowTaps}, ${shadowTaps})`,
 				),
 			)
+		patchSceneryWireframeShader(shader, material)
 	}
 
 	return material
@@ -120,8 +154,15 @@ export function setImpostorAtlas(material, atlas) {
 }
 
 // Builds a chunk's scenery mesh. The geometry (a 4-vertex quad plus the
-// instance buffer) is unique to the chunk and disposed with it.
-export function createImpostorMesh(instances, material, boundingRadius) {
+// instance buffer) is unique to the chunk and disposed with it. With a
+// `wireframeMaterial` (createImpostorWireframeMaterial()), a child mesh draws
+// the same quads as the debug overlay.
+export function createImpostorMesh(
+	instances,
+	material,
+	boundingRadius,
+	wireframeMaterial = null,
+) {
 	const geometry = new InstancedBufferGeometry()
 	geometry.setIndex([0, 1, 2, 0, 2, 3])
 	geometry.setAttribute(
@@ -148,5 +189,11 @@ export function createImpostorMesh(instances, material, boundingRadius) {
 
 	const mesh = new Mesh(geometry, material)
 	mesh.name = 'scenery'
+	if (wireframeMaterial) {
+		const wireframe = new Mesh(geometry, wireframeMaterial)
+		wireframe.name = 'scenery-wireframe'
+		wireframe.renderOrder = 1
+		mesh.add(wireframe)
+	}
 	return mesh
 }

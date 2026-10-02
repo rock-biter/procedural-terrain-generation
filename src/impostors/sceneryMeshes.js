@@ -26,6 +26,11 @@ import { createShadowedLightsFragment } from '../curvedLights'
 import { createScenerySources } from './impostorArchetypes'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE_COUNT } from './impostorTypes'
 import {
+	makeSceneryWireframeMaterial,
+	patchSceneryWireframeShader,
+	setSceneryWireframe,
+} from './sceneryWireframe'
+import {
 	SCENERY_MESH_LOD_COUNT,
 	appendNearSceneryInstances,
 	chunkIntersectsSelection,
@@ -55,13 +60,23 @@ const CULL_RADIUS_OFFSET = 0.5
 // uSceneryMeshRange, plus the scenery shadow uniforms; this object writes
 // uSceneryMeshRange. `variation` and `detail` are uniform objects owned by
 // main.js and shared with the impostor material and bake settings.
-// `shadowTaps` is the PCF sample count of the shadow lookup.
+// `shadowTaps` is the PCF sample count of the shadow lookup. `wireframe`
+// (createSceneryWireframeSettings()) drives the debug overlay, one wireframe
+// twin per mesh in its level's color (sceneryWireframe.js).
 export default class SceneryMeshes extends Group {
-	constructor({ uniforms, variation, detail, settings, shadowTaps = 4 }) {
+	constructor({
+		uniforms,
+		variation,
+		detail,
+		settings,
+		wireframe,
+		shadowTaps = 4,
+	}) {
 		super()
 		this.name = 'scenery-meshes'
 		this.uniforms = uniforms
 		this.settings = settings
+		this.wireframe = wireframe
 		this.shadowTaps = shadowTaps
 		this.lodRange = { value: new Vector2() }
 		// Filled below from each type's LOD 0 bounds.
@@ -80,12 +95,17 @@ export default class SceneryMeshes extends Group {
 		// Culling bounds come from LOD 0, the geometry the impostor was baked
 		// from; LOD 1 shares its local frame.
 		this.bounds = []
-		// levels[lod]: { minRadius, maxRadius, buckets, material, types[type] }.
+		// levels[lod]: { minRadius, maxRadius, buckets, material,
+		// wireframeMaterial, types[type] }.
 		this.levels = Array.from({ length: SCENERY_MESH_LOD_COUNT }, (_, lod) => ({
 			minRadius: 0,
 			maxRadius: 0,
 			buckets: createSceneryBuckets(),
 			material: this.createMaterial(lod, variation, detail),
+			wireframeMaterial: makeSceneryWireframeMaterial(
+				this.createMaterial(lod, variation, detail),
+				wireframe.meshColors[lod],
+			),
 			types: [],
 		}))
 
@@ -108,10 +128,17 @@ export default class SceneryMeshes extends Group {
 				mesh.frustumCulled = false
 				mesh.visible = false
 				this.add(mesh)
+				const wireframeMesh = new Mesh(geometry, level.wireframeMaterial)
+				wireframeMesh.name = `scenery-wireframe-${type}-lod${lod}`
+				wireframeMesh.frustumCulled = false
+				wireframeMesh.visible = false
+				wireframeMesh.renderOrder = 1
+				this.add(wireframeMesh)
 
 				const info = {
 					geometry,
 					mesh,
+					wireframeMesh,
 					buffer: null,
 					triangles: source.index.count / 3,
 				}
@@ -121,6 +148,7 @@ export default class SceneryMeshes extends Group {
 		}
 
 		this.applySettings()
+		this.applyWireframe()
 	}
 
 	createMaterial(lod, variation, detail) {
@@ -160,6 +188,7 @@ export default class SceneryMeshes extends Group {
 						`getSceneryShadow(vShadowPosition, vShadowSelfBias, ${this.shadowTaps}, ${this.shadowTaps})`,
 					),
 				)
+			patchSceneryWireframeShader(shader, material)
 		}
 		return material
 	}
@@ -193,6 +222,14 @@ export default class SceneryMeshes extends Group {
 			this.levels[lod].maxRadius = maxRadius
 			this.outerRadius = Math.max(this.outerRadius, maxRadius)
 		})
+	}
+
+	// Re-reads `wireframe` ({ enabled, meshColors }) into the overlay materials.
+	applyWireframe() {
+		const { enabled, meshColors } = this.wireframe
+		this.levels.forEach(({ wireframeMaterial }, lod) =>
+			setSceneryWireframe(wireframeMaterial, enabled, meshColors[lod]),
+		)
 	}
 
 	// Runs after the chunk manager committed this frame's scenery and before
@@ -249,6 +286,7 @@ export default class SceneryMeshes extends Group {
 				if (info.buffer.array !== bucket.array) this.attachBuffer(info, bucket.array)
 				info.geometry.instanceCount = bucket.count
 				info.mesh.visible = bucket.count > 0
+				info.wireframeMesh.visible = info.mesh.visible
 				if (bucket.count > 0) {
 					info.buffer.clearUpdateRanges()
 					info.buffer.addUpdateRange(0, bucket.count * IMPOSTOR_INSTANCE_STRIDE)
@@ -322,6 +360,7 @@ export default class SceneryMeshes extends Group {
 		for (const level of this.levels) {
 			for (const info of level.types) info.geometry.dispose()
 			level.material.dispose()
+			level.wireframeMaterial.dispose()
 		}
 	}
 }
