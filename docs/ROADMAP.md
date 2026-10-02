@@ -537,10 +537,10 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **User value:** Fills the sky with cream, carved-wood clouds in the style of `public/style-references/cloud-reference.png`, above the flight ceiling, and lets their soft shadows drift over the land.
 - **Behavior:**
   - Three cloud shapes (`bank`, `heap`, `puff`), each two extruded slabs with flat faces and rounded edges, in varied sizes. Every cloud turns about its vertical axis so its front face looks at the airplane.
-  - A world-level field around the airplane, independent of chunks: a deterministic seeded grid (`160` units) with cloudy and clear regions, bases at Y `130`–`190`, above the highest eye (about Y `102`). Radius `1500` units on desktop and `1100` on mobile, with a far fade inside it.
+  - A world-level field around the airplane, independent of chunks: a deterministic seeded grid (`160` units) with cloudy and clear regions, bases at Y `130`–`190`, above the highest eye (about Y `102`). Radius `1500` units on desktop and `1100` on mobile, with a far fade inside it. Three seeded low-frequency noise fields vary density, coverage, and size smoothly across the world (about `4000`-unit regions), so the sky changes character during the flight; altitude and radius stay fixed.
   - The scenery treatment: octahedral impostors far away, baked from the lower hemisphere only because clouds are always seen from below, and real meshes in two levels of detail near the eye, cross-faded by the shared dither.
   - Soft cloud shadows on the terrain and the scenery from a blurred, light-aligned coverage map, re-rendered only after travel, light rotation, or a field change.
-  - The `?gui=1` **Clouds** folder tunes placement, near-mesh bands, wood detail, ambient boost, brightness variation, and shadows.
+  - The `?gui=1` **Clouds** folder tunes placement and its regional variation, near-mesh bands, wood detail, ambient boost, brightness variation, and shadows.
 - **Dependencies:** `FEAT-003` and `FEAT-004` (impostor pipeline and near meshes, generalized through impostor catalogs), `FEAT-005` (shadowing light). Resolves `PERF-001`, `PERF-004`, `CORR-001`, and the cloud parts of `LIFE-001`, `STATE-002`, and `DET-001`. Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:**
   - Terrain: `cloudPlacement.js` (pure), the removed per-chunk cloud code in `Chunk`, and `sceneryPlacement.js` (exported `cellRandom()`).

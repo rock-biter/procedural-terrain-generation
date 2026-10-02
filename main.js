@@ -804,6 +804,25 @@ if (gui) {
 			.name(`${key} size`)
 			.onFinishChange(updateClouds)
 	}
+	// Smooth changes of density, coverage, and size across the world; altitude
+	// and radius never vary.
+	const regionalFolder = cloudsFolder.addFolder('Regional variation')
+	regionalFolder
+		.add(placement.regional, 'scale', 500, 12000, 50)
+		.name('Region size (units)')
+		.onFinishChange(updateClouds)
+	regionalFolder
+		.add(placement.regional, 'density', 0, 1, 0.01)
+		.name('Density (±share)')
+		.onFinishChange(updateClouds)
+	regionalFolder
+		.add(placement.regional, 'coverage', 0, 0.6, 0.01)
+		.name('Coverage (±)')
+		.onFinishChange(updateClouds)
+	regionalFolder
+		.add(placement.regional, 'size', 0, 1.5, 0.01)
+		.name('Size (±stops)')
+		.onFinishChange(updateClouds)
 	// Live: ambient boost and brightness variation uniforms.
 	const updateCloudAppearance = () => clouds?.applyAppearance()
 	cloudsFolder

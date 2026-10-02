@@ -27,10 +27,26 @@ vSceneryDither = vec2(meshFade, impostorYaw);
 if (meshFade >= 1.0) impostorScale = 0.0;
 vec3 impostorCenter = curvedBase + sphereNormal * impostorInfo.y * impostorScale * impostorStretch;
 
+// The quad faces the eye: it lies perpendicular to the ray through the
+// impostor center, not parallel to the image plane. A quad parallel to the
+// image plane cuts instances away from the screen center, where the bounding
+// sphere projects up to 1 / cos(angle off axis) larger onto it. The half-size
+// is the radius of the sphere's tangent cone in that plane, so the whole
+// silhouette fits at any distance and screen position.
 vec3 cameraRight = vec3(viewMatrix[0][0], viewMatrix[1][0], viewMatrix[2][0]);
 vec3 cameraUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
-float halfSize = frameRadius * impostorScale * max(impostorStretch, 1.0);
-vec3 impostorVertex = impostorCenter + (cameraRight * position.x + cameraUp * position.y) * halfSize;
+vec3 toEye = cameraPosition - impostorCenter;
+float eyeDistance = length(toEye);
+toEye /= max(eyeDistance, 1e-4);
+vec3 quadRight = cross(cameraUp, toEye);
+float quadRightLength = length(quadRight);
+// Only an instance 90 degrees off axis, never on screen, is degenerate.
+quadRight = quadRightLength > 1e-4 ? quadRight / quadRightLength : cameraRight;
+vec3 quadUp = cross(toEye, quadRight);
+float sphereRadius = frameRadius * impostorScale * max(impostorStretch, 1.0);
+float coneSquared = max(eyeDistance * eyeDistance - sphereRadius * sphereRadius, max(sphereRadius * sphereRadius * 0.0625, 1e-8));
+float halfSize = sphereRadius * min(eyeDistance * inversesqrt(coneSquared), 4.0);
+vec3 impostorVertex = impostorCenter + (quadRight * position.x + quadUp * position.y) * halfSize;
 
 // World to baked local space: undo bend, yaw, scale, and stretch. Clouds
 // (SCENERY_FACE_AIRPLANE) turn to face the airplane from their flat base, like
@@ -85,7 +101,7 @@ vec3 flatCenter = impostorBase + vec3(0.0, impostorInfo.y * impostorScale * impo
 vShadowPosition = flatCenter + rotateAroundAxis(impostorVertex - impostorCenter, bendAxis, bendCos, -bendSin);
 vShadowView = rotateAroundAxis(normalize(cameraPosition - impostorCenter), bendAxis, bendCos, -bendSin);
 vShadowDepthScale = frameRadius * impostorScale;
-vShadowSelfBias = halfSize;
+vShadowSelfBias = sphereRadius;
 
 wPosition = impostorVertex;
 vec4 mvPosition = viewMatrix * vec4(impostorVertex, 1.0);

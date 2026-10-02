@@ -9,6 +9,8 @@ import {
 	generateCloudInstances,
 	getCloudCell,
 	getCloudFarFade,
+	getCloudFieldOffsets,
+	getCloudRegion,
 	getFacingYaw,
 } from '../src/cloudPlacement.js'
 import { FLIGHT_LIMITS } from '../src/flightPolicy.js'
@@ -95,7 +97,9 @@ test('density and coverage scale the cloud count', () => {
 	const settings = createCloudSettings()
 	const full = generate({ settings }).length
 	assert.equal(generate({ settings: { ...settings, density: 0 } }).length, 0)
-	assert.equal(generate({ settings: { ...settings, coverage: 0 } }).length, 0)
+	// Regional coverage can open clouds in a clear sky, so switch it off.
+	const clear = { ...settings, coverage: 0, regional: { ...settings.regional, coverage: 0 } }
+	assert.equal(generate({ settings: clear }).length, 0)
 	assert.ok(generate({ settings: { ...settings, density: 1, coverage: 1 } }).length > full)
 })
 
@@ -148,4 +152,71 @@ test('cells and the far fade', () => {
 	assert.equal(end, 1500 - CLOUD_FAR_FADE_MARGINS.end)
 	const [smallStart, smallEnd] = getCloudFarFade(10)
 	assert.ok(smallStart >= 0 && smallStart < smallEnd)
+})
+
+test('regional fields leave the settings unchanged at zero amplitude', () => {
+	const settings = createCloudSettings()
+	settings.regional = { ...settings.regional, density: 0, coverage: 0, size: 0 }
+	const offsets = getCloudFieldOffsets('cloud-test')
+	for (let i = 0; i < 50; i++) {
+		const region = getCloudRegion(i * 731, -i * 377, offsets, settings)
+		assert.equal(region.density, settings.density)
+		assert.equal(region.coverage, settings.coverage)
+		assert.equal(region.size, 1)
+	}
+	const instances = generate({ settings })
+	for (let i = 0; i < instances.length; i += IMPOSTOR_INSTANCE_STRIDE) {
+		const [, maxScale] = CLOUD_CONFIG.shape[instances[i + 5]]
+		assert.ok(instances[i + 3] <= maxScale + 1e-6, 'no regional size change')
+	}
+})
+
+test('regional fields stay in range, reach their extremes, and vary smoothly', () => {
+	const settings = createCloudSettings()
+	const { scale, density, coverage, size } = settings.regional
+	const offsets = getCloudFieldOffsets('cloud-test')
+	const seen = { density: [1, 0], coverage: [1, 0], size: [Infinity, 0] }
+	for (let i = 0; i < 4000; i++) {
+		const x = ((i * 7919) % 400) * scale * 0.25
+		const z = Math.floor(i / 400) * scale * 0.37
+		const region = getCloudRegion(x, z, offsets, settings)
+		const near = getCloudRegion(x + 1, z - 1, offsets, settings)
+		assert.ok(region.density >= 0 && region.density <= 1)
+		assert.ok(region.coverage >= 0 && region.coverage <= 1)
+		assert.ok(region.size >= 2 ** -size - 1e-9 && region.size <= 2 ** size + 1e-9)
+		assert.ok(Math.abs(near.density - region.density) < 0.01, 'smooth density')
+		assert.ok(Math.abs(near.coverage - region.coverage) < 0.01, 'smooth coverage')
+		assert.ok(Math.abs(Math.log2(near.size / region.size)) < 0.01, 'smooth size')
+		for (const key of ['density', 'coverage', 'size']) {
+			seen[key][0] = Math.min(seen[key][0], region[key])
+			seen[key][1] = Math.max(seen[key][1], region[key])
+		}
+	}
+	// Each field covers most of its range somewhere in the world.
+	assert.ok(seen.density[0] < settings.density * (1 - density * 0.7))
+	assert.ok(seen.density[1] > settings.density * (1 + density * 0.7))
+	assert.ok(seen.coverage[0] < settings.coverage - coverage * 0.7)
+	assert.ok(seen.coverage[1] > settings.coverage + coverage * 0.7)
+	assert.ok(seen.size[0] < 2 ** (-size * 0.7) && seen.size[1] > 2 ** (size * 0.7))
+})
+
+test('regional fields are independent and follow the seed', () => {
+	const settings = createCloudSettings()
+	const offsets = getCloudFieldOffsets('cloud-test')
+	const other = getCloudFieldOffsets('another-seed')
+	assert.notDeepEqual(offsets.density, offsets.size)
+	assert.notDeepEqual(offsets.density, offsets.regionCoverage)
+	let differentSeed = 0
+	let correlated = 0
+	for (let i = 0; i < 200; i++) {
+		const x = i * 2111
+		const z = -i * 1373
+		const region = getCloudRegion(x, z, offsets, settings)
+		if (Math.abs(region.density - getCloudRegion(x, z, other, settings).density) > 0.05) differentSeed++
+		const densityUp = region.density > settings.density
+		const sizeUp = region.size > 1
+		if (densityUp === sizeUp) correlated++
+	}
+	assert.ok(differentSeed > 100, 'another seed has another sky')
+	assert.ok(correlated > 60 && correlated < 140, 'density and size vary independently')
 })

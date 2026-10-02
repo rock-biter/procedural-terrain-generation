@@ -145,7 +145,7 @@ Trees, cacti, and rocks are octahedral impostors: each instance is one camera-fa
 - **Vertex (`impostor-vertex.glsl`, replacing `project_vertex`):**
   1. Reads per-instance `aInstanceA` (chunk-local base, scale) and `aInstanceB` (yaw, type, packed tint, stretch). The attributes, `getSceneryBend()`, `getSceneryTint()`, and `getSceneryMeshFade()` live in [`scenery-instance-pars-vertex.glsl`](../src/shaders/scenery-instance-pars-vertex.glsl), shared with the near meshes.
   2. Applies the terrain curvature at the base, and places the bounding-sphere center along the bent sphere normal.
-  3. Builds the quad on the camera's right and up axes.
+  3. Builds the quad facing the eye: perpendicular to the ray from `cameraPosition` to the center, with its right axis from the camera's up axis. A quad parallel to the image plane would cut instances away from the screen center, where the bounding sphere projects up to `1 / cos(angle off axis)` larger onto it (about `1.5×` in the screen corners). The half-size is the radius of the sphere's tangent cone in that plane, `R × d / √(d² − R²)` (at most `4R`), so the whole silhouette fits at any distance and screen position.
   4. Converts the camera and each vertex into the baked local frame by undoing the bend, yaw, scale, and stretch.
   5. Picks the three frames around the view direction with barycentric weights, the same triangle blend as `getFrameBlend()`. Each frame UV comes from intersecting the view ray with that frame's image plane.
   6. Scales instances to zero between `uImpostorFarFade.y` and `.x` units from `uCamera`, inside the fog: `950` and `800` for scenery (`SCENERY_IMPOSTOR_FAR_FADE` in `impostorMaterial.js`), and inside the field radius for clouds. Near the eye it computes the mesh fade (see [Near Scenery Meshes](#near-scenery-meshes)) and collapses the quad where the mesh has fully taken over.
@@ -244,7 +244,7 @@ Scenery (trees, cacti, rocks) and the airplane cast soft shadows on the terrain 
   | --- | --- | --- | --- |
   | Terrain | `vShadowPosition`, the chunk-space vertex through `modelMatrix` before waves and curvature (`wPosition.y` is later overwritten with `height`) | `0` | near `8` / far `4`; `4` / `2` |
   | Near meshes | instance base plus yawed, stretched, scaled vertex, without bend | LOD 0 bounding radius (`uSceneryBoundRadius`) × scale × stretch | `4`; `2` |
-  | Impostors | quad position with the bend undone, moved to the surface by the baked depth | quad half-size | `2`; `1` |
+  | Impostors | quad position with the bend undone, moved to the surface by the baked depth | bounding-sphere radius (frame radius × scale × stretch) | `2`; `1` |
 
   The scenery self-bias of about one instance radius keeps every instance out of its own flat caster quad, which would otherwise split it at the quad plane. Scenery therefore receives shadows only from other casters (neighbors and the airplane); its own shading still comes from `N·L` and the baked vertical occlusion.
 - **Frame order:** `main.js` calls `SceneryShadows.update()` after `SceneryMeshes.update()` and before `PostProcessing.render()`. It saves and restores the renderer's render target and clears only the depth of each rendered cascade.

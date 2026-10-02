@@ -67,6 +67,10 @@ export function getCloudFarFade(radius, margins = CLOUD_FAR_FADE_MARGINS) {
 // Runtime settings. `density` is the share of cells holding a cloud where the
 // sky is cloudy, `coverage` the share of sky that is cloudy, `altitude` the
 // band (world Y) of the cloud bases, and `size` a multiplier per type.
+// `regional` varies density, coverage, and size smoothly across the world
+// (getCloudRegion()): `scale` is the wavelength of its noise fields in world
+// units, and each amplitude is the largest change, `0` for none. Altitude and
+// radius never vary.
 export function createCloudSettings({ isMobile = false } = {}) {
 	return {
 		radius: isMobile ? CLOUD_FIELD_RADIUS.mobile : CLOUD_FIELD_RADIUS.desktop,
@@ -74,6 +78,15 @@ export function createCloudSettings({ isMobile = false } = {}) {
 		coverage: 0.6,
 		altitude: { min: 130, range: 60 },
 		size: { bank: 1, heap: 1, puff: 1 },
+		regional: {
+			scale: 4000,
+			// Relative: density × (1 ± amount).
+			density: 0.6,
+			// Absolute share of sky: coverage ± amount.
+			coverage: 0.3,
+			// Stops: size × 2^(± amount).
+			size: 0.5,
+		},
 	}
 }
 
@@ -109,30 +122,78 @@ function pickWeighted(table, value) {
 	return table[table.length - 1][0]
 }
 
-// 0 in clear sky, 1 in cloudy sky.
-function getCloudiness(x, z, offset, settings, config) {
+// 0 in clear sky, 1 in cloudy sky, for a local `coverage` share.
+function getCloudiness(x, z, offset, coverage, config) {
 	const noise =
 		snoise((x + offset[0]) / config.coverageScale, (z + offset[1]) / config.coverageScale) * 0.5 + 0.5
 	// Coverage 0 puts the whole soft edge above the noise range (clear sky),
 	// coverage 1 below it (cloudy everywhere).
 	const softness = config.coverageSoftness
-	const threshold = (1 - settings.coverage) * (1 + softness * 2) - softness
+	const threshold = (1 - coverage) * (1 + softness * 2) - softness
 	return smoothstep(threshold - softness, threshold + softness, noise)
 }
 
+// Seeded offsets of the noise fields, so every seed has its own sky:
+// `coverage` for the cloudy and clear patches, and one per regional field.
+export function getCloudFieldOffsets(seed) {
+	const seedHash = hashSeed(seed)
+	const offset = (salt) => [
+		(cellRandom(seedHash, 0, 0, salt) - 0.5) * 200000,
+		(cellRandom(seedHash, 0, 0, salt + 1) - 0.5) * 200000,
+	]
+	return {
+		coverage: offset(101),
+		density: offset(103),
+		regionCoverage: offset(105),
+		size: offset(107),
+	}
+}
+
+// Smooth noise in [-1, 1] with a wavelength of `scale` world units: two
+// octaves, stretched so regions reach the extremes, as in getSceneryTint().
+function getRegionNoise(x, z, offset, scale) {
+	const u = (x + offset[0]) / scale
+	const v = (z + offset[1]) / scale
+	const noise = snoise(u, v) * 0.7 + snoise(u * 2.3 + 17.1, v * 2.3 - 5.3) * 0.3
+	return Math.min(Math.max(noise * 1.5, -1), 1)
+}
+
+function clamp01(value) {
+	return Math.min(Math.max(value, 0), 1)
+}
+
+// Local density, coverage, and size multiplier at (x, z): settings modulated
+// by three independent low-frequency fields (settings.regional), so some
+// regions hold packed, scattered, large, or small clouds. Continuous in x and
+// z, and independent of the field center. `offsets` comes from
+// getCloudFieldOffsets().
+export function getCloudRegion(x, z, offsets, settings, target = {}) {
+	const { scale, density, coverage, size } = settings.regional
+	target.density = clamp01(
+		settings.density * (1 + density * getRegionNoise(x, z, offsets.density, scale)),
+	)
+	target.coverage = clamp01(
+		settings.coverage + coverage * getRegionNoise(x, z, offsets.regionCoverage, scale),
+	)
+	target.size = 2 ** (size * getRegionNoise(x, z, offsets.size, scale))
+	return target
+}
+
 // The cell's cloud before the neighbour test, or null.
-function getCandidate(seedHash, cellX, cellZ, offset, settings, config) {
+function getCandidate(seedHash, cellX, cellZ, offsets, settings, config, region) {
 	const span = 1 - config.jitterMargin * 2
 	const x = (cellX + config.jitterMargin + span * cellRandom(seedHash, cellX, cellZ, 0)) * config.cellSize
 	const z = (cellZ + config.jitterMargin + span * cellRandom(seedHash, cellX, cellZ, 1)) * config.cellSize
-	const density = settings.density * getCloudiness(x, z, offset, settings, config)
+	getCloudRegion(x, z, offsets, settings, region)
+	const density = region.density * getCloudiness(x, z, offsets.coverage, region.coverage, config)
 	if (cellRandom(seedHash, cellX, cellZ, 2) >= density) return null
 
 	const type = pickWeighted(config.types, cellRandom(seedHash, cellX, cellZ, 3))
 	const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
 	const scale =
 		(minScale + (maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)) *
-		settings.size[CLOUD_TYPE_KEYS[type]]
+		settings.size[CLOUD_TYPE_KEYS[type]] *
+		region.size
 	if (scale <= 0) return null
 	const stretch = minStretch + (maxStretch - minStretch) * cellRandom(seedHash, cellX, cellZ, 5)
 	const y = settings.altitude.min + settings.altitude.range * cellRandom(seedHash, cellX, cellZ, 9)
@@ -159,15 +220,6 @@ function overlaps(a, b) {
 	)
 }
 
-// Seeded offset of the coverage noise, so every seed has its own sky.
-export function getCloudCoverageOffset(seed) {
-	const seedHash = hashSeed(seed)
-	return [
-		(cellRandom(seedHash, 0, 0, 101) - 0.5) * 200000,
-		(cellRandom(seedHash, 0, 0, 102) - 0.5) * 200000,
-	]
-}
-
 // Clouds whose base lies within `radius` (horizontal) of (centerX, centerZ).
 // A candidate that would cut through a neighbour with a lower priority value
 // is dropped; the test reads only the raw neighbouring candidates, so the
@@ -182,7 +234,8 @@ export function generateCloudInstances({
 	const { cellSize } = config
 	const radius = settings.radius
 	const seedHash = hashSeed(seed)
-	const offset = getCloudCoverageOffset(seed)
+	const offsets = getCloudFieldOffsets(seed)
+	const region = {}
 	const [minCellX, minCellZ] = getCloudCell(centerX - radius, centerZ - radius, cellSize)
 	const [maxCellX, maxCellZ] = getCloudCell(centerX + radius, centerZ + radius, cellSize)
 
@@ -193,7 +246,7 @@ export function generateCloudInstances({
 	const getCell = (cellX, cellZ) => {
 		const index = (cellZ - minCellZ + 1) * columns + (cellX - minCellX + 1)
 		if (candidates[index] === undefined) {
-			candidates[index] = getCandidate(seedHash, cellX, cellZ, offset, settings, config)
+			candidates[index] = getCandidate(seedHash, cellX, cellZ, offsets, settings, config, region)
 		}
 		return candidates[index]
 	}
