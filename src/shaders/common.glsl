@@ -5,19 +5,15 @@ uniform float uCurvature;
 uniform vec3 uGrass;
 uniform vec3 uLand;
 uniform vec3 uRocks;
+uniform vec3 uAtmosphere;
+// Seeded shift of the biome field; src/biome.js applies the same offset on the CPU.
+uniform vec2 uBiomeOffset;
 varying vec3 wPosition;
 varying float distanceFromCamera;
 
-mat4 rotateZ(float alpha) {
-    float cosA = cos(alpha);
-    float sinA = sin(alpha);
-
-    return mat4(
-        cosA, -sinA, 0.0, 0.0,
-        sinA, cosA,  0.0, 0.0,
-        0.0,  0.0,   1.0, 0.0,
-        0.0,  0.0,   0.0, 1.0
-    );
+// Rodrigues rotation of v around a unit axis by the angle with cosine c and sine s.
+vec3 rotateAroundAxis(vec3 v, vec3 axis, float c, float s) {
+    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
 }
 
 vec3 permute(vec3 x) { return mod(((x*34.0)+1.0)*x, 289.0); }
@@ -47,4 +43,12 @@ float snoise(vec2 v){
   g.x  = a0.x  * x0.x  + h.x  * x0.y;
   g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
+}
+
+// Mirrored by getBiomeValue() in src/biome.js; keep both in sync.
+// biomeXZ is the world XZ position already shifted by uBiomeOffset.
+float getBiomeValue(vec2 biomeXZ) {
+  return snoise(biomeXZ * 0.000175)
+    + snoise(biomeXZ * 0.0035) * 0.22
+    + snoise(biomeXZ * 0.012) * 0.06;
 }

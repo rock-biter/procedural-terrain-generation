@@ -9,6 +9,7 @@
   },
   "scripts": {
     "dev": "vite --host",
+    "test": "node --test",
     "build": "vite build",
     "preview": "vite preview"
   },
@@ -23,6 +24,7 @@
     "alea": "^1.0.1",
     "gsap": "^3.15.0",
     "lil-gui": "^0.21.0",
+    "postprocessing": "^6.39.5",
     "simplex-noise": "^4.0.3",
     "three": "^0.186.1"
   }

@@ -6,21 +6,28 @@ This document inventories runtime assets and records the checks required when ad
 
 ## Asset Inventory
 
-| Asset              | Path                                                                                | Runtime use                                 | License metadata                                                |
-| ------------------ | ----------------------------------------------------------------------------------- | ------------------------------------------- | --------------------------------------------------------------- |
-| Airplane model     | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`       | Player model loaded in `main.js`            | [`public/airplane/license.txt`](../public/airplane/license.txt) |
-| Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Cloned into suitable water areas by `Chunk` | [`public/boat/license.txt`](../public/boat/license.txt)         |
-| Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Terrain, tree, and cloud materials          | No dedicated provenance file in the repository                  |
-| Unused texture     | [`src/textures/tessuto.jpg`](../src/textures/tessuto.jpg)                           | Not imported by current source              | No dedicated provenance file in the repository                  |
-| Soundtrack         | [`src/audio/epic-soundtrack.mp3`](../src/audio/epic-soundtrack.mp3)                 | Looping experience audio                    | No dedicated provenance file in the repository                  |
+| Asset              | Path                                                                                | Runtime use                                  | License metadata                                                |
+| ------------------ | ----------------------------------------------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------- |
+| Toy biplane model  | [`public/plane-toy/plane-toy-2.glb`](../public/plane-toy/plane-toy-2.glb)           | Default player model loaded in `main.js`     | No provenance file in the repository; node and material names (`tripo_*`) suggest a Tripo AI generation |
+| Toy monoplane model | [`public/plane-toy/plane-toy.glb`](../public/plane-toy/plane-toy.glb)              | Player model with `?plane=toy`               | No provenance file in the repository; node and material names (`tripo_*`) suggest a Tripo AI generation |
+| Former airplane model | [`public/airplane/scene.gltf`](../public/airplane/scene.gltf) and `scene.bin`    | Not loaded since the toy airplane replaced it | [`public/airplane/license.txt`](../public/airplane/license.txt) |
+| Boat model         | [`public/boat/scene.gltf`](../public/boat/scene.gltf), `scene.bin`, and `textures/` | Dormant while `worldFeatures.boats` is false | [`public/boat/license.txt`](../public/boat/license.txt)         |
+| Curly teddy normal map | [`src/textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg`](../src/textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.jpg) | Imported as the `curlyTeddy` option; no layer uses it by default | Naming and embedded metadata suggest Poly Haven; no provenance file in the repository |
+| Terrain normal map | [`src/textures/normal.jpg`](../src/textures/normal.jpg)                             | Imported as the `fabric` option; no layer uses it by default | No dedicated provenance file in the repository                  |
+| Fabric normal maps | `*_nor_gl_1k.jpg` in [`src/textures/dirty_carpet/`](../src/textures/dirty_carpet/), [`fabric_pattern/`](../src/textures/fabric_pattern/), [`hessian/`](../src/textures/hessian/), [`ribbed_corduroy/`](../src/textures/ribbed_corduroy/), and [`waffle_pique/`](../src/textures/waffle_pique/) | Sea (`ribbed_corduroy`) and land-band layers of the terrain | Naming and embedded metadata suggest Poly Haven; no provenance file in the repository |
+| Wood detail        | [`src/textures/white_oak/white_oak_veneer_diff_1k.jpg`](../src/textures/white_oak/white_oak_veneer_diff_1k.jpg) | Baked into every scenery and cloud impostor and sampled by the near scenery and cloud meshes | Naming suggests Poly Haven; no provenance file in the repository |
+| Soundtrack         | [`src/audio/epic-soundtrack.mp3`](../src/audio/epic-soundtrack.mp3)                 | Looping experience audio                     | No dedicated provenance file in the repository                  |
+| Style references   | [`docs/style-references/`](style-references/)                                        | Art-direction images for scenery and clouds; not loaded or shipped | No provenance file in the repository |
+
+`src/textures/` holds only the files the source imports. The unused PBR maps (`arm`, `diff`, `col`, `rough`, `spec_ior`), the `olive_veneer` set, `tessuto.jpg`, `wood.jpg`, `wood-grain.png`, and the `scripts/generate-wood-texture.mjs` generator were removed; git history keeps them. `public/` still holds the former airplane and the dormant boat with their license files, so every build copies them into `dist/` although the runtime never requests them.
 
 Do not infer redistribution rights for an asset that lacks provenance metadata. Resolve and record its source and license before publishing a new distribution that depends on it.
 
 ## Required Model Attribution
 
-Both bundled models use CC BY 4.0 and require author credit:
+Both Sketchfab models in the repository use CC BY 4.0 and require author credit:
 
-- **Airplane** by TheTime1337, sourced from Sketchfab. Preserve the complete credit and links in `public/airplane/license.txt` wherever the model is shared.
+- **Airplane** by TheTime1337, sourced from Sketchfab. It is no longer loaded, but its files stay in the repository and are bundled from `public/`. Preserve the complete credit and links in `public/airplane/license.txt` wherever the model is shared.
 - **Boat** by Mario Libera, sourced from Sketchfab. Preserve the complete credit and links in `public/boat/license.txt` wherever the model is shared.
 
 Never delete, rename, or replace either license file without updating the corresponding asset and distribution attribution.
@@ -29,28 +36,55 @@ Never delete, rename, or replace either license file without updating the corres
 
 ### Airplane
 
-`main.js` imports `/airplane/scene.gltf?url` and loads it through the shared `GLTFLoader`. Every mesh found during traversal is scaled to `0.005`; its geometry is centered and rotated by `-PI / 2` around X. The selected mesh is stored as `assets.planeModel` and passed to `Plane`.
+`main.js` loads the airplane picked by `?plane=<key>` from `AIRPLANE_MODELS` in [`src/airplaneModels.js`](../src/airplaneModels.js): the biplane by default, and `toy` for the monoplane. Unknown keys fall back to the default. Each entry holds the model's public `path`, its load transform, its trail anchor, and its propeller data.
 
-Changing model hierarchy, pivot, units, or orientation can affect steering, camera composition, and trail alignment.
+- **File:** both GLBs are packed with gltfpack and require `EXT_meshopt_compression` and `KHR_mesh_quantization`, so the shared `GLTFLoader` has `MeshoptDecoder` from `three/examples/jsm/libs/meshopt_decoder.module.js`. Each holds one node with one mesh and one `MeshStandardMaterial` with embedded base color, ORM (roughness and metalness), and normal textures.
+- **Transform:** the geometry is centered, turned about Y by `rotationY` so the nose points to +Z with the wings along X and +Y up, and the mesh is scaled uniformly so its X extent equals `wingspan` (`7.6` world units for both). With the default ribbon width, that puts the trail stripes at the wing tips.
+- **Use:** the mesh is stored as `assets.planeModel` and passed to `Plane` with its `AIRPLANE_MODELS` entry. `SceneryShadows` also draws it in the near shadow cascade.
+
+All measurements below are in geometry units after `center()` and `rotationY`. `trailAnchor` is the trail emission point, the trailing edge at the wing tips. The propeller is fused into each mesh, so it is selected as the set of UV charts that reach beyond `propeller.minZ` and turned about `propeller.axis` by the [propeller shader](RENDERING.md#airplane-propeller). Changing a model, its pivot, units, orientation, or `wingspan` can affect steering, camera composition, and trail alignment; re-measure its entry after a model change.
+
+**Biplane** ([`plane-toy-2.glb`](../public/plane-toy/plane-toy-2.glb), key `biplane`, default)
+
+- **Contents:** about 105,000 vertices and 183,000 triangles, about `3.6` MB.
+- **Orientation:** authored with the nose toward +X, so `rotationY` is `-π/2`. Scaled, it is about `7.6` units long and `3.0` tall.
+- **Trails:** they leave the upper wing. Its tips reach `x = ±0.488` at heights `0.150`–`0.183`, and the trailing edge at the tip is at `z ≈ 0.148`, so `trailAnchor` is `(0, 0.166, 0.15)`. The lower wing is at about `y = -0.04`.
+- **Propeller:** the axis is parallel to +Z through `(-0.0005, 0.0406)`, from spinner circle fits. The cowl is not coaxial: its center is at `y ≈ 0.031`. The cowl charts end at `z = 0.4400`. The blades span about `0.438`–`0.461` and are about `0.18` long from the axis, and the spinner tip reaches `0.49`.
+- **Selection:** `minZ = 0.445` selects four blade charts and three spinner charts. A 90-vertex chart near the spinner base, ending at `z = 0.4424`, stays fixed. Turning leaves no openings, so the biplane has no plugs.
+
+**Monoplane** ([`plane-toy.glb`](../public/plane-toy/plane-toy.glb), key `toy`)
+
+- **Contents:** about 126,000 vertices and 206,000 triangles, about `4.2` MB.
+- **Orientation:** authored with the nose toward +Z, so `rotationY` is `0`. Scaled, it is about `4.7` units long and `2.1` tall.
+- **Trails:** the tips reach `x = ±0.49`, and `trailAnchor` is `(0, 0.014, 0.05)`.
+- **Propeller:** the axis is parallel to +Z through `(0, 0.0346)`. The cowl's center is at about `(0, 0.022–0.026)`. The cowl ends at `z = 0.2742`. The blades span about `0.2687`–`0.292` and are about `0.135` long from the axis, and the spinner tip reaches `0.305`.
+- **Selection:** `minZ = 0.28` selects two blade charts, two blade-tip charts, and two spinner charts.
+- **Fused root and plugs:** the lower-right blade root is fused into the cowl face, which has no surface under it. Turning the blade opens a hole between radii `0.042` and `0.061` from the axis, at angles `-75°` to `-15°` from +X seen from the front, with its rim back to `z = 0.2536`. A ring sector plug at `z = 0.252` (radii `0.03`–`0.062`, `-120°` to `+10°`) closes it from inside the cowl. Thin slits open around the spinner base, at radii `0.028`–`0.042` with the rim back to `z = 0.2437`, and a disc plug at `z = 0.243` (radius `0.043`) closes them.
+
+A model with a separate propeller node would need neither the mask nor plugs.
 
 ### Boat
 
-`main.js` imports `/boat/scene.gltf?url`, selects `gltf.scene.children[0].children[0]`, scales it to `1.3`, and stores it as `assets.boatModel`. `Chunk` clones that model, rotates each clone around Y, positions it at Y `0.8`, and injects the boat curvature shader into mesh materials.
+When `worldFeatures.boats` is enabled, `main.js` loads `/boat/scene.gltf`, selects `gltf.scene.children[0].children[0]`, scales it to `1.3`, and stores it as `assets.boatModel`. `Chunk` clones that model, rotates each clone around Y, positions it at Y `0.8`, and injects the boat curvature shader into mesh materials. The current terrain-only configuration makes no boat request.
 
 The hard-coded child selection is part of the current asset contract. A replacement model with a different hierarchy requires a corresponding loader change and browser validation.
 
 ### Textures
 
-`normal.jpg` is loaded twice by current code:
+Terrain normal maps are imported by [`src/terrainNormals.js`](../src/terrainNormals.js). `getTerrainNormalTexture()` loads each one once, with repeat wrapping, the first time a layer or `src/chunk.js` asks for it; these requests are not part of the loading manager's progress state. Only the OpenGL-convention normal maps (`*_nor_gl_1k.jpg`) are in the repository. `curly_teddy_checkered_nor_gl_1k.jpg` is `1024 × 864`; tiles are square in world units, so it is slightly squashed along V. `normal.jpg` has its green channel flipped relative to OpenGL, recorded as `invertGreen` in `TERRAIN_NORMAL_TEXTURES`. A new normal map needs an entry there with the right `invertGreen` value.
 
-- `main.js` loads it through the shared loading manager and exposes it as `assets.normalMap` for trees.
-- `src/chunk.js` loads it independently for terrain and clouds, enables repeat wrapping, and sets a `6` by `6` repeat.
+Scenery (trees, cacti, rocks) and clouds have no model files. Their source meshes are built from Three.js primitives and extruded shapes in `src/impostors/impostorArchetypes.js` and `src/impostors/cloudArchetypes.js`, and `init()` bakes them into in-memory atlases at startup (see [Rendering](RENDERING.md#impostor-scenery) and [Clouds](RENDERING.md#clouds)). The cloud shapes follow [`docs/style-references/cloud-reference.png`](style-references/cloud-reference.png).
 
-The independent chunk-level texture request is not part of the loading manager's progress state.
+`white_oak_veneer_diff_1k.jpg` is the only scenery and cloud file asset.
+
+- **Format:** a `1024 × 1024` tileable color JPEG whose grain lines run vertically in the image (along V); the file has no EXIF rotation. Only the color map is kept.
+- **Loading:** `main.js` loads it through the shared loading manager with repeat wrapping, and only when `worldFeatures.scenery` or `worldFeatures.clouds` is enabled.
+- **Use:** `main.js` sets `SRGBColorSpace`. The bakes and the near meshes share one triplanar function ([`scenery-detail-pars-fragment.glsl`](../src/shaders/scenery-detail-pars-fragment.glsl)) that multiplies each part's vertex color by the texture color, so both look the same. Its side projections map U to height, so the grain renders horizontally. Clouds divide the sample by the texture's mean color (its smallest mip), so their grain does not darken them; this needs the default mipmaps. It is not used as bump.
+- **Replacing it:** any tileable sRGB color image with its grain along V works; a darker texture darkens every scenery impostor. A replacement needs its license recorded here.
 
 ### Audio
 
-`main.js` loads the soundtrack through `THREE.AudioLoader`, creates looping non-positional audio at volume `0.1`, and attaches its listener to the camera. Playback starts only from the user play action to satisfy browser interaction requirements.
+[`src/soundtrack.js`](../src/soundtrack.js) streams the soundtrack through an `Audio` media element instead of downloading and decoding it before startup, so it is not part of the loading manager and a failed load only leaves the music silent. The file is `6.9` MB at `256` kbps; the media element plays it while it downloads. Playback starts only from the user play action to satisfy browser interaction requirements; see [Experience](EXPERIENCE.md#audio).
 
 ## Adding Or Replacing An Asset
 
@@ -66,7 +100,6 @@ The independent chunk-level texture request is not part of the loading manager's
 
 ## Open Questions
 
-- What are the source and redistribution terms for the soundtrack and both texture files?
-- Is `tessuto.jpg` intentionally reserved for future work or safe to remove?
+- What are the source and redistribution terms for `plane-toy.glb`, `plane-toy-2.glb`, the soundtrack, `white_oak`, and the other texture files without a provenance file?
+- Should the dormant boat and the former airplane move out of `public/` (about `10.6` MB copied into every build) while keeping their license files?
 - Should model extraction use names instead of hierarchy indices?
-- Should duplicate normal-map loading be consolidated under the asset-loading lifecycle?

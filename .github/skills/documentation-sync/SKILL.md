@@ -19,17 +19,18 @@ Do not use stale context: read the current version of every documentation file b
 
 ## Documentation Map
 
-| Changed area                                                                     | Documentation owner                                     |
-| -------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| Agent-wide rules or task routing                                                 | [`AGENTS.md`](../../../AGENTS.md)                       |
-| Installation, commands, dependencies, toolchain, or coding workflow              | [`docs/DEVELOPMENT.md`](../../../docs/DEVELOPMENT.md)   |
-| Bootstrap, frame loop, ownership, lifecycle, or cross-module data flow           | [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) |
-| Noise, height generation, chunks, LOD, streaming, or world decoration            | [`docs/TERRAIN.md`](../../../docs/TERRAIN.md)           |
-| Renderer, materials, uniforms, GLSL, instancing, lighting, fog, or GPU resources | [`docs/RENDERING.md`](../../../docs/RENDERING.md)       |
-| Loader, DOM, controls, movement, camera, audio, or responsive behavior           | [`docs/EXPERIENCE.md`](../../../docs/EXPERIENCE.md)     |
-| Models, textures, audio files, transforms, provenance, or licensing              | [`docs/ASSETS.md`](../../../docs/ASSETS.md)             |
-| Tests, build checks, browser QA, performance measurements, or CI                 | [`docs/QUALITY.md`](../../../docs/QUALITY.md)           |
-| Human-facing project overview or quick-start instructions                        | [`README.md`](../../../README.md)                       |
+| Changed area                                                                        | Documentation owner                                     |
+| ----------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| Agent-wide rules or task routing                                                    | [`AGENTS.md`](../../../AGENTS.md)                       |
+| Installation, commands, dependencies, toolchain, or coding workflow                 | [`docs/DEVELOPMENT.md`](../../../docs/DEVELOPMENT.md)   |
+| Bootstrap, frame loop, ownership, lifecycle, or cross-module data flow              | [`docs/ARCHITECTURE.md`](../../../docs/ARCHITECTURE.md) |
+| Noise, height generation, chunks, LOD, streaming, or world decoration               | [`docs/TERRAIN.md`](../../../docs/TERRAIN.md)           |
+| Renderer, materials, uniforms, GLSL, instancing, lighting, fog, or GPU resources    | [`docs/RENDERING.md`](../../../docs/RENDERING.md)       |
+| Loader, DOM, controls, movement, camera, audio, or responsive behavior              | [`docs/EXPERIENCE.md`](../../../docs/EXPERIENCE.md)     |
+| Models, textures, audio files, transforms, provenance, or licensing                 | [`docs/ASSETS.md`](../../../docs/ASSETS.md)             |
+| Tests, build checks, browser QA, performance measurements, or CI                    | [`docs/QUALITY.md`](../../../docs/QUALITY.md)           |
+| Technical debt, performance analysis, implementation sequencing, or future features | [`docs/ROADMAP.md`](../../../docs/ROADMAP.md)           |
+| Human-facing project overview or quick-start instructions                           | [`README.md`](../../../README.md)                       |
 
 A change may require more than one owner. Follow links between guides when a contract spans CPU code, shaders, assets, and user experience.
 
