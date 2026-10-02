@@ -12,6 +12,7 @@ import { getTerrainNormalTexture, TERRAIN_NORMAL_LAYERS } from './terrainNormals
 import { createShadowedLightsFragment } from './curvedLights'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import { getHeight } from './chunkGeometry'
+import { disposeChunkGeometry } from './chunkTopology'
 
 // The terrain samples its per-layer maps from uTerrainNormalMaps
 // (terrain-normal-pars.glsl). normalMap only enables Three's tangent-space
@@ -64,7 +65,7 @@ export default class Chunk extends Mesh {
 
 	dispose() {
 		this.parent.remove(this)
-		this.geometry.dispose()
+		disposeChunkGeometry(this.geometry)
 		this.clearScenery()
 		if (this.boats) {
 			this.boats.forEach((el) => this.remove(el))
@@ -130,7 +131,7 @@ export default class Chunk extends Mesh {
 	replaceGeometry(geometry, LOD) {
 		if (!geometry) return
 
-		this.geometry.dispose()
+		disposeChunkGeometry(this.geometry)
 		this.geometry = geometry
 		this.LOD = LOD
 		this.updateScenery()

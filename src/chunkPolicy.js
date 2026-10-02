@@ -23,13 +23,35 @@ export function hasSceneryAtDistance(distance) {
 // that extends `lookAhead` chunks along the heading, keeps `maxDistance` to the
 // sides, and only `rearDistance` behind. `lookAhead` also pushes the LOD rings
 // forward, so seams between LODs stay far ahead of a high-flying plane.
+// Finished worker results are committed nearest first, at least one per
+// frame, until `commitBytes` of new terrain and scenery buffers (uploaded on
+// the next render) or `commitMs` of main-thread time is reached.
 export const CHUNK_STREAMING = Object.freeze({
-	desktop: Object.freeze({ maxDistance: 6, lookAhead: 2, rearDistance: 3 }),
-	mobile: Object.freeze({ maxDistance: 5, lookAhead: 1, rearDistance: 2.5 }),
+	desktop: Object.freeze({
+		maxDistance: 6,
+		lookAhead: 2,
+		rearDistance: 3,
+		commitBytes: 1_500_000,
+		commitMs: 4,
+	}),
+	mobile: Object.freeze({
+		maxDistance: 5,
+		lookAhead: 1,
+		rearDistance: 2.5,
+		commitBytes: 400_000,
+		commitMs: 3,
+	}),
 	headingSectors: 8,
 	// Extra fraction of a sector the heading must cross before the set turns.
 	headingHysteresis: 0.15,
 })
+
+// Chunk workers: one on mobile; on desktop half the logical cores, from one
+// to four, leaving the rest to the main thread and the browser.
+export function getChunkWorkerCount({ isMobile = false, hardwareConcurrency = 2 } = {}) {
+	if (isMobile) return 1
+	return Math.min(Math.max(Math.floor(hardwareConcurrency / 2), 1), 4)
+}
 
 function wrapSector(sector, sectors) {
 	return ((sector % sectors) + sectors) % sectors

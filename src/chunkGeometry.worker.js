@@ -24,12 +24,11 @@ self.addEventListener('message', ({ data: request }) => {
 				...request.geometry,
 				noises: cachedNoises,
 			})
+			// Index and uv are shared per LOD on the main thread.
 			transfer.push(
 				geometry.position.buffer,
 				geometry.normal.buffer,
-				geometry.uv.buffer,
 				geometry.height.buffer,
-				geometry.index.buffer,
 			)
 		}
 

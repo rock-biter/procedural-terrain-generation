@@ -57,14 +57,15 @@ main.js: tic()
      -> on a chunk boundary or heading-sector change, build a heading-biased desired Map
      -> dispose every live chunk outside the desired set
      -> cancel obsolete work and enqueue one keyed job per coordinate
-     -> on later frames, sort pending jobs and dispatch into a bounded pool
-            -> chunkGeometry.worker.js
-                 -> seeded PlaneGeometry allocation
+     -> every frame and on each worker completion, sort pending jobs and fill every idle worker
+            -> chunkGeometry.worker.js (no three.js)
+                 -> typed-array grid in PlaneGeometry layout
                  -> getHeight() for every terrain vertex
-                 -> getSurfaceNormal() central differences (4 extra samples/vertex)
-                 -> transfer position/normal/UV/height/index buffers
+                 -> central-difference normals (4 extra samples/vertex, about 2 at desktop LOD 0)
+                 -> transfer position/normal/height buffers and a bounding sphere
+            -> ready queue, committed nearest first within the frame budget
             -> main thread validates key + revision
-                 -> wrap buffers in BufferGeometry
+                 -> wrap buffers in BufferGeometry with the per-LOD shared index and uv
                  -> create Chunk or replace its geometry
                  -> scenery placement within the radial range (transferred Float32Array)
             -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk
@@ -105,7 +106,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Former cloud noise evaluations |                                                     14,417,920 |                                          9,568,256 |
 | Cloud field cells per rebuild |                       625 (841 with the two-cell neighbour border) |      225 (361 with the two-cell neighbour border) |
 
-Terrain startup performs about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile, distributed across up to two desktop workers or one mobile worker.
+Terrain startup performed about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile at the 2026-09-26 baseline; shared normal samples at desktop LOD 0 now lower the desktop total, which has not been recounted. They are distributed across up to four desktop workers or one mobile worker.
 
 Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations. Land candidates add three biome and two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
 
@@ -121,7 +122,7 @@ The former tree path would have needed 1.15 million main-thread evaluations on d
 | 3   |                          16 / 289 / 512 |                           8 / 81 / 128 |
 | 4   |                             8 / 81 / 128 |                                    n/a |
 
-Normals are sampled from the height function inside the worker with four extra `getHeight()` calls per vertex, so a job costs about five height samples per vertex. LOD changes still allocate, resample, transfer, and replace complete geometry; the work is asynchronous but not cached.
+Normals are sampled from the height function inside the worker with four extra `getHeight()` calls per vertex, so a job costs about five height samples per vertex; at desktop LOD 0 the shared samples bring it to about three. Measured in Node on an Apple M1 (2026-10-02): desktop LOD 0 `31` → `16` ms, LOD 1 `8.5` → `6.5` ms, mobile LOD 0 `8.2` → `6.5` ms, the other levels about `-20%` from the table-based `snoise()` permutation. LOD changes still allocate, resample, transfer, and replace per-chunk buffers; the work is asynchronous but not cached.
 
 ### Decoration Geometry
 
@@ -149,8 +150,8 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `STRM-002`  | P0       | Done        | Desired-set reconciliation must inspect all live chunks.                                | A pure symmetric desired set is diffed against every live and pending key on each chunk transition.                                              |
 | `PERF-001`  | P0       | Done        | Dormant cloud placement scanned all 65,536 integer positions in every chunk at every LOD. | Replaced by the world-level cloud field (`FEAT-006`): a `160`-unit grid, at most 841 cells per rebuild with the default sizes, once per cell of travel.                 |
 | `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; clouds are no longer per-chunk. Boat clones and their shared resources remain undisposed.        |
-| `PERF-002`  | P1       | In progress | Main-thread commits are limited by job count rather than a frame-time budget.           | Workers handle sampling/normals; buffer wrapping, GPU upload, scene mutation, and future scenery still commit synchronously.                     |
-| `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Workers now perform the computation, but each transition still creates and transfers a complete replacement buffer set.                          |
+| `PERF-002`  | P1       | In progress | Main-thread commits were limited by job count rather than a frame-time budget.          | Since 2026-10-02 workers take their next job on completion and results commit nearest first within `CHUNK_STREAMING.commitBytes` and `commitMs`; desktop startup converges in `0.46` s instead of `1.55` s (Apple M1). GPU upload time is still unmeasured (`OBS-001`). |
+| `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Each transition still recomputes heights and normals and transfers new position, normal, and height buffers; index and uv are shared per LOD, desktop LOD 0 jobs cost half (shared normal samples), and CPU copies are freed after upload. There is no height cache. |
 | `PERF-004`  | P1       | Done        | Identical cloud base geometries were recreated per chunk.                               | Cloud sources are built once per near-mesh level and baked into one atlas; the field draws one impostor mesh (`FEAT-006`).                        |
 | `STATE-001` | P1       | Done        | Chunk registries must delete historical keys and remain bounded.                        | Live and pending state use keyed `Map` instances; disposal deletes entries. Browser traversal kept `created - disposed = live`.                  |
 | `CORR-001`  | P1       | Done        | Cloud candidates were offset by a full chunk instead of half a chunk.                   | The per-chunk cloud loop was removed; the cloud field places world-space bases on its own grid (`FEAT-006`).                                     |
@@ -219,9 +220,9 @@ Required direction: write an ownership table in code design, separate shared imm
 
 ### `PERF-002` And `PERF-003`: Main-Thread Spikes
 
-The scheduler dispatches one near job or up to three farther jobs, bounded further by one mobile or up to two desktop workers. A near LOD 0 worker job performs 16,641 vertex height samples plus 66,564 normal samples; the main thread still wraps buffers and triggers GPU upload.
+Since 2026-10-02 the scheduler fills every idle worker each frame and again whenever a worker finishes (one mobile worker, half the logical cores up to four on desktop), and finished results commit nearest first within a per-frame byte and time budget. A near desktop LOD 0 worker job performs 16,641 vertex height samples plus about 33,000 shared normal samples; the main thread still wraps buffers and triggers GPU upload.
 
-LOD transitions avoid recreating existing decorations but still allocate a new `PlaneGeometry`, evaluate heights, compute normals, transfer buffers, and replace the old geometry. There is no height cache or reusable geometry buffer. Running work is not interrupted; obsolete responses are discarded by key and revision.
+LOD transitions avoid recreating existing decorations but still evaluate heights, compute normals, transfer new position, normal, and height buffers, and replace the old geometry; index and uv are shared per LOD. There is no height cache or reusable geometry buffer. Running work is not interrupted; obsolete responses are discarded by key and revision.
 
 Required direction: instrument worker duration, transfer delay, main-thread wrapping, GPU upload, and scene commit separately, then adopt a millisecond budget for the remaining main-thread stages.
 
@@ -326,7 +327,7 @@ Acceptance criteria:
 
 Dependencies: Phases 0-2 and deterministic pure generation functions.
 
-Current status: terrain topology, heights, normals, and transferable buffers are implemented with one mobile or up to two desktop workers. Decoration placement and performance acceptance remain open.
+Current status: terrain heights, normals, and transferable buffers are implemented in a worker pool of one mobile or up to four desktop workers that load no three.js; scenery placement also runs there. Performance acceptance against a Phase 0 baseline remains open.
 
 Tasks:
 

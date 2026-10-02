@@ -43,8 +43,8 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 
 - [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume.
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
-- [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, the heading-biased desired set (`CHUNK_STREAMING`), heading sectors, forward-shifted LOD, and the radial scenery range.
-- [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and transferable terrain buffers shared by tests and workers.
+- [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, the heading-biased desired set and per-frame commit budget (`CHUNK_STREAMING`), the worker count, heading sectors, forward-shifted LOD, and the radial scenery range.
+- [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and the three-free terrain buffers shared by tests and workers; [`src/chunkTopology.js`](src/chunkTopology.js) owns the per-LOD shared index and uv attributes and the chunk `BufferGeometry` wrapping and disposal.
 - [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
 - [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
 - [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.

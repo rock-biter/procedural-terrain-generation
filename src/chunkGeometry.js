@@ -1,12 +1,19 @@
 import alea from 'alea'
-import {
-	BufferAttribute,
-	BufferGeometry,
-	MathUtils,
-	PlaneGeometry,
-} from 'three'
 import { createNoise2D } from 'simplex-noise'
 import { getBiomeValue } from './biome.js'
+
+// Same formulas as three's MathUtils, so heights stay bit-identical; this
+// module runs in the chunk workers, which do not load three.
+function lerp(x, y, t) {
+	return (1 - t) * x + t * y
+}
+
+function smoothstep(x, min, max) {
+	if (x <= min) return 0
+	if (x >= max) return 1
+	x = (x - min) / (max - min)
+	return x * x * (3 - 2 * x)
+}
 
 // getLandmass() always reads noises 0 and 1, so at least two are created even
 // for a single octave; the extra one does not change any other octave.
@@ -66,10 +73,10 @@ function getLandmass(x, z, noises, params) {
 	const landmassNoise = landmass
 	landmass *= params.amplitude * 3.5
 	const blend = noises[1](x * 0.0005, z * 0.0005) - 0.5
-	return MathUtils.lerp(
+	return lerp(
 		landmass,
-		(MathUtils.smoothstep(blend, 0.5, 1) - 0.5) * params.amplitude * 2,
-		1 - MathUtils.smoothstep(landmassNoise, -1, -0.3),
+		(smoothstep(blend, 0.5, 1) - 0.5) * params.amplitude * 2,
+		1 - smoothstep(landmassNoise, -1, -0.3),
 	)
 }
 
@@ -77,14 +84,14 @@ function getLandmass(x, z, noises, params) {
 // biome, mixed over +-blend around the border.
 export function getDesertWeight(biomeValue, params) {
 	const blend = Math.max(params.desert.blend, 1e-6)
-	return 1 - MathUtils.smoothstep(biomeValue, -blend, blend)
+	return 1 - smoothstep(biomeValue, -blend, blend)
 }
 
 // Share of land height removed by the desert: 0 at the border, growing
 // smoothly to flatten once the biome value is depth below it.
 export function getDesertFlattening(biomeValue, params) {
 	const depth = Math.max(params.desert.depth, 1e-6)
-	return params.desert.flatten * MathUtils.smoothstep(-biomeValue, 0, depth)
+	return params.desert.flatten * smoothstep(-biomeValue, 0, depth)
 }
 
 // biomeOffset comes from createBiomeOffset(seed); the desert reshapes the
@@ -158,6 +165,24 @@ export function getChunkSegments(size, LOD, density) {
 	return Math.max(Math.floor(size * 0.5 ** LOD), density) / density
 }
 
+// Normal from the four height samples around a vertex, NORMAL_EPSILON away
+// along X (left, right) and Z (back, front), written at `offset`.
+function writeNormal(target, offset, left, right, back, front) {
+	const nx = left - right
+	const ny = 2 * NORMAL_EPSILON
+	const nz = back - front
+	const length = Math.hypot(nx, ny, nz)
+	target[offset] = nx / length
+	target[offset + 1] = ny / length
+	target[offset + 2] = nz / length
+}
+
+// Terrain buffers for one chunk, a flat grid of `segments + 1` vertices per
+// side centered on (worldX, worldZ). The layout matches a PlaneGeometry
+// rotated flat: row-major, rows along +Z, local coordinates rounded to
+// float32. Index and uv depend only on `segments`, so the main thread shares
+// them per LOD (src/chunkTopology.js); the worker sends position, normal, and
+// height, plus the bounding sphere so the main thread never reads positions.
 export function generateChunkGeometryData({
 	size,
 	LOD,
@@ -169,47 +194,122 @@ export function generateChunkGeometryData({
 	biomeOffset,
 	noises = createTerrainNoises(seed, params.octaves),
 }) {
-	const segments = getChunkSegments(size, LOD, density)
-	const geometry = new PlaneGeometry(size, size, segments, segments)
-	geometry.rotateX(-Math.PI * 0.5)
+	// PlaneGeometry floored the segment count; kept for identical grids.
+	const segments = Math.floor(getChunkSegments(size, LOD, density))
+	const columns = segments + 1
+	const count = columns * columns
+	const half = size / 2
+	const step = size / segments
+	const position = new Float32Array(count * 3)
+	const normal = new Float32Array(count * 3)
+	const height = new Float32Array(count)
 
-	const position = geometry.getAttribute('position')
-	const height = new BufferAttribute(new Float32Array(position.count), 1)
-	geometry.setAttribute('height', height)
-	const normal = geometry.getAttribute('normal')
-	const sampledNormal = [0, 0, 0]
+	const local = new Float32Array(columns)
+	const xs = new Float64Array(columns)
+	const zs = new Float64Array(columns)
+	for (let i = 0; i < columns; i++) {
+		local[i] = i * step - half
+		xs[i] = local[i] + worldX
+		zs[i] = local[i] + worldZ
+	}
+	const sample = (x, z) => getSurfaceHeight(x, z, noises, params, biomeOffset)
 
-	for (let index = 0; index < position.count; index++) {
-		const x = position.getX(index) + worldX
-		const z = position.getZ(index) + worldZ
-		const sampledHeight = getHeight(x, z, noises, params, biomeOffset)
+	// Where the grid step is 2 * NORMAL_EPSILON (desktop LOD 0), the +epsilon
+	// sample of one vertex is the -epsilon sample of the next, along X and Z.
+	// A sample is reused only where both coordinates are exactly equal, so the
+	// result is the same as sampling every vertex on its own.
+	const sharesX = new Uint8Array(columns)
+	const sharesZ = new Uint8Array(columns)
+	for (let i = 1; i < columns; i++) {
+		sharesX[i] = xs[i - 1] + NORMAL_EPSILON === xs[i] - NORMAL_EPSILON ? 1 : 0
+		sharesZ[i] = zs[i - 1] + NORMAL_EPSILON === zs[i] - NORMAL_EPSILON ? 1 : 0
+	}
+	// Front samples (z + epsilon) of the previous row, by column.
+	const previousFront = new Float64Array(columns)
 
-		height.setX(index, sampledHeight)
-		position.setY(index, Math.max(sampledHeight, -1))
+	let minY = Infinity
+	let maxY = -Infinity
+	for (let row = 0; row < columns; row++) {
+		const z = zs[row]
+		// Right sample (x + epsilon) of the previous vertex in this row.
+		let previousRight = 0
+		for (let column = 0; column < columns; column++) {
+			const x = xs[column]
+			const index = row * columns + column
+			const sampledHeight = getHeight(x, z, noises, params, biomeOffset)
+			const y = Math.max(sampledHeight, -1)
+			height[index] = sampledHeight
+			position[index * 3] = local[column]
+			position[index * 3 + 1] = y
+			position[index * 3 + 2] = local[row]
+			if (y < minY) minY = y
+			if (y > maxY) maxY = y
 
-		getSurfaceNormal(x, z, noises, params, biomeOffset, sampledNormal)
-		normal.setXYZ(index, sampledNormal[0], sampledNormal[1], sampledNormal[2])
+			const left = sharesX[column]
+				? previousRight
+				: sample(x - NORMAL_EPSILON, z)
+			const right = sample(x + NORMAL_EPSILON, z)
+			const back = sharesZ[row]
+				? previousFront[column]
+				: sample(x, z - NORMAL_EPSILON)
+			const front = sample(x, z + NORMAL_EPSILON)
+			writeNormal(normal, index * 3, left, right, back, front)
+			previousRight = right
+			previousFront[column] = front
+		}
 	}
 
-	position.needsUpdate = true
-	normal.needsUpdate = true
-
+	// Encloses the grid: x and z span [-half, half] around the center.
+	minY = Math.fround(minY)
+	maxY = Math.fround(maxY)
+	const halfHeight = (maxY - minY) / 2
 	return {
-		position: geometry.getAttribute('position').array,
-		normal: geometry.getAttribute('normal').array,
-		uv: geometry.getAttribute('uv').array,
-		height: geometry.getAttribute('height').array,
-		index: geometry.getIndex().array,
+		segments,
+		position,
+		normal,
+		height,
+		boundingSphere: {
+			centerY: minY + halfHeight,
+			radius: Math.hypot(half, half, halfHeight),
+		},
 	}
 }
 
-export function createChunkGeometry(data) {
-	const geometry = new BufferGeometry()
-	geometry.setAttribute('position', new BufferAttribute(data.position, 3))
-	geometry.setAttribute('normal', new BufferAttribute(data.normal, 3))
-	geometry.setAttribute('uv', new BufferAttribute(data.uv, 2))
-	geometry.setAttribute('height', new BufferAttribute(data.height, 1))
-	geometry.setIndex(new BufferAttribute(data.index, 1))
+// Triangle indices of a chunk grid, in PlaneGeometry order. Uint16 while
+// every vertex index fits.
+export function createChunkIndex(segments) {
+	const columns = segments + 1
+	const ArrayType = columns * columns > 65536 ? Uint32Array : Uint16Array
+	const index = new ArrayType(segments * segments * 6)
+	let offset = 0
+	for (let row = 0; row < segments; row++) {
+		for (let column = 0; column < segments; column++) {
+			const a = column + columns * row
+			const b = column + columns * (row + 1)
+			const c = column + 1 + columns * (row + 1)
+			const d = column + 1 + columns * row
+			index[offset++] = a
+			index[offset++] = b
+			index[offset++] = d
+			index[offset++] = b
+			index[offset++] = c
+			index[offset++] = d
+		}
+	}
+	return index
+}
 
-	return geometry
+// Chunk uv in PlaneGeometry order: u along +X, v from 1 at the first row
+// (-Z) to 0 at the last. Only the normal map's tangent frame reads it.
+export function createChunkUv(segments) {
+	const columns = segments + 1
+	const uv = new Float32Array(columns * columns * 2)
+	for (let row = 0; row < columns; row++) {
+		for (let column = 0; column < columns; column++) {
+			const offset = (row * columns + column) * 2
+			uv[offset] = column / segments
+			uv[offset + 1] = 1 - row / segments
+		}
+	}
+	return uv
 }

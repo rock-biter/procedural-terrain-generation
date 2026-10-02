@@ -1,18 +1,32 @@
 import { Vector3 } from 'three'
 import { createBiomeOffset } from './biome'
 import Chunk from './chunk'
-import { createChunkGeometry, createTerrainNoises } from './chunkGeometry'
+import { createTerrainNoises } from './chunkGeometry'
 import {
 	CHUNK_STREAMING,
 	getChunkKey,
+	getChunkWorkerCount,
 	getDesiredChunks,
 	getHeadingSector,
 	getSectorDirection,
 	needsSceneryPlacement,
 } from './chunkPolicy'
+import { createChunkGeometry, disposeChunkGeometry } from './chunkTopology'
 import ChunkWorkerPool from './chunkWorkerPool'
 
 const isMobile = window.innerWidth < 768
+
+// New buffers a worker result adds, uploaded on the next render.
+function getResponseBytes({ geometry, scenery }) {
+	let bytes = scenery?.byteLength ?? 0
+	if (geometry) {
+		bytes +=
+			geometry.position.byteLength +
+			geometry.normal.byteLength +
+			geometry.height.byteLength
+	}
+	return bytes
+}
 
 // Work already running for a target stays valid across a reconcile when it
 // produces exactly what the new target asks for.
@@ -30,7 +44,10 @@ export default class ChunkManager {
 	chunks = new Map()
 	desired = new Map()
 	pending = new Map()
+	// Jobs sent to a worker, including finished ones waiting in `ready`: they
+	// stay here until committed, so a reconcile can still adopt them.
 	inFlight = new Map()
+	ready = []
 	lastChunkVisited = null
 	headingSector = null
 	forward = new Vector3()
@@ -42,8 +59,8 @@ export default class ChunkManager {
 	failed = 0
 	streaming = isMobile ? CHUNK_STREAMING.mobile : CHUNK_STREAMING.desktop
 	maxDistance = this.streaming.maxDistance
-	jobsPerFrame = isMobile ? 2 : 3
 	density = isMobile ? 4 : 2
+	lastCommit = { results: 0, bytes: 0, ms: 0 }
 
 	constructor(
 		chunkSize,
@@ -65,12 +82,12 @@ export default class ChunkManager {
 		this.seed = seed
 		this.noise = createTerrainNoises(seed, params.octaves)
 		this.biomeOffset = createBiomeOffset(seed)
-		const availableThreads = Math.max(
-			1,
-			(navigator.hardwareConcurrency ?? 2) - 1,
+		this.workerPool = new ChunkWorkerPool(
+			getChunkWorkerCount({
+				isMobile,
+				hardwareConcurrency: navigator.hardwareConcurrency ?? 2,
+			}),
 		)
-		const workerCount = isMobile ? 1 : Math.min(2, availableThreads)
-		this.workerPool = new ChunkWorkerPool(workerCount)
 
 		this.init()
 	}
@@ -185,14 +202,15 @@ export default class ChunkManager {
 		return chunk
 	}
 
-	processPendingJobs() {
+	// Sends the most urgent queued jobs to every idle worker. Runs every frame
+	// and whenever a worker finishes, so no worker waits for the next frame.
+	dispatchJobs() {
+		if (this.pending.size === 0) return
 		const jobs = [...this.pending.values()].sort(
 			(a, b) => a.priority - b.priority,
 		)
-		let processed = 0
 
 		for (const job of jobs) {
-			if (processed >= this.jobsPerFrame) break
 			if (this.pending.get(job.key) !== job) continue
 			if (this.inFlight.has(job.key)) continue
 			if (!this.isJobCurrent(job)) {
@@ -208,13 +226,52 @@ export default class ChunkManager {
 			job.requestRevision = job.revision
 			this.inFlight.set(job.key, job)
 			generation.then(
-				(data) => this.commitWorkerResult(job, data),
-				(error) => this.handleWorkerError(job, error),
+				(response) => {
+					job.response = response
+					this.ready.push(job)
+					this.dispatchJobs()
+				},
+				(error) => {
+					this.handleWorkerError(job, error)
+					this.dispatchJobs()
+				},
 			)
-			processed++
-			// Scenery-only jobs are cheap; only terrain work limits near jobs.
-			if (job.type !== 'scenery' && job.LOD <= 1 && processed === 1) break
 		}
+	}
+
+	// Commits finished results, nearest first, within the frame budget of
+	// CHUNK_STREAMING (bytes to upload and main-thread time). Stale results are
+	// dropped without counting.
+	commitReadyResults() {
+		if (this.ready.length === 0) return
+		this.ready.sort((a, b) => a.priority - b.priority)
+		const { commitBytes, commitMs } = this.streaming
+		const start = performance.now()
+		let results = 0
+		let bytes = 0
+
+		while (this.ready.length > 0) {
+			const job = this.ready[0]
+			const jobBytes = getResponseBytes(job.response)
+			if (
+				results > 0 &&
+				(bytes + jobBytes > commitBytes ||
+					performance.now() - start > commitMs)
+			) {
+				break
+			}
+			this.ready.shift()
+			const response = job.response
+			job.response = null
+			if (this.commitWorkerResult(job, response)) {
+				results++
+				bytes += jobBytes
+			}
+		}
+
+		this.lastCommit.results = results
+		this.lastCommit.bytes = bytes
+		this.lastCommit.ms = performance.now() - start
 	}
 
 	createWorkerRequest(job) {
@@ -261,8 +318,9 @@ export default class ChunkManager {
 		}
 	}
 
+	// Applies a worker result; returns false for a stale one.
 	commitWorkerResult(job, response) {
-		if (this.inFlight.get(job.key) !== job) return
+		if (this.inFlight.get(job.key) !== job) return false
 		this.inFlight.delete(job.key)
 
 		if (
@@ -271,7 +329,7 @@ export default class ChunkManager {
 			!this.isJobCurrent(job)
 		) {
 			this.stale++
-			return
+			return false
 		}
 
 		let chunk = this.chunks.get(job.key)
@@ -279,34 +337,26 @@ export default class ChunkManager {
 		if (job.type === 'scenery') {
 			if (!chunk) {
 				this.stale++
-				return
+				return false
 			}
 			if (response.scenery) chunk.setScenery(response.scenery)
 			this.generated++
-			return
+			return true
 		}
 
-		const geometry = createChunkGeometry(response.geometry)
-
-		if (job.type === 'create') {
-			if (chunk) {
-				geometry.dispose()
-				this.stale++
-				return
-			}
-			chunk = this.createChunk(job, geometry)
-		} else if (chunk) {
-			chunk.replaceGeometry(geometry, job.LOD)
-		} else {
-			geometry.dispose()
+		if (job.type === 'create' ? chunk : !chunk) {
 			this.stale++
-			return
+			return false
 		}
+		const geometry = createChunkGeometry(response.geometry)
+		if (job.type === 'create') chunk = this.createChunk(job, geometry)
+		else chunk.replaceGeometry(geometry, job.LOD)
 
 		if (response.scenery) chunk.setScenery(response.scenery)
 		else if (!job.scenery) chunk.clearScenery()
 
 		this.generated++
+		return true
 	}
 
 	handleWorkerError(job, error) {
@@ -351,10 +401,10 @@ export default class ChunkManager {
 			this.lastChunkVisited = currentChunkKey
 			this.headingSector = headingSector
 			this.reconcileChunks(i, j)
-			return
 		}
 
-		this.processPendingJobs()
+		this.dispatchJobs()
+		this.commitReadyResults()
 	}
 
 	disposeChunk(key) {
@@ -455,7 +505,9 @@ export default class ChunkManager {
 			live: this.chunks.size,
 			pending: this.pending.size + this.inFlight.size,
 			queued: this.pending.size,
-			inFlight: this.inFlight.size,
+			inFlight: this.inFlight.size - this.ready.length,
+			ready: this.ready.length,
+			lastCommit: { ...this.lastCommit },
 			created: this.created,
 			disposed: this.disposed,
 			generated: this.generated,

@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
 	CHUNK_STREAMING,
 	getChunkKey,
+	getChunkWorkerCount,
 	getDesiredChunks,
 	getHeadingSector,
 	getSectorDirection,
@@ -159,5 +160,27 @@ test('keeps forward sets connected and centered on the current chunk', () => {
 				assert.equal(desired.has(getChunkKey(di, dj)), true)
 			}
 		}
+	}
+})
+
+test('uses one worker on mobile and half the cores on desktop, up to four', () => {
+	assert.equal(getChunkWorkerCount({ isMobile: true, hardwareConcurrency: 8 }), 1)
+	assert.equal(getChunkWorkerCount({ hardwareConcurrency: 1 }), 1)
+	assert.equal(getChunkWorkerCount({ hardwareConcurrency: 2 }), 1)
+	assert.equal(getChunkWorkerCount({ hardwareConcurrency: 4 }), 2)
+	assert.equal(getChunkWorkerCount({ hardwareConcurrency: 8 }), 4)
+	assert.equal(getChunkWorkerCount({ hardwareConcurrency: 16 }), 4)
+	assert.equal(getChunkWorkerCount(), 1)
+})
+
+test('commit budgets allow at least a few full-detail chunks per frame', () => {
+	for (const [streaming, segments] of [
+		[CHUNK_STREAMING.desktop, 128],
+		[CHUNK_STREAMING.mobile, 64],
+	]) {
+		// position, normal, and height: 7 floats per vertex.
+		const bytes = (segments + 1) ** 2 * 7 * 4
+		assert.ok(streaming.commitBytes >= bytes * 3)
+		assert.ok(streaming.commitMs > 0)
 	}
 })

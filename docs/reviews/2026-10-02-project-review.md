@@ -78,12 +78,12 @@ The largest margins were in five places:
 
 | ID | Finding | Where | Status |
 | --- | --- | --- | --- |
-| C1 | Jobs dispatch only from `updateChunks()`, at most one per worker per frame; the near-job `break` idles the second worker; `jobsPerFrame = 3` is unreachable with 2 workers. Simulated: desktop startup 1234 → 426 ms, mobile 1234 → 216 ms, a forward crossing 434 → 117 ms with re-dispatch on completion. | `chunkManager.js` `processPendingJobs()` | Open: re-dispatch on completion, a ready queue committed under a ms or byte budget (`PERF-002` [KNOWN]), 3–4 workers when `hardwareConcurrency >= 8`. |
+| C1 | Jobs dispatch only from `updateChunks()`, at most one per worker per frame; the near-job `break` idles the second worker; `jobsPerFrame = 3` is unreachable with 2 workers. Simulated: desktop startup 1234 → 426 ms, mobile 1234 → 216 ms, a forward crossing 434 → 117 ms with re-dispatch on completion. | `chunkManager.js` `processPendingJobs()` | Done (Phase 2): `dispatchJobs()` on every frame and every completion, a `ready` queue committed within `CHUNK_STREAMING.commitBytes`/`commitMs`, `getChunkWorkerCount()` (up to 4 on desktop). Measured in headless Chrome: desktop startup 1.55 → 0.46 s; a 12 s boosted, turning flight ends with 0 instead of 48 pending jobs, frame times unchanged. |
 | C2 | Startup was fully serial: bundle, then assets including the mp3, then a 1 s fade, then a synchronous `init()` with three bakes, and only then the workers. | `main.js` | Partial: the soundtrack no longer gates loading (Play appeared after 2.0 s instead of 3.1 s on localhost with a warm cache). Starting `ChunkManager` before `init()` and preloading the GLB remain Open. |
 | C3 | Shaders were never precompiled: near scenery and cloud meshes compiled on first approach mid-flight, and cloud shadows at the first sunrise. | `main.js` | Done: `precompileShaders()` uses `compileAsync()` against the composer buffer, plus `CloudShadows.compileAsync()`. |
-| C4 | Desktop LOD 0 normals sample 5 heights per vertex, although neighbors share samples. | `chunkGeometry.js` | Open: midpoint grid, prototyped at 29 → 17 ms per job (−42%). |
+| C4 | Desktop LOD 0 normals sample 5 heights per vertex, although neighbors share samples. | `chunkGeometry.js` | Done (Phase 2): desktop LOD 0 job 31 → 16 ms (−50%), bit-identical normals (reuse only where coordinates are exactly equal). |
 | C5 | `createSources()` runs for every consumer (scenery twice, clouds three times, about 90 ms at startup); the resolve program is compiled once per bake; atlas mipmaps regenerate after every bake render. | `impostorBaker.js`, `sceneryMeshes.js`, `clouds.js`, `cloudShadows.js` | Open: memoize per catalog, type, and LOD; the baker must not dispose shared sources. |
-| C6 | `permute()` in the CPU `snoise` only sees integers below 600. | `biome.js` | Open: a lookup table gives bit-identical results, 1.63× faster `snoise`, about −17% per `getHeight()`. |
+| C6 | `permute()` in the CPU `snoise` only sees integers below 600. | `biome.js` | Done (Phase 2): table-based `permute()`, identical over 300,000 points; other LODs about −20%. |
 | C7 | No hysteresis on the current chunk: flying along a border repeats 41–64 jobs per crossing. | `chunkManager.js` | Open (`STRM-003` [KNOWN]). |
 | C8 | The `AudioListener` on the camera scheduled about 540 audio automation events per second for non-positional music. | `main.js` | Done: removed with the soundtrack change. |
 | C9 | Small per-frame allocations (`findSegment()`, `selectShadowLight()`, `getFlightCorridor()`, cloud-shadow options) contradict the "no per-frame allocation" notes. | policy modules | Open (negligible cost). |
@@ -96,7 +96,7 @@ The largest margins were in five places:
 | M1 | The soundtrack was decoded to about 76 MB of PCM. | Done: streamed through a media element. |
 | M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Open: 1024² or KTX2 (about 17 MB or less). |
 | M3 | Shadow targets: 64 MB on desktop, 16 MB on mobile. | Done: 24 MB and 6 MB (G8). |
-| M4 | Terrain index and UV depend only on LOD but are generated, transferred, uploaded, and kept per chunk: 7.16 of 17.35 MB on desktop. The CPU copies stay on the heap after upload. | Open: share them per LOD (−41%), Int16 normals and a shared XZ grid (up to −79%), `array = null` in `onUpload`. |
+| M4 | Terrain index and UV depend only on LOD but are generated, transferred, uploaded, and kept per chunk: 7.16 of 17.35 MB on desktop. The CPU copies stay on the heap after upload. | Partial (Phase 2): index and uv shared per LOD (`src/chunkTopology.js`), per-chunk CPU arrays freed after upload, bounding sphere from the worker. Int16 normals and a shared XZ grid are Open. |
 | M5 | Mobile uses the same 38 MB scenery atlas as desktop. | Open: 48 px frames (about 21 MB) after an art check. |
 
 ## 5. Assets, Bundle, And Build
@@ -108,7 +108,7 @@ The largest margins were in five places:
 | A3 | GLB textures: WebP measured at −2.1 MB on the biplane (3.59 → about 1.46 MB). | Open (with G5 and M2). |
 | A4 | `dist/` was 37.8 MB, 15.5 MB never requested; `src/textures/` held about 18 MB of unused files. | Partial: style references moved to `docs/style-references/`; unused textures, `vite.svg`, and `javascript.svg` removed. The dormant boat (10.5 MB) and the former airplane stay in `public/` under the `AGENTS.md` rule: **Decision**. |
 | A5 | `lil-gui`, `OrbitControls`, and `gsap` are always in the main bundle: −122 KB raw / −39 KB gzip measured without them. | Open: dynamic `import()` behind `?gui=1` and `?debug=1`; CSS transitions plus a small tween for `gsap` ([KNOWN] for the GUI). |
-| A6 | The worker bundles 106 KB of three.js for `PlaneGeometry` and `MathUtils`. | Open: build the grid in typed arrays; worker to about 12 KB (est.). |
+| A6 | The worker bundles 106 KB of three.js for `PlaneGeometry` and `MathUtils`. | Done (Phase 2): the worker builds the grid in typed arrays; 119 → 10.6 KB. |
 | A7 | GLSL minification is off (−5.7 KB raw). | Open. |
 | A8 | `package.json` is still named `three-vite-basic-scene`; there is no `LICENSE` file although the README claims MIT; `vite --host` exposes the dev server on the LAN. | Open. |
 
@@ -167,6 +167,8 @@ Verification:
 ### Phase 2: Streaming And Startup
 
 C1, C4, C6, M4 (shared index and UV per LOD), C5, A6, A1–A3 (recompression), A5, and the rest of C2.
+
+Done on 2026-10-02: C1, C4, C6, M4 (partial), and A6. Verification: 139 of 139 tests passed; 200 chunks over 4 seeds, every LOD, and both densities matched the previous generator bit for bit (position, normal, height, index, uv); headless Chrome desktop, mobile, and `?gui=1&debug=1` at night showed no console errors. Open: C5, the rest of C2, A5, and A1–A3 (after the format and quality decisions).
 
 ### Phase 3: Measurement And GPU Experiments
 

@@ -1,15 +1,23 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBiomeOffset, getBiomeValue } from '../src/biome.js'
+import { PlaneGeometry } from 'three'
 import {
 	DESERT_TERRAIN_DEFAULTS,
-	createChunkGeometry,
+	createChunkIndex,
+	createChunkUv,
 	createTerrainNoises,
 	generateChunkGeometryData,
 	getDesertFlattening,
 	getDesertWeight,
 	getHeight,
+	getSurfaceNormal,
 } from '../src/chunkGeometry.js'
+import {
+	createChunkGeometry,
+	disposeChunkGeometry,
+	getChunkTopology,
+} from '../src/chunkTopology.js'
 
 const params = {
 	amplitude: 23,
@@ -213,4 +221,73 @@ test('samples a single octave with the same landmass noises', () => {
 	const oneOctave = { ...params, octaves: 1 }
 	assert.ok(Number.isFinite(getHeight(120, -80, single, oneOctave, biomeOffset)))
 	assert.doesNotThrow(() => generate({ params: oneOctave }))
+})
+
+test('builds the same grid as a PlaneGeometry rotated flat', () => {
+	const data = generate()
+	const plane = new PlaneGeometry(16, 16, data.segments, data.segments)
+	plane.rotateX(-Math.PI * 0.5)
+	const planePosition = plane.getAttribute('position')
+
+	assert.deepEqual(createChunkIndex(data.segments), plane.getIndex().array)
+	assert.deepEqual(createChunkUv(data.segments), plane.getAttribute('uv').array)
+	for (let index = 0; index < planePosition.count; index++) {
+		assert.equal(data.position[index * 3], planePosition.getX(index))
+		assert.equal(data.position[index * 3 + 2], planePosition.getZ(index))
+	}
+})
+
+test('reuses shared normal samples without changing any normal', () => {
+	// Desktop LOD 0: the grid step is twice NORMAL_EPSILON, so samples are shared.
+	const request = { size: 32, LOD: 0, density: 2, worldX: 272, worldZ: 280 }
+	const data = generate(request)
+	const normal = [0, 0, 0]
+	const columns = data.segments + 1
+	for (let row = 0; row < columns; row++) {
+		for (let column = 0; column < columns; column++) {
+			const index = row * columns + column
+			getSurfaceNormal(
+				data.position[index * 3] + request.worldX,
+				data.position[index * 3 + 2] + request.worldZ,
+				noises,
+				params,
+				biomeOffset,
+				normal,
+			)
+			for (let axis = 0; axis < 3; axis++) {
+				assert.equal(data.normal[index * 3 + axis], Math.fround(normal[axis]))
+			}
+		}
+	}
+})
+
+test('encloses every vertex in the bounding sphere', () => {
+	const data = generate({ ...land })
+	const { centerY, radius } = data.boundingSphere
+	for (let index = 0; index < data.position.length; index += 3) {
+		const distance = Math.hypot(
+			data.position[index],
+			data.position[index + 1] - centerY,
+			data.position[index + 2],
+		)
+		assert.ok(distance <= radius + 1e-4)
+	}
+})
+
+test('shares index and uv per LOD and keeps them when a chunk is disposed', () => {
+	const first = createChunkGeometry(generate())
+	const second = createChunkGeometry(generate({ worldX: 24 }))
+	const { index, uv } = getChunkTopology(generate().segments)
+
+	assert.equal(first.getIndex(), second.getIndex())
+	assert.equal(first.getAttribute('uv'), second.getAttribute('uv'))
+	assert.equal(first.getIndex(), index)
+	assert.equal(first.getAttribute('uv'), uv)
+	assert.ok(first.boundingSphere)
+
+	disposeChunkGeometry(first)
+	assert.equal(first.getIndex(), null)
+	assert.equal(first.getAttribute('uv'), undefined)
+	assert.equal(second.getIndex(), index)
+	assert.ok(index.array.length > 0)
 })
