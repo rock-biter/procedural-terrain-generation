@@ -21,15 +21,18 @@ vec3 sampleTerrainNormal(int layer, vec2 worldUv, vec2 worldUvDx, vec2 worldUvDy
 	vec2 uv = toTexture * worldUv;
 	vec2 uvDx = toTexture * worldUvDx;
 	vec2 uvDy = toTexture * worldUvDy;
-	vec3 texel;
-	if (layer == 0) texel = textureGrad(uTerrainNormalMaps[0], uv, uvDx, uvDy).xyz;
-	else if (layer == 1) texel = textureGrad(uTerrainNormalMaps[1], uv, uvDx, uvDy).xyz;
-	else if (layer == 2) texel = textureGrad(uTerrainNormalMaps[2], uv, uvDx, uvDy).xyz;
-	else if (layer == 3) texel = textureGrad(uTerrainNormalMaps[3], uv, uvDx, uvDy).xyz;
-	else if (layer == 4) texel = textureGrad(uTerrainNormalMaps[4], uv, uvDx, uvDy).xyz;
-	else texel = textureGrad(uTerrainNormalMaps[5], uv, uvDx, uvDy).xyz;
+	vec4 texel;
+	if (layer == 0) texel = textureGrad(uTerrainNormalMaps[0], uv, uvDx, uvDy);
+	else if (layer == 1) texel = textureGrad(uTerrainNormalMaps[1], uv, uvDx, uvDy);
+	else if (layer == 2) texel = textureGrad(uTerrainNormalMaps[2], uv, uvDx, uvDy);
+	else if (layer == 3) texel = textureGrad(uTerrainNormalMaps[3], uv, uvDx, uvDy);
+	else if (layer == 4) texel = textureGrad(uTerrainNormalMaps[4], uv, uvDx, uvDy);
+	else texel = textureGrad(uTerrainNormalMaps[5], uv, uvDx, uvDy);
 
-	vec3 mapN = texel * 2.0 - 1.0;
+	// X is in the color channels and Y in alpha (scripts/encode-assets.mjs);
+	// Z follows from a unit normal.
+	vec2 xy = vec2(texel.r, texel.a) * 2.0 - 1.0;
+	vec3 mapN = vec3(xy, sqrt(max(1.0 - dot(xy, xy), 0.0)));
 	mapN.xy *= uTerrainNormalStrength[layer];
 	// Turn the perturbation back into the unrotated uv frame used by the
 	// tangent basis.

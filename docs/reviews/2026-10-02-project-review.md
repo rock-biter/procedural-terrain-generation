@@ -94,7 +94,7 @@ The largest margins were in five places:
 | ID | Finding | Status |
 | --- | --- | --- |
 | M1 | The soundtrack was decoded to about 76 MB of PCM. | Done: streamed through a media element. |
-| M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Open: 1024² or KTX2 (about 17 MB or less). |
+| M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Partial (Phase 2): the textures stay 2048² but are ETC1S, so they take about an eighth of their RGBA8 memory (about 8 MB instead of 67 MB, est.). The 183k triangles (G5) are Open. |
 | M3 | Shadow targets: 64 MB on desktop, 16 MB on mobile. | Done: 24 MB and 6 MB (G8). |
 | M4 | Terrain index and UV depend only on LOD but are generated, transferred, uploaded, and kept per chunk: 7.16 of 17.35 MB on desktop. The CPU copies stay on the heap after upload. | Partial (Phase 2): index and uv shared per LOD (`src/chunkTopology.js`), per-chunk CPU arrays freed after upload, bounding sphere from the worker. Int16 normals and a shared XZ grid are Open. |
 | M5 | Mobile uses the same 38 MB scenery atlas as desktop. | Open: 48 px frames (about 21 MB) after an art check. |
@@ -103,9 +103,9 @@ The largest margins were in five places:
 
 | ID | Finding | Status |
 | --- | --- | --- |
-| A1 | The soundtrack is 256 kbps (6.9 MB). Measured re-encodes: MP3 128k 3.46 MB, Opus 96k 2.76 MB. | Open. |
-| A2 | Terrain normal maps are JPEG quality 99 (4.92 MB); WebP q85 measured at 1.47 MB. Three of them are not square (1024×1025, ×1018, ×1010). | Open: WebP or KTX2 after a visual check; crop to 1024². |
-| A3 | GLB textures: WebP measured at −2.1 MB on the biplane (3.59 → about 1.46 MB). | Open (with G5 and M2). |
+| A1 | The soundtrack is 256 kbps (6.9 MB). Measured re-encodes: MP3 128k 3.46 MB, Opus 96k 2.76 MB. | Done (Phase 2): MP3 at 128 kbps, 6.9 → 3.5 MB (a placeholder until the final music and effects). |
+| A2 | Terrain normal maps are JPEG quality 99 (4.92 MB); WebP q85 measured at 1.47 MB. Three of them are not square (1024×1025, ×1018, ×1010). | Done (Phase 2, decision: KTX2): ETC1S with X in color and Y in alpha, resampled to 1024², GPU-like box mipmaps; 4.92 → 2.07 MB for the five maps in use, about a quarter of the RGBA8 GPU memory. A sharper, renormalized mip chain made rocks and snow noisy and was rejected. |
+| A3 | GLB textures: WebP measured at −2.1 MB on the biplane (3.59 → about 1.46 MB). | Done (Phase 2, decision: KTX2): every texture re-encoded inside the GLBs at 2048² (ETC1S, PSNR 36–44 dB, normal 0.9°), geometry unchanged; biplane 3.59 → 2.24 MB, monoplane 4.21 → 2.65 MB. Masters in `assets-src/`, pipeline in `scripts/encode-assets.mjs`. |
 | A4 | `dist/` was 37.8 MB, 15.5 MB never requested; `src/textures/` held about 18 MB of unused files. | Partial: style references moved to `docs/style-references/`; unused textures, `vite.svg`, and `javascript.svg` removed. The dormant boat (10.5 MB) and the former airplane stay in `public/` under the `AGENTS.md` rule: **Decision**. |
 | A5 | `lil-gui`, `OrbitControls`, and `gsap` are always in the main bundle: −122 KB raw / −39 KB gzip measured without them. | Partial (Phase 2): `lil-gui` (with `?gui=1`) and `FlightPauseDebug` with `OrbitControls` (with `?debug=1`) load through top-level dynamic `import()`; default JS 1,032 → 985 KB raw (281 → 271 KB gzip). Replacing `gsap` is Open (it changes visible animations). |
 | A6 | The worker bundles 106 KB of three.js for `PlaneGeometry` and `MathUtils`. | Done (Phase 2): the worker builds the grid in typed arrays; 119 → 10.6 KB. |
@@ -168,7 +168,7 @@ Verification:
 
 C1, C4, C6, M4 (shared index and UV per LOD), C5, A6, A1–A3 (recompression), A5, and the rest of C2.
 
-Done on 2026-10-02: C1, C4, C6, M4 (partial), A6, then C5, C2, and A5 (partial). Verification: 139 of 139 tests passed; 200 chunks over 4 seeds, every LOD, and both densities matched the previous generator bit for bit (position, normal, height, index, uv); headless Chrome desktop, mobile, and `?gui=1&debug=1` at night showed no console errors. Second batch, verified the same way: 142 of 142 tests passed; the impostors look identical to the previous build; the GLB is requested once, `?plane=toy` loads only its model, and `?gui=1&debug=1` loads the two debug chunks with a working pause. Open: the `gsap` replacement (A5) and A1–A3, both waiting for decisions.
+Done on 2026-10-02: C1, C4, C6, M4 (partial), A6, then C5, C2, and A5 (partial). Verification: 139 of 139 tests passed; 200 chunks over 4 seeds, every LOD, and both densities matched the previous generator bit for bit (position, normal, height, index, uv); headless Chrome desktop, mobile, and `?gui=1&debug=1` at night showed no console errors. Second batch, verified the same way: 142 of 142 tests passed; the impostors look identical to the previous build; the GLB is requested once, `?plane=toy` loads only its model, and `?gui=1&debug=1` loads the two debug chunks with a working pause. Decisions then taken: keep `gsap`, KTX2 for textures, 128 kbps MP3. Third batch (A1–A3): 144 of 144 tests passed; in headless Chrome, close-ups of terrain, wood, and airplane match the previous build, there are no console errors, and the transfer before Play fell from 9.39 to 5.43 MB. Phase 2 is complete except the `gsap` replacement, which was declined.
 
 ### Phase 3: Measurement And GPU Experiments
 

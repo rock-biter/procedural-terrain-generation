@@ -8,7 +8,7 @@ import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
 import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
 import sceneryShadowParsFragment from './shaders/scenery-shadow-pars-fragment.glsl'
 import cloudShadowParsFragment from './shaders/cloud-shadow-pars-fragment.glsl'
-import { getTerrainNormalTexture, TERRAIN_NORMAL_LAYERS } from './terrainNormals'
+import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
 import { createShadowedLightsFragment } from './curvedLights'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import { getHeight } from './chunkGeometry'
@@ -16,8 +16,8 @@ import { disposeChunkGeometry } from './chunkTopology'
 
 // The terrain samples its per-layer maps from uTerrainNormalMaps
 // (terrain-normal-pars.glsl). normalMap only enables Three's tangent-space
-// path, whose tangent frame comes from the chunk uv.
-const normalMap = getTerrainNormalTexture(TERRAIN_NORMAL_LAYERS.sea.texture)
+// path, whose tangent frame comes from the chunk uv, so any texture works.
+const normalMap = FLAT_TERRAIN_NORMAL
 const material = new MeshStandardMaterial({
 	color: 'lightblue',
 	normalMap,

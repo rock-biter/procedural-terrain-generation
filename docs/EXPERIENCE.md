@@ -19,7 +19,7 @@ Changing an ID requires updating both files. UI classes are Tailwind utilities i
 
 ## Loading Flow
 
-1. Before the bundle runs, an inline script in `index.html` preloads the default airplane GLB (skipped when `?plane=` is set). The module then starts the airplane and white oak wood detail texture requests with a shared `THREE.LoadingManager`, reusing the preloaded airplane response; the texture is shared by scenery and clouds. The soundtrack is not part of it: its media element buffers in the background and never delays startup. The terrain normal maps load independently; the boat request is disabled by `worldFeatures`.
+1. Before the bundle runs, an inline script in `index.html` preloads the default airplane GLB (skipped when `?plane=` is set). The module then starts the airplane, white oak wood detail texture, and terrain normal map requests with a shared `THREE.LoadingManager`, reusing the preloaded airplane response; the textures are KTX2 and count as loaded once transcoded, and the wood texture is shared by scenery and clouds. The soundtrack is not part of it: its media element buffers in the background and never delays startup. The boat request is disabled by `worldFeatures`.
 2. `onStart` reveals the loader.
 3. `onProgress` animates the progress width from loaded item count divided by total item count.
 4. `onLoad` hides the canvas, registers the sound toggle, and fades out the loader.

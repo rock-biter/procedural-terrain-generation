@@ -20,12 +20,14 @@ pnpm dev
 pnpm test
 pnpm build
 pnpm preview
+pnpm assets:encode
 ```
 
 - `pnpm dev` starts Vite with network access through `--host`.
 - `pnpm test` runs the dependency-free Node test suite.
 - `pnpm build` creates the production bundle in `dist/`.
 - `pnpm preview` serves the production bundle locally.
+- `pnpm assets:encode` re-encodes the masters in `assets-src/` into the KTX2 textures in `src/textures/` and the airplane GLBs in `public/plane-toy/` (see [Assets](ASSETS.md#encoding-pipeline)). It needs `basisu` from Basis Universal 2.x on `PATH` (`brew install basis_universal`); commit its outputs. The app itself needs no extra tool.
 - Use the URL printed by Vite; the default port may change when it is already occupied.
 
 Do not edit or commit generated files under `dist/`.
@@ -36,8 +38,9 @@ Do not edit or commit generated files under `dist/`.
 - `vite-plugin-glsl` makes GLSL files importable by JavaScript.
 - `postprocessing` (pmndrs) provides the effect composer; its `three` peer range must include the installed Three.js version.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
+- Textures and the airplane GLB textures are KTX2 (Basis ETC1S). three's `KTX2Loader` transcodes them with its own `basis_transcoder.js` and `.wasm`, which Vite bundles. `@gltf-transform/core`, `@gltf-transform/extensions`, and `meshoptimizer` are dev dependencies used only by `scripts/encode-assets.mjs`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
-- Node's built-in test runner covers pure chunk-policy, flight-policy, day/night-policy, shadow-policy, trail-history, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source geometry, impostor-catalog source sharing, near-scenery-mesh selection, and deterministic terrain-buffer behavior under `test/`.
+- Node's built-in test runner covers pure chunk-policy, flight-policy, day/night-policy, shadow-policy, trail-history, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source geometry, impostor-catalog source sharing, near-scenery-mesh selection, deterministic terrain-buffer behavior, and the encoded assets (every texture master has its KTX2 file, the airplane GLBs require `KHR_texture_basisu`) under `test/`.
 - Vite bundles `src/chunkGeometry.worker.js` as a module worker; no separate worker build command is required.
 - The repository currently has no formatter, linter, browser test suite, or CI workflow.
 

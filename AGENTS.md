@@ -35,6 +35,7 @@ pnpm dev
 pnpm test
 pnpm build
 pnpm preview
+pnpm assets:encode
 ```
 
 Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. Do not introduce another lockfile or edit generated `dist/` output.
@@ -60,7 +61,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/clouds.js`](src/clouds.js) owns the world-level cloud field (impostor mesh, cloud atlas, near cloud meshes); [`src/cloudPlacement.js`](src/cloudPlacement.js) owns its pure deterministic placement; [`src/cloudShadows.js`](src/cloudShadows.js) owns the blurred cloud shadow coverage map and its receiver uniforms, with pure rules in `shadowPolicy.js`.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
-- [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
+- [`public/`](public/), [`src/textures/`](src/textures/), and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets. Textures and the airplane GLBs are encoded (KTX2) from the masters in [`assets-src/`](assets-src/) by [`scripts/encode-assets.mjs`](scripts/encode-assets.mjs) (`pnpm assets:encode`); [`src/ktx2Textures.js`](src/ktx2Textures.js) owns the shared `KTX2Loader`. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
 
 ## Project Rules
 
@@ -78,7 +79,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, terrain-buffer, and encoded-asset coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

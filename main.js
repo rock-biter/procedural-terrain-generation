@@ -16,9 +16,11 @@ import { createBiomeOffset } from './src/biome'
 import {
 	createTerrainNormalSettings,
 	createTerrainNormalUniforms,
+	loadTerrainNormalTextures,
 	TERRAIN_BANDS,
 	updateTerrainNormalUniforms,
 } from './src/terrainNormals'
+import { initKTX2Loader, loadKTX2Texture } from './src/ktx2Textures'
 import { bakeImpostorAtlas } from './src/impostors/impostorBaker'
 import {
 	createImpostorMaterial,
@@ -65,7 +67,7 @@ import audioSrc from './src/audio/epic-soundtrack.mp3'
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader'
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js'
 import gsap from 'gsap'
-import woodGrainSrc from './src/textures/white_oak/white_oak_veneer_diff_1k.jpg'
+import woodGrainSrc from './src/textures/white_oak/white_oak_veneer_diff_1k.ktx2?url'
 
 const loadingEl = document.getElementById('loader')
 const progressEl = document.getElementById('progress')
@@ -91,6 +93,18 @@ const debugFeatures = Object.freeze({
 const FlightPauseDebug = debugFeatures.flightPause
 	? (await import('./src/flightPauseDebug')).default
 	: null
+// Before any asset request: an await between two requests could let the
+// loading manager finish (and call init()) before the later ones register.
+let gui
+if (urlParams.get('gui') === '1') {
+	const { GUI } = await import('lil-gui')
+	gui = new GUI()
+}
+
+// Streamed when Play is pressed instead of being loaded with the startup
+// assets, so it never delays the first frame. The ?gui=1 tuning mode never
+// plays it, so it does not preload either.
+const soundtrack = new Soundtrack(audioSrc, { volume: 0.1, preload: !gui })
 
 const assets = {
 	planeModel: null,
@@ -162,17 +176,33 @@ loaderManager.onStart = () => {
 	gsap.to(loadingEl, { autoAlpha: 1, duration: 0 })
 }
 
-// The airplane GLBs are packed with gltfpack (EXT_meshopt_compression).
-const gltfLoader = new GLTFLoader(loaderManager).setMeshoptDecoder(MeshoptDecoder)
-const textureLoader = new THREE.TextureLoader(loaderManager)
+// The scene always renders through PostProcessing's offscreen chain, whose
+// 2x MSAA buffer is the only antialiasing. The canvas only receives the
+// finished full-screen composite, so it needs neither MSAA nor depth. It is
+// created before the asset requests: the KTX2 loader picks its GPU format
+// from it.
+const renderer = new THREE.WebGLRenderer({
+	antialias: false,
+	depth: false,
+	logarithmicDepthBuffer: true,
+})
+const ktx2Loader = initKTX2Loader(renderer, loaderManager)
+
+// The airplane GLBs carry meshopt geometry (EXT_meshopt_compression) and KTX2
+// textures (KHR_texture_basisu), both from scripts/encode-assets.mjs.
+const gltfLoader = new GLTFLoader(loaderManager)
+	.setMeshoptDecoder(MeshoptDecoder)
+	.setKTX2Loader(ktx2Loader)
 
 if (worldFeatures.scenery || worldFeatures.clouds) {
-	// White oak veneer color map, baked into every impostor's albedo and
-	// sampled by the near scenery and cloud meshes.
-	assets.woodTexture = textureLoader.load(woodGrainSrc)
-	assets.woodTexture.colorSpace = THREE.SRGBColorSpace
-	assets.woodTexture.wrapS = THREE.RepeatWrapping
-	assets.woodTexture.wrapT = THREE.RepeatWrapping
+	// White oak veneer color map (KTX2, sRGB), baked into every impostor's
+	// albedo and sampled by the near scenery and cloud meshes.
+	loadKTX2Texture(woodGrainSrc, (texture) => {
+		texture.colorSpace = THREE.SRGBColorSpace
+		texture.wrapS = THREE.RepeatWrapping
+		texture.wrapT = THREE.RepeatWrapping
+		assets.woodTexture = texture
+	})
 }
 
 if (worldFeatures.boats) {
@@ -206,16 +236,6 @@ gltfLoader.load(airplaneModel.path, (gltf) => {
 /**
  * Debug
  */
-let gui
-if (urlParams.get('gui') === '1') {
-	const { GUI } = await import('lil-gui')
-	gui = new GUI()
-}
-
-// Streamed when Play is pressed instead of being loaded with the startup
-// assets, so it never delays the first frame. The ?gui=1 tuning mode never
-// plays it, so it does not preload either.
-const soundtrack = new Soundtrack(audioSrc, { volume: 0.1, preload: !gui })
 
 const params = {
 	speedEffect: 0,
@@ -359,6 +379,8 @@ const uniforms = {
 	// Cloud shadow map, matrix, and strength; written by CloudShadows.
 	...createCloudShadowUniforms(),
 }
+// Swaps the flat placeholders for the KTX2 maps as they arrive.
+loadTerrainNormalTextures(uniforms, params.terrainNormals)
 // Uniforms shared with the impostor material; amount is indexed by type.
 const impostorVariation = {
 	amount: { value: new Array(Object.keys(SCENERY_TYPE_KEYS).length).fill(0) },
@@ -956,14 +978,6 @@ camera.lookAt(cameraTarget)
 /**
  * renderer
  */
-// The scene always renders through PostProcessing's offscreen chain, whose
-// 2x MSAA buffer is the only antialiasing. The canvas only receives the
-// finished full-screen composite, so it needs neither MSAA nor depth.
-const renderer = new THREE.WebGLRenderer({
-	antialias: false,
-	depth: false,
-	logarithmicDepthBuffer: true,
-})
 renderer.toneMapping = params.toneMapping.mode
 renderer.toneMappingExposure = params.toneMapping.exposure
 document.body.appendChild(renderer.domElement)
