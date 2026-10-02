@@ -415,7 +415,7 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Status:** In progress
 - **User value:** Populates each biome in the clay/toy style of `public/style-references/`: round trees and conifers in temperate areas; cacti and red layered rocks in the desert; boulders in both.
 - **Behavior:**
-  - Six scenery types are built from Three.js primitives and baked at startup into a hemi-octahedral impostor atlas with albedo plus normals: `16 × 16` views per type on desktop and `12 × 12` on mobile.
+  - Six scenery types are built from Three.js primitives and baked at startup into a hemi-octahedral impostor atlas with albedo plus normals: `12 × 12` views per type on desktop and mobile (desktop used `16 × 16` until the near meshes took over the close range).
   - Each instance is one camera-facing quad. It blends three frames and is lit from its baked normals with the terrain's curvature bend and terminator.
   - Placement is deterministic per seed. A world-space jittered grid runs in the chunk worker and applies biome, height band, slope, snow, and cluster rules.
   - Only chunks at LOD `≤ 2` carry scenery.
@@ -430,8 +430,8 @@ See the owning guides for current behavior and constraints. Promote an item into
   - Scenery work per frame: one draw call per scenery chunk (at most 61 on desktop) and 2 triangles per instance.
   - Instance counts: at most about 550 per chunk on desktop and 120 on mobile with the current defaults. The earlier `8`-unit, density-`1` defaults gave 1,800–2,300 at a desktop start over land.
   - Fragment cost: up to six atlas fetches per fragment, three on mobile with single-frame sampling.
-  - Memory: an RGBA8 atlas pair of `3072 × 2048` on desktop (about `67` MB with mips) or `2304 × 1536` on mobile (about `38` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
-  - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the `16 × 16` grid, and placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile (measured in Node).
+  - Memory: an RGBA8 atlas pair of `2304 × 1536` (about `38` MB with mips) on desktop and mobile. The earlier `16 × 16` desktop grid used `3072 × 2048` (about `67` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
+  - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the earlier `16 × 16` grid (the `12 × 12` grid renders 44% fewer views), and placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile (measured in Node).
   - Real-GPU frame time has not been measured.
 - **Options:** real low-poly instanced meshes for every instance were rejected because the total instance count is high; `FEAT-004` uses them only for the few instances near the eye. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. The baked depth channel could also drive a `gl_FragDepth` correction if slopes clip impostors visibly; `FEAT-005` reads it to rebuild impostor surfaces for shadows.
 - **Acceptance criteria:**

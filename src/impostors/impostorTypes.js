@@ -13,8 +13,10 @@ export const IMPOSTOR_TYPE_COUNT = 6
 
 // Atlas layout: one block of frames x frames views per type. The frame count
 // is chosen per device in main.js and must be even so no frame looks straight
-// down (see getFrameBasis()).
-export const IMPOSTOR_FRAMES_DESKTOP = 16
+// down (see getFrameBasis()). Desktop impostors only appear beyond the near
+// meshes (sceneryMeshes.js), so they share the mobile grid; the shadow casters
+// read the same atlas.
+export const IMPOSTOR_FRAMES_DESKTOP = 12
 export const IMPOSTOR_FRAMES_MOBILE = 12
 export const IMPOSTOR_ATLAS_COLUMNS = 3
 export const IMPOSTOR_ATLAS_ROWS = 2
