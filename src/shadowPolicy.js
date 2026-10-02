@@ -153,3 +153,87 @@ export function shouldRenderCascade(frame, index, interval, forced = false) {
 	if (forced || interval <= 1) return true
 	return (frame + index) % interval === 0
 }
+
+// Cloud shadows (src/cloudShadows.js). Clouds float above every receiver, so
+// instead of depth cascades they render into one light-aligned coverage map:
+// a receiver is shadowed by however much of its ray toward the light a cloud
+// covers. The map is blurred once per render and sampled with one tap. Clouds
+// never move but turn to face the airplane, so their silhouettes change with
+// travel: the map renders again when the airplane travels `recenterShare` of
+// the radius, the light turns past the scenery shadows' `lightThreshold`, the
+// cloud field regenerates, or the settings change.
+//
+// Per device: `radius` of the covered disk (world units) and `mapSize`
+// (texels).
+export const CLOUD_SHADOW_PRESETS = Object.freeze({
+	desktop: Object.freeze({ radius: 1100, mapSize: 1024 }),
+	mobile: Object.freeze({ radius: 800, mapSize: 512 }),
+})
+
+export const CLOUD_SHADOW_DEFAULTS = Object.freeze({
+	enabled: true,
+	// Share of the direct light a fully covered pixel loses.
+	strength: 0.55,
+	// Penumbra (blur half-width) in world units.
+	softness: 6,
+	// Small, so shadows follow the clouds turning (about 16 units on desktop).
+	recenterShare: 0.015,
+	// Receiver heights the map must contain: terrain and the scenery on the
+	// highest peaks, all below the cloud layer.
+	heightRange: Object.freeze({ min: -2, max: 120 }),
+	// Largest blur half-width in texels; the blur shader loops this far.
+	maxBlurTexels: 8,
+})
+
+export function createCloudShadowSettings({ isMobile = false } = {}) {
+	const preset = isMobile ? CLOUD_SHADOW_PRESETS.mobile : CLOUD_SHADOW_PRESETS.desktop
+	return {
+		enabled: CLOUD_SHADOW_DEFAULTS.enabled,
+		strength: CLOUD_SHADOW_DEFAULTS.strength,
+		softness: CLOUD_SHADOW_DEFAULTS.softness,
+		recenterShare: CLOUD_SHADOW_DEFAULTS.recenterShare,
+		heightRange: { ...CLOUD_SHADOW_DEFAULTS.heightRange },
+		radius: preset.radius,
+		mapSize: preset.mapSize,
+	}
+}
+
+// Bounding sphere of the covered disk around the airplane (no forward shift:
+// the map covers every direction). Same shape as a cascade, so the
+// orthographic box keeps a constant size for any light direction.
+export function getCloudShadowSphere(planeX, planeZ, settings, target = {}) {
+	return getCascadeSphere(
+		planeX,
+		planeZ,
+		0,
+		0,
+		{ radius: settings.radius, forwardShift: 0 },
+		settings,
+		target,
+	)
+}
+
+// Blur half-width in texels for a penumbra of `softness` world units.
+export function getCloudShadowBlurTexels(
+	softness,
+	texelSize,
+	maxTexels = CLOUD_SHADOW_DEFAULTS.maxBlurTexels,
+) {
+	if (!(texelSize > 0)) return 0
+	return Math.min(Math.max(softness / texelSize, 0), maxTexels)
+}
+
+// True when the map must render again around (x, z). `center` is the [x, z]
+// of the last render, or null before the first one.
+export function shouldRenderCloudShadow({
+	center,
+	x,
+	z,
+	recenterDistance,
+	lightChanged = false,
+	revisionChanged = false,
+	forced = false,
+}) {
+	if (forced || lightChanged || revisionChanged || !center) return true
+	return Math.hypot(x - center[0], z - center[1]) > recenterDistance
+}

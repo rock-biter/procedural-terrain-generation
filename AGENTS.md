@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. Trees, cacti, and rocks are placed deterministically per biome and drawn as baked octahedral impostors, replaced by their real meshes near the camera, and cast soft cascaded shadows with the airplane; clouds and boats remain disabled behind feature flags.
+This repository contains **Infinite Procedural World**, a browser-based Three.js experience built with Vite. It streams procedural terrain around a moving airplane, selects chunk LOD by distance, and renders through a mix of CPU generation and patched Three.js shaders. Trees, cacti, and rocks are placed deterministically per biome and drawn as baked octahedral impostors, replaced by their real meshes near the camera, and cast soft cascaded shadows with the airplane. Carved-wood clouds float above the flight ceiling in a world-level field, drawn with the same impostor and near-mesh treatment (lower-hemisphere atlas), turn their front face toward the airplane, and cast soft shadows on the land; boats remain disabled behind a feature flag.
 
 [`README.md`](README.md) is the short human-facing introduction. This file is the entry point for coding agents and routes detailed work to the owning guide.
 
@@ -51,14 +51,14 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.
 - [`src/worldSeed.js`](src/worldSeed.js) owns the pure `?seed=` parsing, GUI seed normalization, and the random fallback seed; `ChunkManager.setSeed()` applies a runtime seed change from the `?gui=1` **World** folder.
 - [`src/biome.js`](src/biome.js) owns the seeded CPU twin of the shader biome field; [`src/sceneryPlacement.js`](src/sceneryPlacement.js) owns deterministic scenery placement, run in the chunk worker.
-- [`src/impostors/`](src/impostors/) owns scenery source meshes, the octahedral atlas bake, the shared impostor material, per-chunk quad meshes, the two-level near scenery meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)), and the per-LOD debug wireframe overlay (`sceneryWireframe.js`); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk and its scenery-shadow variant.
+- [`src/impostors/`](src/impostors/) owns scenery and cloud source meshes (`impostorArchetypes.js`, `cloudArchetypes.js`), the impostor catalogs that adapt the shared pipeline to each family (`impostorCatalogs.js`), the octahedral atlas bake, the impostor materials, quad meshes, the two-level near meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)), and the per-LOD debug wireframe overlay (`sceneryWireframe.js`); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk, its shadowed variant, and the unshadowed cloud variant with a scaled ambient light.
 - [`src/sceneryShadows.js`](src/sceneryShadows.js) owns the soft scenery and airplane shadows: two light-aligned depth cascades, impostor and airplane casters, and the receiver uniforms; [`src/shadowPolicy.js`](src/shadowPolicy.js) owns the pure light selection, cascade bounds, snapping, scheduling, and defaults.
 - [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, trails, and the shader-driven propeller rotation; [`src/propellerMask.js`](src/propellerMask.js) owns the pure selection of the propeller's UV charts in the fused airplane mesh; [`src/airplaneModels.js`](src/airplaneModels.js) owns the per-model data (path, load transform, trail anchor, propeller axis, threshold, plugs) and the `?plane=` choice.
 - [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
 - [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
 - [`src/dayNight.js`](src/dayNight.js) owns the sky dome and applies time of day to lights, fog, and `uAtmosphere`; [`src/dayNightPolicy.js`](src/dayNightPolicy.js) owns the pure keyframes and their editable copies, celestial directions, curved-horizon dip and palette time (and its inverse), and `?time=` parsing; [`src/radialFog.js`](src/radialFog.js) makes Three.js fog radial.
 - [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer, the always-on idle edge-effect level, and the idle bypass when that level is `0`; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
-- [`src/clouds.js`](src/clouds.js) owns the dormant instanced cloud mesh.
+- [`src/clouds.js`](src/clouds.js) owns the world-level cloud field (impostor mesh, cloud atlas, near cloud meshes); [`src/cloudPlacement.js`](src/cloudPlacement.js) owns its pure deterministic placement; [`src/cloudShadows.js`](src/cloudShadows.js) owns the blurred cloud shadow coverage map and its receiver uniforms, with pure rules in `shadowPolicy.js`.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
 - [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets.
@@ -79,7 +79,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, near-scenery-mesh, and terrain-buffer coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

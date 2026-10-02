@@ -2,6 +2,8 @@
 // and mesh fade).
 // x: frame radius, y: bounding-sphere center height, per impostor type.
 uniform vec2 uImpostorTypes[IMPOSTOR_TYPE_COUNT];
+// Eye distances (x start, y end) where impostors shrink into the fog.
+uniform vec2 uImpostorFarFade;
 // xy: atlas cell of the frame (in frames), zw: UV inside the frame.
 varying vec4 vFrame0;
 varying vec4 vFrame1;

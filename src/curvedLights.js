@@ -30,9 +30,27 @@ const curvedShadowedLightsBody = ShaderChunk.lights_fragment_begin.replace(
 
 // curvedLightsFragment plus the scenery shadow. `shadowExpression` is a GLSL
 // float expression evaluated once per fragment, usually a getSceneryShadow()
-// call (scenery-shadow-pars-fragment.glsl must be included).
+// call (scenery-shadow-pars-fragment.glsl must be included), multiplied by a
+// getCloudShadow() call (cloud-shadow-pars-fragment.glsl).
 export function createShadowedLightsFragment(shadowExpression) {
 	return `float sceneryShadow = ${shadowExpression};
 vec3 sceneryShadowLightView = normalize((viewMatrix * vec4(uSceneryShadowLight, 0.0)).xyz);
 ${curvedShadowedLightsBody}`
+}
+
+// Three.js r186 include text for the ambient term.
+const AMBIENT_IRRADIANCE = 'vec3 irradiance = getAmbientLightIrradiance( ambientLightColor );'
+if (!ShaderChunk.lights_fragment_begin.includes(AMBIENT_IRRADIANCE)) {
+	console.warn('Curved lights: ambient irradiance hook not found')
+}
+
+// curvedLightsFragment without shadows, with the ambient light scaled by the
+// GLSL float `ambientScaleExpression`. Clouds use it: seen from below, their
+// undersides get only ambient light, which this lifts while still following
+// the day/night ambient color.
+export function createUnshadowedLightsFragment(ambientScaleExpression = '1.0') {
+	return curvedLightsFragment.replace(
+		AMBIENT_IRRADIANCE,
+		`vec3 irradiance = getAmbientLightIrradiance( ambientLightColor ) * (${ambientScaleExpression});`,
+	)
 }

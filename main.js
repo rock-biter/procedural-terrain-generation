@@ -33,11 +33,18 @@ import {
 import SceneryMeshes from './src/impostors/sceneryMeshes'
 import { setSceneryWireframe } from './src/impostors/sceneryWireframe'
 import {
+	createCloudMeshSettings,
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
 } from './src/sceneryMeshPolicy'
 import SceneryShadows, { createSceneryShadowUniforms } from './src/sceneryShadows'
-import { createSceneryShadowSettings } from './src/shadowPolicy'
+import {
+	createCloudShadowSettings,
+	createSceneryShadowSettings,
+} from './src/shadowPolicy'
+import Clouds from './src/clouds'
+import CloudShadows, { createCloudShadowUniforms } from './src/cloudShadows'
+import { CLOUD_TYPE_KEYS, createCloudSettings } from './src/cloudPlacement'
 import { isDebugEnabled } from './src/debugPolicy'
 import {
 	createRandomSeed,
@@ -73,7 +80,7 @@ const urlParams = new URLSearchParams(window.location.search)
 let worldSeed = parseWorldSeed(urlParams) ?? createRandomSeed()
 const worldFeatures = Object.freeze({
 	scenery: true,
-	clouds: false,
+	clouds: true,
 	boats: false,
 })
 const debugFeatures = Object.freeze({
@@ -163,9 +170,9 @@ const gltfLoader = new GLTFLoader(loaderManager).setMeshoptDecoder(MeshoptDecode
 const audioLoader = new THREE.AudioLoader(loaderManager)
 const textureLoader = new THREE.TextureLoader(loaderManager)
 
-if (worldFeatures.scenery) {
+if (worldFeatures.scenery || worldFeatures.clouds) {
 	// White oak veneer color map, baked into every impostor's albedo and
-	// sampled by the near scenery meshes.
+	// sampled by the near scenery and cloud meshes.
 	assets.woodTexture = textureLoader.load(woodGrainSrc)
 	assets.woodTexture.colorSpace = THREE.SRGBColorSpace
 	assets.woodTexture.wrapS = THREE.RepeatWrapping
@@ -311,6 +318,25 @@ const params = {
 			Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8]),
 		),
 	},
+	// World-level cloud field (src/clouds.js): deterministic placement (see
+	// createCloudSettings()), near-mesh bands like sceneryMeshes, the wood
+	// detail baked into the cloud atlas (changing it re-bakes), the ambient
+	// light multiplier that keeps the undersides bright, the brightness
+	// variation per type, and the cloud shadows on terrain and scenery (see
+	// createCloudShadowSettings()).
+	clouds: {
+		placement: createCloudSettings({ isMobile }),
+		meshes: createCloudMeshSettings({ isMobile }),
+		detail: { scale: 0.012, color: 0.6 },
+		ambient: 2.8,
+		variation: {
+			frequency: 0.004,
+			amount: Object.fromEntries(
+				Object.values(CLOUD_TYPE_KEYS).map((key) => [key, 0.15]),
+			),
+		},
+		shadows: createCloudShadowSettings({ isMobile }),
+	},
 	// Airplane propeller rotation in turns per second. With two blades, speeds
 	// near half the frame rate (30 at 60 fps) strobe and look still.
 	propeller: { speed: 4 },
@@ -345,6 +371,8 @@ const uniforms = {
 	uSceneryMeshRange: { value: new THREE.Vector2(-2, -1) },
 	// Shadow maps, matrices, and fades; written by SceneryShadows.
 	...createSceneryShadowUniforms(params.shadows),
+	// Cloud shadow map, matrix, and strength; written by CloudShadows.
+	...createCloudShadowUniforms(),
 }
 // Uniforms shared with the impostor material; amount is indexed by type.
 const impostorVariation = {
@@ -361,6 +389,7 @@ updateImpostorVariation()
 // Shows or recolors the debug wireframe on the near meshes and impostors.
 function applySceneryWireframe() {
 	sceneryMeshes?.applyWireframe()
+	clouds?.applyWireframe()
 	const { enabled, impostorColor } = params.sceneryWireframe
 	if (assets.impostorWireframeMaterial) {
 		setSceneryWireframe(assets.impostorWireframeMaterial, enabled, impostorColor)
@@ -744,6 +773,102 @@ if (gui) {
 		}
 	}
 
+	const cloudSettings = params.clouds
+	const cloudsFolder = gui.addFolder('Clouds')
+	// Placement changes re-place the field when a control is released.
+	const updateClouds = () => clouds?.applySettings()
+	const placement = cloudSettings.placement
+	cloudsFolder
+		.add(placement, 'density', 0, 1, 0.01)
+		.name('Density')
+		.onFinishChange(updateClouds)
+	cloudsFolder
+		.add(placement, 'coverage', 0, 1, 0.01)
+		.name('Sky coverage')
+		.onFinishChange(updateClouds)
+	cloudsFolder
+		.add(placement.altitude, 'min', 110, 300, 1)
+		.name('Lowest base (Y)')
+		.onFinishChange(updateClouds)
+	cloudsFolder
+		.add(placement.altitude, 'range', 0, 150, 1)
+		.name('Base spread (units)')
+		.onFinishChange(updateClouds)
+	cloudsFolder
+		.add(placement, 'radius', 400, 2000, 10)
+		.name('Field radius (units)')
+		.onFinishChange(updateClouds)
+	for (const key of Object.values(CLOUD_TYPE_KEYS)) {
+		cloudsFolder
+			.add(placement.size, key, 0.2, 3, 0.01)
+			.name(`${key} size`)
+			.onFinishChange(updateClouds)
+	}
+	// Live: ambient boost and brightness variation uniforms.
+	const updateCloudAppearance = () => clouds?.applyAppearance()
+	cloudsFolder
+		.add(cloudSettings, 'ambient', 0, 4, 0.01)
+		.name('Ambient boost')
+		.onChange(updateCloudAppearance)
+	cloudsFolder
+		.add(cloudSettings.variation, 'frequency', 0.0005, 0.05, 0.0005)
+		.name('Variation frequency')
+		.onChange(updateCloudAppearance)
+	for (const key of Object.values(CLOUD_TYPE_KEYS)) {
+		cloudsFolder
+			.add(cloudSettings.variation.amount, key, 0, 2, 0.01)
+			.name(`${key} variation`)
+			.onChange(updateCloudAppearance)
+	}
+	const rebakeClouds = () => clouds?.rebake()
+	const cloudDetailFolder = cloudsFolder.addFolder('Wood detail')
+	cloudDetailFolder
+		.add(cloudSettings.detail, 'scale', 0.002, 0.2, 0.001)
+		.name('Repeats per unit')
+		.onFinishChange(rebakeClouds)
+	cloudDetailFolder
+		.add(cloudSettings.detail, 'color', 0, 1, 0.01)
+		.name('Color strength')
+		.onFinishChange(rebakeClouds)
+	// Live: only the shader band and the CPU selection radius change.
+	const updateCloudMeshes = () => clouds?.applyMeshSettings()
+	const cloudMeshFolder = cloudsFolder.addFolder('Near meshes')
+	cloudMeshFolder
+		.add(cloudSettings.meshes, 'enabled')
+		.name('Enabled')
+		.onChange(updateCloudMeshes)
+	cloudMeshFolder
+		.add(cloudSettings.meshes, 'lodStart', 0, 800, 1)
+		.name('Full detail until (units)')
+		.onChange(updateCloudMeshes)
+	cloudMeshFolder
+		.add(cloudSettings.meshes, 'lodEnd', 1, 900, 1)
+		.name('Reduced detail from (units)')
+		.onChange(updateCloudMeshes)
+	cloudMeshFolder
+		.add(cloudSettings.meshes, 'start', 0, 1400, 1)
+		.name('Mesh until (units)')
+		.onChange(updateCloudMeshes)
+	cloudMeshFolder
+		.add(cloudSettings.meshes, 'end', 1, 1500, 1)
+		.name('Impostor from (units)')
+		.onChange(updateCloudMeshes)
+	// Strength applies live; the rest renders the map again.
+	const updateCloudShadows = () => cloudShadows?.applySettings()
+	const cloudShadowsFolder = cloudsFolder.addFolder('Shadows')
+	cloudShadowsFolder.add(cloudSettings.shadows, 'enabled').name('Enabled')
+	cloudShadowsFolder
+		.add(cloudSettings.shadows, 'strength', 0, 1, 0.01)
+		.name('Strength')
+	cloudShadowsFolder
+		.add(cloudSettings.shadows, 'softness', 0, 20, 0.1)
+		.name('Softness (units)')
+		.onChange(updateCloudShadows)
+	cloudShadowsFolder
+		.add(cloudSettings.shadows, 'radius', 200, 2000, 10)
+		.name('Radius (units)')
+		.onChange(updateCloudShadows)
+
 	// Live: uniforms only; cascade radii render every cascade again.
 	const updateShadows = () => sceneryShadows?.applySettings()
 	const shadowsFolder = gui.addFolder('Shadows')
@@ -901,6 +1026,7 @@ const chunkSize = 256
 // plane.camera = camera
 // plane.add(camera)
 let chunkManager, plane, terrainSampleDebug, flightPause, sceneryMeshes, sceneryShadows
+let clouds, cloudShadows
 
 window.__INFINITE_WORLD__ = Object.freeze({
 	getChunkStats: () => chunkManager?.getStats() ?? null,
@@ -910,6 +1036,8 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getDayNightStats: () => dayNight.getStats(),
 	getSceneryMeshStats: () => sceneryMeshes?.getStats() ?? null,
 	getShadowStats: () => sceneryShadows?.getStats() ?? null,
+	getCloudStats: () => clouds?.getStats() ?? null,
+	getCloudShadowStats: () => cloudShadows?.getStats() ?? null,
 })
 
 // Height above the terrain (or the sea) the airplane starts at, and the floor
@@ -924,11 +1052,13 @@ function getSpawnAltitude(x, z) {
 }
 
 // Switches the world to a new seed: terrain noise, biomes (CPU and shader),
-// and scenery regenerate around the airplane. Before init() only the seed and
-// the biome uniform change; ChunkManager is then created with the new seed.
+// scenery, and clouds regenerate around the airplane. Before init() only the
+// seed and the biome uniform change; ChunkManager and Clouds are then created
+// with the new seed.
 function applyWorldSeed(seed) {
 	if (seed === worldSeed) return
 	worldSeed = seed
+	clouds?.setSeed(seed)
 
 	if (!chunkManager) {
 		uniforms.uBiomeOffset.value.fromArray(createBiomeOffset(seed))
@@ -988,6 +1118,26 @@ function init(assets) {
 		impostorMaterial: assets.impostorMaterial,
 	})
 	sceneryShadows.setAirplane(plane.model)
+
+	if (worldFeatures.clouds) {
+		clouds = new Clouds({
+			renderer,
+			uniforms,
+			settings: params.clouds,
+			wireframe: params.sceneryWireframe,
+			woodTexture: assets.woodTexture,
+			seed: worldSeed,
+			isMobile,
+		})
+		scene.add(clouds)
+		cloudShadows = new CloudShadows({
+			renderer,
+			uniforms,
+			settings: params.clouds.shadows,
+			shadowSettings: params.shadows,
+			clouds,
+		})
+	}
 
 	// Terrain
 	chunkManager = new ChunkManager(
@@ -1097,8 +1247,11 @@ function tic(timestamp) {
 	chunkManager.updateChunks()
 	// After this frame's scenery commits, with the camera that renders it.
 	sceneryMeshes?.update(chunkManager.chunks, chunkSize, camera)
+	clouds?.update(plane.position, camera)
 	// Shadow maps for this frame's scenery and airplane pose, before the main pass.
 	sceneryShadows.update(chunkManager.chunks, chunkSize, plane, dayNightState)
+	// After SceneryShadows picked the shadowing light.
+	cloudShadows?.update(sceneryShadows.light, plane)
 
 	// controls.update(deltaTime)
 

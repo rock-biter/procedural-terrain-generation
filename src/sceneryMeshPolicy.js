@@ -19,6 +19,14 @@ export const SCENERY_MESH_RANGES = Object.freeze({
 	mobile: Object.freeze({ start: 120, end: 180, lodStart: 60, lodEnd: 90 }),
 })
 
+// The same bands for the clouds (src/clouds.js), measured to the cloud's flat
+// base. Clouds are large, so their impostor takes over only where its frames
+// (CLOUD_IMPOSTOR_FRAME_SIZE_*) match the screen resolution.
+export const CLOUD_MESH_RANGES = Object.freeze({
+	desktop: Object.freeze({ start: 700, end: 850, lodStart: 220, lodEnd: 300 }),
+	mobile: Object.freeze({ start: 380, end: 480, lodStart: 120, lodEnd: 180 }),
+})
+
 export const SCENERY_MESH_LOD_COUNT = 2
 
 // Extra selection distance around each band, against float differences
@@ -51,6 +59,11 @@ export function createSceneryWireframeSettings() {
 
 export function createSceneryMeshSettings({ isMobile = false } = {}) {
 	const range = isMobile ? SCENERY_MESH_RANGES.mobile : SCENERY_MESH_RANGES.desktop
+	return { enabled: true, ...range }
+}
+
+export function createCloudMeshSettings({ isMobile = false } = {}) {
+	const range = isMobile ? CLOUD_MESH_RANGES.mobile : CLOUD_MESH_RANGES.desktop
 	return { enabled: true, ...range }
 }
 

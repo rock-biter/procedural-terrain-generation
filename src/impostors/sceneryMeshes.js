@@ -22,9 +22,13 @@ import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.g
 import sceneryMeshParsFragment from '../shaders/scenery-mesh-pars-fragment.glsl'
 import sceneryMeshColorFragment from '../shaders/scenery-mesh-color-fragment.glsl'
 import sceneryShadowParsFragment from '../shaders/scenery-shadow-pars-fragment.glsl'
-import { createShadowedLightsFragment } from '../curvedLights'
-import { createScenerySources } from './impostorArchetypes'
-import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE_COUNT } from './impostorTypes'
+import cloudShadowParsFragment from '../shaders/cloud-shadow-pars-fragment.glsl'
+import {
+	createShadowedLightsFragment,
+	createUnshadowedLightsFragment,
+} from '../curvedLights'
+import { SCENERY_IMPOSTORS, getCatalogDefines } from './impostorCatalogs'
+import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import {
 	makeSceneryWireframeMaterial,
 	patchSceneryWireframeShader,
@@ -46,21 +50,25 @@ import {
 const CULL_RADIUS_SCALE = 1.05
 const CULL_RADIUS_OFFSET = 0.5
 
-// Real meshes for the scenery instances near the eye, in two levels of detail:
-// LOD 0 (the baked source geometry) closest and LOD 1 (reduced geometry)
-// farther out. Every frame it selects, per level, the instances within that
-// level's distance window from the live scenery chunks, frustum-culls them,
-// and draws them with one instanced mesh per type and level. The impostor and
-// mesh shaders share the fades and the dither, so each pixel shows exactly
-// one of LOD 0, LOD 1, or the impostor.
+// Real meshes for the impostor instances near the eye, in two levels of
+// detail: LOD 0 (the baked source geometry) closest and LOD 1 (reduced
+// geometry) farther out. Every frame it selects, per level, the instances
+// within that level's distance window, frustum-culls them, and draws them with
+// one instanced mesh per type and level. The impostor and mesh shaders share
+// the fades and the dither, so each pixel shows exactly one of LOD 0, LOD 1,
+// or the impostor. `catalog` (impostorCatalogs.js) picks the family: scenery
+// (the default), read from the live chunks by update(), or clouds, fed by
+// src/clouds.js through beginUpdate(), appendInstances(), and endUpdate().
 //
 // Ownership: this object owns its source geometries, instance buffers,
 // materials, and the LOD range uniform. `uniforms` (shared with the terrain and
 // impostors) must include uCamera, uCurvature, uAtmosphere, and
-// uSceneryMeshRange, plus the scenery shadow uniforms; this object writes
-// uSceneryMeshRange. `variation` and `detail` are uniform objects owned by
-// main.js and shared with the impostor material and bake settings.
-// `shadowTaps` is the PCF sample count of the shadow lookup. `wireframe`
+// uSceneryMeshRange, plus, with `receiveShadows`, the scenery and cloud shadow
+// uniforms; this object writes uSceneryMeshRange. `variation` and `detail` are
+// uniform objects owned by the caller and shared with the impostor material
+// and bake settings. `shadowTaps` is the PCF sample count of the scenery
+// shadow lookup. Without `receiveShadows`, lighting has no shadow and
+// `ambientScale` (a float uniform) scales the ambient light. `wireframe`
 // (createSceneryWireframeSettings()) drives the debug overlay, one wireframe
 // twin per mesh in its level's color (sceneryWireframe.js).
 export default class SceneryMeshes extends Group {
@@ -71,18 +79,26 @@ export default class SceneryMeshes extends Group {
 		settings,
 		wireframe,
 		shadowTaps = 4,
+		catalog = SCENERY_IMPOSTORS,
+		receiveShadows = true,
+		ambientScale = null,
 	}) {
 		super()
-		this.name = 'scenery-meshes'
+		this.name = `${catalog.name}-meshes`
 		this.uniforms = uniforms
 		this.settings = settings
 		this.wireframe = wireframe
 		this.shadowTaps = shadowTaps
+		this.catalog = catalog
+		this.typeCount = catalog.typeCount
+		this.receiveShadows = receiveShadows
+		this.ambientScale = ambientScale
 		this.lodRange = { value: new Vector2() }
 		// Filled below from each type's LOD 0 bounds.
-		this.boundRadius = { value: new Array(IMPOSTOR_TYPE_COUNT).fill(0) }
+		this.boundRadius = { value: new Array(this.typeCount).fill(0) }
 		this.outerRadius = 0
 		this.lastUpdateMs = 0
+		this.updateStartTime = 0
 
 		this.eye = new Vector3()
 		this.frustum = new Frustum()
@@ -100,7 +116,7 @@ export default class SceneryMeshes extends Group {
 		this.levels = Array.from({ length: SCENERY_MESH_LOD_COUNT }, (_, lod) => ({
 			minRadius: 0,
 			maxRadius: 0,
-			buckets: createSceneryBuckets(),
+			buckets: createSceneryBuckets(undefined, this.typeCount),
 			material: this.createMaterial(lod, variation, detail),
 			wireframeMaterial: makeSceneryWireframeMaterial(
 				this.createMaterial(lod, variation, detail),
@@ -109,8 +125,8 @@ export default class SceneryMeshes extends Group {
 			types: [],
 		}))
 
-		for (let type = 0; type < IMPOSTOR_TYPE_COUNT; type++) {
-			const sources = createScenerySources(type, SCENERY_MESH_LOD_COUNT)
+		for (let type = 0; type < this.typeCount; type++) {
+			const sources = catalog.createSources(type, SCENERY_MESH_LOD_COUNT)
 			const { center, radius } = sources[0].boundingSphere
 			this.bounds.push({ centerY: center.y, radius })
 			this.boundRadius.value[type] = radius
@@ -123,13 +139,13 @@ export default class SceneryMeshes extends Group {
 					geometry.setAttribute(name, source.getAttribute(name))
 				}
 				const mesh = new Mesh(geometry, level.material)
-				mesh.name = `scenery-mesh-${type}-lod${lod}`
+				mesh.name = `${catalog.name}-mesh-${type}-lod${lod}`
 				// Instances are placed in the shader; selection already culls them.
 				mesh.frustumCulled = false
 				mesh.visible = false
 				this.add(mesh)
 				const wireframeMesh = new Mesh(geometry, level.wireframeMaterial)
-				wireframeMesh.name = `scenery-wireframe-${type}-lod${lod}`
+				wireframeMesh.name = `${catalog.name}-wireframe-${type}-lod${lod}`
 				wireframeMesh.frustumCulled = false
 				wireframeMesh.visible = false
 				wireframeMesh.renderOrder = 1
@@ -157,7 +173,22 @@ export default class SceneryMeshes extends Group {
 			roughness: 0.9,
 			metalness: 0,
 		})
-		material.defines = { IMPOSTOR_TYPE_COUNT, SCENERY_MESH_LOD: lod }
+		material.defines = {
+			...getCatalogDefines(this.catalog),
+			SCENERY_MESH_LOD: lod,
+		}
+		// Keeps the unshadowed program apart from the shadowed one.
+		if (!this.receiveShadows) material.defines.SCENERY_NO_SHADOWS = ''
+		const lightsFragment = this.receiveShadows
+			? createShadowedLightsFragment(
+					`getSceneryShadow(vShadowPosition, vShadowSelfBias, ${this.shadowTaps}, ${this.shadowTaps}) * getCloudShadow(vShadowPosition)`,
+				)
+			: createUnshadowedLightsFragment(
+					this.ambientScale ? 'uSceneryAmbientScale' : '1.0',
+				)
+		const ambientParsFragment = this.ambientScale
+			? 'uniform float uSceneryAmbientScale;'
+			: ''
 		material.onBeforeCompile = (shader) => {
 			shader.uniforms = {
 				...shader.uniforms,
@@ -168,6 +199,7 @@ export default class SceneryMeshes extends Group {
 				uImpostorVariationFrequency: variation.frequency,
 				...detail,
 			}
+			if (this.ambientScale) shader.uniforms.uSceneryAmbientScale = this.ambientScale
 
 			shader.vertexShader = shader.vertexShader
 				.replace(
@@ -179,15 +211,10 @@ export default class SceneryMeshes extends Group {
 			shader.fragmentShader = shader.fragmentShader
 				.replace(
 					'#include <common>',
-					`${common}\n${sceneryDitherParsFragment}\n${sceneryDetailParsFragment}\n${sceneryMeshParsFragment}\n${sceneryShadowParsFragment}`,
+					`${common}\n${sceneryDitherParsFragment}\n${sceneryDetailParsFragment}\n${sceneryMeshParsFragment}\n${sceneryShadowParsFragment}\n${cloudShadowParsFragment}\n${ambientParsFragment}`,
 				)
 				.replace('#include <color_fragment>', sceneryMeshColorFragment)
-				.replace(
-					'#include <lights_fragment_begin>',
-					createShadowedLightsFragment(
-						`getSceneryShadow(vShadowPosition, vShadowSelfBias, ${this.shadowTaps}, ${this.shadowTaps})`,
-					),
-				)
+				.replace('#include <lights_fragment_begin>', lightsFragment)
 			patchSceneryWireframeShader(shader, material)
 		}
 		return material
@@ -236,20 +263,9 @@ export default class SceneryMeshes extends Group {
 	// rendering, with the camera that will render. `chunks` is the live chunk
 	// Map; `chunkSize` its world size.
 	update(chunks, chunkSize, camera) {
-		const startTime = performance.now()
-		for (const level of this.levels) resetSceneryBuckets(level.buckets)
-
-		if (this.outerRadius > 0) {
-			camera.updateWorldMatrix(true, false)
-			this.eye.setFromMatrixPosition(camera.matrixWorld)
-			this.viewProjection.multiplyMatrices(
-				camera.projectionMatrix,
-				camera.matrixWorldInverse,
-			)
-			this.frustum.setFromProjectionMatrix(this.viewProjection)
-
-			const { x: eyeX, y: eyeY, z: eyeZ } = this.eye
+		if (this.beginUpdate(camera)) {
 			const halfSize = chunkSize / 2
+			const { x: eyeX, z: eyeZ } = this.eye
 			for (const chunk of chunks.values()) {
 				if (!chunk.scenery) continue
 				const { x, y, z } = chunk.position
@@ -265,22 +281,56 @@ export default class SceneryMeshes extends Group {
 				) {
 					continue
 				}
-				appendNearSceneryInstances(
-					this.levels,
+				this.appendInstances(
 					chunk.scenery.geometry.attributes.aInstanceA.data.array,
 					x,
 					y,
 					z,
-					eyeX,
-					eyeY,
-					eyeZ,
-					this.isVisible,
 				)
 			}
 		}
+		this.endUpdate()
+	}
 
+	// Starts a frame's selection with the camera that will render. Returns
+	// false when the meshes are disabled, so the caller can skip appending.
+	beginUpdate(camera) {
+		this.updateStartTime = performance.now()
+		for (const level of this.levels) resetSceneryBuckets(level.buckets)
+		if (this.outerRadius <= 0) return false
+
+		camera.updateWorldMatrix(true, false)
+		this.eye.setFromMatrixPosition(camera.matrixWorld)
+		this.viewProjection.multiplyMatrices(
+			camera.projectionMatrix,
+			camera.matrixWorldInverse,
+		)
+		this.frustum.setFromProjectionMatrix(this.viewProjection)
+		return true
+	}
+
+	// Selects the near instances of one placement array (IMPOSTOR_INSTANCE_STRIDE
+	// layout) whose bases are relative to (x, y, z).
+	appendInstances(instances, x, y, z) {
+		if (this.outerRadius <= 0) return
+		const { x: eyeX, y: eyeY, z: eyeZ } = this.eye
+		appendNearSceneryInstances(
+			this.levels,
+			instances,
+			x,
+			y,
+			z,
+			eyeX,
+			eyeY,
+			eyeZ,
+			this.isVisible,
+		)
+	}
+
+	// Uploads the frame's selection and shows the meshes that have instances.
+	endUpdate() {
 		for (const level of this.levels) {
-			for (let type = 0; type < IMPOSTOR_TYPE_COUNT; type++) {
+			for (let type = 0; type < this.typeCount; type++) {
 				const bucket = level.buckets[type]
 				const info = level.types[type]
 				if (info.buffer.array !== bucket.array) this.attachBuffer(info, bucket.array)
@@ -294,7 +344,7 @@ export default class SceneryMeshes extends Group {
 				}
 			}
 		}
-		this.lastUpdateMs = performance.now() - startTime
+		this.lastUpdateMs = performance.now() - this.updateStartTime
 	}
 
 	// Bounding sphere of the instance on the curved world, against the frustum.

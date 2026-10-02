@@ -206,14 +206,10 @@ function buildSource(type, lod) {
 	return geometry
 }
 
-// Returns the merged LOD 0 source geometry. Its bounding sphere is centered on
-// the y axis so instance yaw rotates around the base, which stays on y = 0.
-export function createImpostorSource(type) {
-	return createScenerySources(type)[0]
-}
-
 // Returns [LOD 0, LOD 1] geometries of one type. Both are shifted by the LOD 0
-// recentering, so the levels and the impostor share one local frame.
+// recentering: the bounding sphere is centered on the y axis, so instance yaw
+// rotates around the base, which stays on y = 0, and the levels and the
+// impostor (baked from LOD 0) share one local frame.
 export function createScenerySources(type, lodCount = 1) {
 	const sources = []
 	for (let lod = 0; lod < lodCount; lod++) sources.push(buildSource(type, lod))

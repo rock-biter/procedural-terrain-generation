@@ -1,6 +1,5 @@
 import {
 	BoxGeometry,
-	BufferAttribute,
 	MathUtils,
 	Mesh,
 	MeshBasicMaterial,
@@ -19,13 +18,12 @@ import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
 import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
 import sceneryShadowParsFragment from './shaders/scenery-shadow-pars-fragment.glsl'
+import cloudShadowParsFragment from './shaders/cloud-shadow-pars-fragment.glsl'
 import { getTerrainNormalTexture, TERRAIN_NORMAL_LAYERS } from './terrainNormals'
 import { createShadowedLightsFragment } from './curvedLights'
 import { createImpostorMesh } from './impostors/impostorMaterial'
-import Clouds from './clouds'
 import { getHeight } from './chunkGeometry'
 
-const isMobile = window.innerWidth < 768
 // The terrain samples its per-layer maps from uTerrainNormalMaps
 // (terrain-normal-pars.glsl). normalMap only enables Three's tangent-space
 // path, whose tangent frame comes from the chunk uv.
@@ -45,15 +43,12 @@ export const CURVATURE = 3000
 const V2 = new Vector2(0, 0)
 const DEFAULT_FEATURES = Object.freeze({
 	scenery: true,
-	clouds: true,
 	boats: true,
 })
 
 export default class Chunk extends Mesh {
 	scenery = null
 	hasScenery = false
-	cloudsPositionArray = []
-	cloudsCount = 0
 
 	constructor(
 		size,
@@ -132,6 +127,8 @@ export default class Chunk extends Mesh {
 					terrainColorNoisePars +
 					'\n' +
 					sceneryShadowParsFragment +
+					'\n' +
+					cloudShadowParsFragment +
 					`
 				varying vec3 vSphereNormal;
 				`,
@@ -145,7 +142,7 @@ export default class Chunk extends Mesh {
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <lights_fragment_begin>',
 				createShadowedLightsFragment(
-					`getSceneryShadow(vShadowPosition, 0.0, ${nearTaps}, ${farTaps})`,
+					`getSceneryShadow(vShadowPosition, 0.0, ${nearTaps}, ${farTaps}) * getCloudShadow(vShadowPosition)`,
 				),
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(
@@ -190,7 +187,6 @@ export default class Chunk extends Mesh {
 	}
 
 	updateScenery() {
-		if (this.features.clouds && !this.clouds) this.generateClouds()
 		if (this.features.boats && !this.boats) this.addBoats()
 	}
 
@@ -270,55 +266,6 @@ export default class Chunk extends Mesh {
 		this.add(m)
 
 		return m
-	}
-
-	generateClouds() {
-		const density = isMobile ? 4 : 2
-
-		const half = this.size
-		for (let i = 0; i < this.size; i += 1) {
-			for (let j = 0; j < this.size; j += 1) {
-				const x = i + this.position.x - half
-				const z = j + this.position.z - half
-
-				this.addCloud(x, z)
-			}
-		}
-
-		this.createCloudsMesh()
-	}
-
-	createCloudsMesh() {
-		const position = new BufferAttribute(
-			new Float32Array(this.cloudsPositionArray),
-			3,
-		)
-
-		if (this.clouds) {
-			this.remove(this.clouds)
-			this.clouds.dispose()
-		}
-
-		this.clouds = new Clouds(position, this.uniforms)
-		// console.log(this.trees)
-
-		this.add(this.clouds)
-		this.clouds.material.normalMap = normalMap
-	}
-
-	addCloud(x, z) {
-		let n = this.noise[0](x * 0.005, z * 0.005) + this.noise[1](x * 10, z * 10)
-
-		n *= n
-
-		if (n > 3.3 && Math.random() > 0.1) {
-			this.cloudsPositionArray.push(
-				x - this.position.x,
-				100,
-				z - this.position.z,
-			)
-			this.cloudsCount++
-		}
 	}
 
 	applyCurvature(x, y) {

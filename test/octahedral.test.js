@@ -96,3 +96,45 @@ test('selects a single frame when the view matches it', () => {
 		assert.ok(close(blend.weights[dominant], 1, 1e-6))
 	}
 })
+
+test('round-trips lower-hemisphere directions', () => {
+	for (let i = 0; i < 500; i++) {
+		const azimuth = (i * 2.399) % (Math.PI * 2)
+		const elevation = -((i * 0.618) % 1) * (Math.PI / 2)
+		const direction = [
+			Math.cos(elevation) * Math.cos(azimuth),
+			Math.sin(elevation),
+			Math.cos(elevation) * Math.sin(azimuth),
+		]
+		const [u, v] = encodeHemiOct(...direction, -1)
+		assert.ok(Math.abs(u) <= 1 + 1e-9 && Math.abs(v) <= 1 + 1e-9)
+		const decoded = decodeHemiOct(u, v, -1)
+		decoded.forEach((value, axis) => assert.ok(close(value, direction[axis])))
+	}
+})
+
+test('mirrors the upper mapping for the lower hemisphere', () => {
+	for (const frames of FRAME_COUNTS) {
+		for (let x = 0; x < frames; x++) {
+			for (let y = 0; y < frames; y++) {
+				const upper = getFrameDirection(x, y, frames)
+				const lower = getFrameDirection(x, y, frames, -1)
+				assert.ok(lower[1] <= 1e-9, 'lower frames look from below')
+				assert.ok(close(lower[0], upper[0]))
+				assert.ok(close(lower[1], -upper[1]))
+				assert.ok(close(lower[2], upper[2]))
+				// The bake keeps world up on screen from below too.
+				assert.ok(getFrameBasis(lower).up[1] >= -1e-9)
+			}
+		}
+		const direction = getFrameDirection(2, 7, frames, -1)
+		const blend = getFrameBlend(...direction, frames, -1)
+		const dominant = blend.weights.indexOf(Math.max(...blend.weights))
+		assert.deepEqual(blend.frames[dominant], [2, 7])
+	}
+})
+
+test('clamps views from the other hemisphere to the horizon ring', () => {
+	const [u, v] = encodeHemiOct(0.3, 0.8, 0.5, -1)
+	assert.ok(close(Math.abs((u + v) / 2) + Math.abs((u - v) / 2), 1))
+})

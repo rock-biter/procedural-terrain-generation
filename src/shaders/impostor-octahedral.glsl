@@ -1,15 +1,23 @@
 // GLSL twin of src/impostors/octahedral.js. Directions point from the object
-// toward the viewer in the impostor's local frame (+Y up).
+// toward the viewer in the impostor's local frame (+Y up). With
+// IMPOSTOR_LOWER_HEMISPHERE the atlas holds the lower hemisphere (clouds seen
+// from below): the mapping is mirrored on y.
+
+#ifdef IMPOSTOR_LOWER_HEMISPHERE
+const float IMPOSTOR_HEMISPHERE = -1.0;
+#else
+const float IMPOSTOR_HEMISPHERE = 1.0;
+#endif
 
 vec2 encodeHemiOct(vec3 direction) {
-	direction.y = max(direction.y, 0.0);
+	direction.y = max(direction.y * IMPOSTOR_HEMISPHERE, 0.0);
 	vec2 p = direction.xz / (abs(direction.x) + direction.y + abs(direction.z));
 	return vec2(p.x + p.y, p.x - p.y);
 }
 
 vec3 decodeHemiOct(vec2 uv) {
 	vec2 p = vec2(uv.x + uv.y, uv.x - uv.y) * 0.5;
-	return normalize(vec3(p.x, 1.0 - abs(p.x) - abs(p.y), p.y));
+	return normalize(vec3(p.x, (1.0 - abs(p.x) - abs(p.y)) * IMPOSTOR_HEMISPHERE, p.y));
 }
 
 vec3 getFrameDirection(vec2 frame) {

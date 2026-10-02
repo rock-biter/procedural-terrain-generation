@@ -18,14 +18,9 @@ import bakeFragmentShader from '../shaders/impostor-bake-fragment.glsl'
 import fullscreenVertexShader from '../shaders/fullscreen-vertex.glsl'
 import resolveFragmentShader from '../shaders/impostor-resolve-fragment.glsl'
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
-import { createImpostorSource } from './impostorArchetypes'
+import { SCENERY_IMPOSTORS } from './impostorCatalogs'
 import { getFrameDirection } from './octahedral'
-import {
-	IMPOSTOR_ATLAS_COLUMNS,
-	IMPOSTOR_ATLAS_ROWS,
-	IMPOSTOR_FRAMES_DESKTOP,
-	IMPOSTOR_TYPE_COUNT,
-} from './impostorTypes'
+import { IMPOSTOR_FRAMES_DESKTOP } from './impostorTypes'
 
 // Extra room around the bounding sphere so silhouettes never touch the frame
 // edge, which keeps bilinear and low mip samples inside their own frame.
@@ -35,20 +30,37 @@ const DILATION_RADIUS = 4
 // Frames are rendered at this multiple of their final size, then downsampled.
 const SUPERSAMPLE = 2
 
-// Renders every impostor type from frames x frames hemi-octahedral directions
-// into one albedo and one normal/depth atlas. `detail` optionally multiplies
-// the albedo by a tileable color texture:
-// { texture, scale (repeats per unit), color (strength) }.
+// Largest frame size whose supersampled bake target and atlas both fit the
+// GPU texture limit.
+export function getMaxImpostorFrameSize(maxTextureSize, frames, catalog) {
+	const widest = Math.max(SUPERSAMPLE, catalog.columns, catalog.rows)
+	return Math.floor(maxTextureSize / (frames * widest))
+}
+
+// Renders every type of an impostor `catalog` (impostorCatalogs.js) from
+// frames x frames hemi-octahedral directions of its hemisphere into one albedo
+// and one normal/depth atlas. `detail` optionally multiplies the albedo by a
+// tileable color texture: { texture, scale (repeats per unit), color
+// (strength) }. `frameSize` shrinks when the atlas would exceed the GPU limit.
 export function bakeImpostorAtlas(
 	renderer,
-	{ frames = IMPOSTOR_FRAMES_DESKTOP, frameSize = 64, detail = null } = {},
+	{
+		catalog = SCENERY_IMPOSTORS,
+		frames = IMPOSTOR_FRAMES_DESKTOP,
+		frameSize: requestedFrameSize = 64,
+		detail = null,
+	} = {},
 ) {
 	if (frames < 2 || frames % 2 !== 0) {
 		throw new Error(`Impostor frame count ${frames} must be even`)
 	}
+	const frameSize = Math.min(
+		requestedFrameSize,
+		getMaxImpostorFrameSize(renderer.capabilities.maxTextureSize, frames, catalog),
+	)
 	const cellSize = frames * frameSize
-	const width = cellSize * IMPOSTOR_ATLAS_COLUMNS
-	const height = cellSize * IMPOSTOR_ATLAS_ROWS
+	const width = cellSize * catalog.columns
+	const height = cellSize * catalog.rows
 
 	// One type block at a time keeps the supersampled target small enough for
 	// mobile texture limits (2048 px for 16 frames of 64 px).
@@ -75,7 +87,11 @@ export function bakeImpostorAtlas(
 	const bakeMaterial = new ShaderMaterial({
 		glslVersion: GLSL3,
 		vertexColors: true,
-		defines: detail?.texture ? { USE_DETAIL: '' } : {},
+		// The catalog defines select the detail projection the near meshes use.
+		defines: {
+			...catalog.defines,
+			...(detail?.texture ? { USE_DETAIL: '' } : {}),
+		},
 		uniforms: {
 			uForward: { value: new Vector3() },
 			uCenter: { value: new Vector3() },
@@ -116,8 +132,9 @@ export function bakeImpostorAtlas(
 	renderer.setClearColor(0x000000, 0)
 	renderer.autoClear = false
 
-	for (let type = 0; type < IMPOSTOR_TYPE_COUNT; type++) {
-		const geometry = createImpostorSource(type)
+	for (let type = 0; type < catalog.typeCount; type++) {
+		const sources = catalog.createSources(type)
+		const geometry = sources[0]
 		const { center, radius } = geometry.boundingSphere
 		const frameRadius = radius * FRAME_MARGIN
 		const mesh = new Mesh(geometry, bakeMaterial)
@@ -143,7 +160,7 @@ export function bakeImpostorAtlas(
 		const bakeFrameSize = frameSize * SUPERSAMPLE
 		for (let frameY = 0; frameY < frames; frameY++) {
 			for (let frameX = 0; frameX < frames; frameX++) {
-				const direction = getFrameDirection(frameX, frameY, frames)
+				const direction = getFrameDirection(frameX, frameY, frames, catalog.hemisphere)
 				bakeMaterial.uniforms.uForward.value.set(...direction)
 				// lookAt() with world up builds the same basis as getFrameBasis().
 				camera.position
@@ -164,12 +181,12 @@ export function bakeImpostorAtlas(
 		}
 
 		bakeScene.remove(mesh)
-		geometry.dispose()
+		sources.forEach((source) => source.dispose())
 		types.push({ frameRadius, centerY: center.y })
 
 		// Resolve this type into its block of the atlas.
-		const blockX = (type % IMPOSTOR_ATLAS_COLUMNS) * cellSize
-		const blockY = Math.floor(type / IMPOSTOR_ATLAS_COLUMNS) * cellSize
+		const blockX = (type % catalog.columns) * cellSize
+		const blockY = Math.floor(type / catalog.columns) * cellSize
 		resolveMaterial.uniforms.uBlockOrigin.value.set(blockX, blockY)
 		atlasTarget.viewport.set(blockX, blockY, cellSize, cellSize)
 		renderer.setRenderTarget(atlasTarget)
@@ -190,6 +207,7 @@ export function bakeImpostorAtlas(
 		target: atlasTarget,
 		albedo: atlasTarget.textures[0],
 		normal: atlasTarget.textures[1],
+		catalog,
 		frames,
 		frameSize,
 		types,

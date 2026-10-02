@@ -1,28 +1,32 @@
 // Hemi-octahedral view mapping for impostors. Directions point from the object
-// toward the viewer in the object's local frame (+Y up) and must have y >= 0.
-// src/shaders/impostor-octahedral.glsl mirrors these functions; keep them in
+// toward the viewer in the object's local frame (+Y up). An atlas covers one
+// hemisphere: `hemisphere` 1 (the default) bakes the upper one, for scenery
+// seen from above, and -1 the lower one, for clouds seen from below; the
+// lower mapping is the upper one mirrored on y. Directions outside the
+// hemisphere clamp to its horizon. src/shaders/impostor-octahedral.glsl
+// mirrors these functions (IMPOSTOR_LOWER_HEMISPHERE selects -1); keep them in
 // sync with the baker, which renders one frame per grid direction.
 
-export function encodeHemiOct(x, y, z) {
-	const sum = Math.abs(x) + Math.abs(Math.max(y, 0)) + Math.abs(z)
+export function encodeHemiOct(x, y, z, hemisphere = 1) {
+	const sum = Math.abs(x) + Math.max(y * hemisphere, 0) + Math.abs(z)
 	const px = x / sum
 	const pz = z / sum
 	return [px + pz, px - pz]
 }
 
-export function decodeHemiOct(u, v) {
+export function decodeHemiOct(u, v, hemisphere = 1) {
 	const px = (u + v) * 0.5
 	const pz = (u - v) * 0.5
-	const py = 1 - Math.abs(px) - Math.abs(pz)
+	const py = (1 - Math.abs(px) - Math.abs(pz)) * hemisphere
 	const length = Math.hypot(px, py, pz)
 	return [px / length, py / length, pz / length]
 }
 
 // Frames sit on grid corners so the outer ring samples the horizon exactly.
-export function getFrameDirection(frameX, frameY, frames) {
+export function getFrameDirection(frameX, frameY, frames, hemisphere = 1) {
 	const u = (frameX / (frames - 1)) * 2 - 1
 	const v = (frameY / (frames - 1)) * 2 - 1
-	return decodeHemiOct(u, v)
+	return decodeHemiOct(u, v, hemisphere)
 }
 
 // Camera basis used to bake a frame: z looks from the object to the viewer.
@@ -32,7 +36,8 @@ export function getFrameBasis(direction) {
 	let rx = fz
 	let rz = -fx
 	const rightLength = Math.hypot(rx, rz)
-	// Only a straight-down view is degenerate; even frame counts never bake it.
+	// Only a straight-down or straight-up view is degenerate; even frame
+	// counts never bake the pole.
 	if (rightLength < 1e-6) {
 		rx = 1
 		rz = 0
@@ -49,8 +54,8 @@ export function getFrameBasis(direction) {
 }
 
 // Three frames around a view direction and their barycentric weights.
-export function getFrameBlend(x, y, z, frames) {
-	const [u, v] = encodeHemiOct(x, y, z)
+export function getFrameBlend(x, y, z, frames, hemisphere = 1) {
+	const [u, v] = encodeHemiOct(x, y, z, hemisphere)
 	const last = frames - 1
 	const gx = Math.min(Math.max((u * 0.5 + 0.5) * last, 0), last)
 	const gy = Math.min(Math.max((v * 0.5 + 0.5) * last, 0), last)

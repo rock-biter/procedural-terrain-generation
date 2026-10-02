@@ -24,3 +24,23 @@ export const IMPOSTOR_ATLAS_ROWS = 2
 // Floats per instance in placement buffers: x, y, z (chunk-local base), scale,
 // yaw, type, packed RGB tint, vertical stretch.
 export const IMPOSTOR_INSTANCE_STRIDE = 8
+
+// Cloud shapes, in their own atlas (src/impostors/cloudArchetypes.js). Clouds
+// share the instance layout above with world-space bases; their yaw slot only
+// seeds the dither, because the shaders turn every cloud to face the airplane.
+export const CLOUD_TYPE = Object.freeze({
+	BANK: 0,
+	HEAP: 1,
+	PUFF: 2,
+})
+
+export const CLOUD_TYPE_COUNT = 3
+
+// Clouds are seen only from below, so their atlas bakes the lower hemisphere.
+// They are much larger on screen than scenery, hence the bigger frames; the
+// baker shrinks them if the atlas would exceed the GPU texture limit.
+export const CLOUD_IMPOSTOR_FRAMES = 12
+export const CLOUD_IMPOSTOR_FRAME_SIZE_DESKTOP = 96
+export const CLOUD_IMPOSTOR_FRAME_SIZE_MOBILE = 64
+export const CLOUD_ATLAS_COLUMNS = 3
+export const CLOUD_ATLAS_ROWS = 1

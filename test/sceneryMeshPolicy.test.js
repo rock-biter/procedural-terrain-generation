@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
+	CLOUD_TYPE,
+	CLOUD_TYPE_COUNT,
 	IMPOSTOR_INSTANCE_STRIDE,
 	IMPOSTOR_TYPE,
 	IMPOSTOR_TYPE_COUNT,
 } from '../src/impostors/impostorTypes.js'
+import { CLOUD_FIELD_RADIUS, getCloudFarFade } from '../src/cloudPlacement.js'
 import {
+	CLOUD_MESH_RANGES,
 	SCENERY_MESH_DISABLED_RANGE,
 	SCENERY_MESH_RANGES,
 	SCENERY_MESH_LOD_COUNT,
@@ -13,6 +17,7 @@ import {
 	SCENERY_WIREFRAME_COLORS,
 	appendNearSceneryInstances,
 	chunkIntersectsSelection,
+	createCloudMeshSettings,
 	createSceneryBuckets,
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
@@ -280,4 +285,32 @@ test('buckets grow by doubling and are reused across frames', () => {
 	assert.equal(rocks.array, array)
 	assert.equal(rocks.reallocations, 3)
 	assert.equal(ensureSceneryBucketCapacity(rocks, 16), false)
+})
+
+test('cloud bands are valid and end before the far fade', () => {
+	for (const isMobile of [false, true]) {
+		const settings = createCloudMeshSettings({ isMobile })
+		const preset = isMobile ? CLOUD_MESH_RANGES.mobile : CLOUD_MESH_RANGES.desktop
+		assert.deepEqual(getSceneryMeshRange(settings), [preset.start, preset.end])
+		assert.deepEqual(getSceneryMeshLodRange(settings), [preset.lodStart, preset.lodEnd])
+		assert.ok(preset.lodEnd < preset.start)
+		const radius = isMobile ? CLOUD_FIELD_RADIUS.mobile : CLOUD_FIELD_RADIUS.desktop
+		assert.ok(preset.end < getCloudFarFade(radius)[0], 'impostors appear before they shrink')
+	}
+})
+
+test('cloud instances fill buckets of the cloud type count', () => {
+	const levels = getSceneryMeshSelection(createCloudMeshSettings()).map((window) => ({
+		...window,
+		buckets: createSceneryBuckets(2, CLOUD_TYPE_COUNT),
+	}))
+	const instances = new Float32Array([
+		...instance(0, 150, 100, CLOUD_TYPE.BANK),
+		...instance(0, 150, 500, CLOUD_TYPE.PUFF),
+	])
+	const appended = appendNearSceneryInstances(levels, instances, 0, 0, 0, 0, 90, 0)
+	assert.equal(levels[0].buckets.length, CLOUD_TYPE_COUNT)
+	assert.equal(levels[0].buckets[CLOUD_TYPE.BANK].count, 1)
+	assert.equal(levels[1].buckets[CLOUD_TYPE.PUFF].count, 1)
+	assert.equal(appended, 2)
 })

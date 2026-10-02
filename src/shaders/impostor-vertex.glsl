@@ -16,8 +16,9 @@ float bendCos;
 float bendSin;
 getSceneryBend(impostorBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
 distanceFromCamera = baseDistance;
-// Shrink into the fog before the scenery LOD limit removes the chunk.
-impostorScale *= smoothstep(950.0, 800.0, baseDistance);
+// Shrink into the fog before the instance leaves its streaming range (the
+// scenery LOD limit, or the cloud field radius).
+impostorScale *= 1.0 - smoothstep(uImpostorFarFade.x, uImpostorFarFade.y, baseDistance);
 // Near the eye the real mesh takes over (src/impostors/sceneryMeshes.js): the
 // fragment dither keeps only the pixels the mesh discards, and a fully faded
 // impostor collapses so it costs no fragments.
@@ -31,9 +32,17 @@ vec3 cameraUp = vec3(viewMatrix[0][1], viewMatrix[1][1], viewMatrix[2][1]);
 float halfSize = frameRadius * impostorScale * max(impostorStretch, 1.0);
 vec3 impostorVertex = impostorCenter + (cameraRight * position.x + cameraUp * position.y) * halfSize;
 
-// World to baked local space: undo bend, yaw, scale, and stretch.
+// World to baked local space: undo bend, yaw, scale, and stretch. Clouds
+// (SCENERY_FACE_AIRPLANE) turn to face the airplane from their flat base, like
+// their near meshes; their yaw slot only seeds the dither.
+#ifdef SCENERY_FACE_AIRPLANE
+float yawCos;
+float yawSin;
+getFacingYaw(impostorBase.xz, uCamera.xz, yawCos, yawSin);
+#else
 float yawCos = cos(impostorYaw);
 float yawSin = sin(impostorYaw);
+#endif
 vec3 localScale = vec3(1.0, impostorStretch, 1.0) * max(impostorScale, 1e-4);
 vec3 cameraLocal = rotateYaw(rotateAroundAxis(cameraPosition - impostorCenter, bendAxis, bendCos, -bendSin), yawCos, -yawSin) / localScale;
 vec3 vertexLocal = rotateYaw(rotateAroundAxis(impostorVertex - impostorCenter, bendAxis, bendCos, -bendSin), yawCos, -yawSin) / localScale;

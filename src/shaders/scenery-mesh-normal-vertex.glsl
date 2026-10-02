@@ -16,8 +16,16 @@ vec3 bendAxis;
 float bendCos;
 float bendSin;
 getSceneryBend(sceneryBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
+// Clouds (SCENERY_FACE_AIRPLANE) turn to face the airplane, exactly as their
+// impostor does; their yaw slot only seeds the dither.
+#ifdef SCENERY_FACE_AIRPLANE
+float yawCos;
+float yawSin;
+getFacingYaw(sceneryBase.xz, uCamera.xz, yawCos, yawSin);
+#else
 float yawCos = cos(sceneryYaw);
 float yawSin = sin(sceneryYaw);
+#endif
 
 // Same fade as the impostor; the fragment keeps the complementary pixels. The
 // LOD fade never exceeds it, so the pixel noise splits into [0, lod) LOD 0,

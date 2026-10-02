@@ -12,5 +12,8 @@ if (sceneryNoise < vSceneryLodFade || sceneryNoise >= vSceneryDither.x) discard;
 // the instance tint and variation like impostor-color-fragment.glsl.
 diffuseColor.rgb *= applyDetail(vColor.rgb, vSceneryLocalPosition, normalize(vSceneryLocalNormal)) * vTint;
 
-// Atmosphere clamp shared with the impostors.
+// Atmosphere clamp shared with the terrain. Clouds skip it: clamping their
+// light albedo to the atmosphere color would tint them; only fog fades them.
+#ifndef SCENERY_NO_ATMOSPHERE_CLAMP
 diffuseColor.rgb = mix(min(uAtmosphere, diffuseColor.rgb), diffuseColor.rgb, smoothstep(700.0, 400.0, distanceFromCamera));
+#endif

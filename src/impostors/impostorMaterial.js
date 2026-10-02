@@ -19,35 +19,53 @@ import impostorParsFragment from '../shaders/impostor-pars-fragment.glsl'
 import impostorColorFragment from '../shaders/impostor-color-fragment.glsl'
 import impostorNormalFragment from '../shaders/impostor-normal-fragment.glsl'
 import sceneryShadowParsFragment from '../shaders/scenery-shadow-pars-fragment.glsl'
-import { createShadowedLightsFragment } from '../curvedLights'
+import cloudShadowParsFragment from '../shaders/cloud-shadow-pars-fragment.glsl'
 import {
-	IMPOSTOR_ATLAS_COLUMNS,
-	IMPOSTOR_ATLAS_ROWS,
-	IMPOSTOR_INSTANCE_STRIDE,
-	IMPOSTOR_TYPE_COUNT,
-} from './impostorTypes'
+	createShadowedLightsFragment,
+	createUnshadowedLightsFragment,
+} from '../curvedLights'
+import { getCatalogDefines } from './impostorCatalogs'
+import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import {
 	makeSceneryWireframeMaterial,
 	patchSceneryWireframeShader,
 } from './sceneryWireframe'
 
-// One shared material for every scenery chunk. It owns the atlas uniforms and
-// must not be disposed by chunks. `uniforms` must include `uSceneryMeshRange`,
-// which hands nearby instances over to the real meshes (sceneryMeshes.js).
-// `variation` holds { amount, frequency } uniforms owned by the caller so the
-// GUI can tune them live: `amount.value` is one float per type index.
-// `uniforms` must also hold the scenery shadow uniforms
-// (createSceneryShadowUniforms() in src/sceneryShadows.js); `shadowTaps` is
-// the PCF sample count of the shadow lookup.
+// Far fade of the scenery impostors: they shrink into the fog between these
+// eye distances, before the scenery LOD limit removes their chunk.
+export const SCENERY_IMPOSTOR_FAR_FADE = Object.freeze([800, 950])
+
+// One shared material for every instance of the atlas's catalog
+// (impostorCatalogs.js), e.g. every scenery chunk. It owns the atlas uniforms
+// and must not be disposed by chunks. `uniforms` must include
+// `uSceneryMeshRange`, which hands nearby instances over to the real meshes
+// (sceneryMeshes.js). `variation` holds { amount, frequency } uniforms owned
+// by the caller so the GUI can tune them live: `amount.value` is one float per
+// type index. `farFade` is a Vector2 uniform (start, end) of the shrink into
+// the fog.
+//
+// With `receiveShadows` (scenery), `uniforms` must also hold the scenery and
+// cloud shadow uniforms (src/sceneryShadows.js, src/cloudShadows.js);
+// `shadowTaps` is the PCF sample count of the scenery shadow lookup. Without
+// it (clouds), lighting has no shadow and `ambientScale` (a float uniform)
+// scales the ambient light.
 export function createImpostorMaterial(
 	atlas,
 	uniforms,
-	{ singleFrame = false, variation, shadowTaps = 2 } = {},
+	{
+		singleFrame = false,
+		variation,
+		shadowTaps = 2,
+		receiveShadows = true,
+		farFade = null,
+		ambientScale = null,
+	} = {},
 ) {
 	const impostorUniforms = {
 		uImpostorVariationAmount:
-			variation?.amount ?? { value: new Array(IMPOSTOR_TYPE_COUNT).fill(0) },
+			variation?.amount ?? { value: new Array(atlas.catalog.typeCount).fill(0) },
 		uImpostorVariationFrequency: variation?.frequency ?? { value: 1 },
+		uImpostorFarFade: farFade ?? { value: new Vector2(...SCENERY_IMPOSTOR_FAR_FADE) },
 		uImpostorAlbedo: { value: atlas.albedo },
 		uImpostorNormal: { value: atlas.normal },
 		uImpostorTypes: {
@@ -56,11 +74,12 @@ export function createImpostorMaterial(
 			),
 		},
 	}
-	const material = buildImpostorMaterial(atlas.frames, uniforms, impostorUniforms, {
+	if (ambientScale) impostorUniforms.uSceneryAmbientScale = ambientScale
+	const material = buildImpostorMaterial(atlas, uniforms, impostorUniforms, {
 		singleFrame,
 		shadowTaps,
+		receiveShadows,
 	})
-	material.userData.atlas = atlas
 	return material
 }
 
@@ -71,7 +90,7 @@ export function createImpostorWireframeMaterial(material, color) {
 	const { uniforms, ...options } = material.userData.impostorOptions
 	return makeSceneryWireframeMaterial(
 		buildImpostorMaterial(
-			material.defines.IMPOSTOR_FRAMES,
+			material.userData.atlas,
 			uniforms,
 			material.userData.impostorUniforms,
 			options,
@@ -81,10 +100,10 @@ export function createImpostorWireframeMaterial(material, color) {
 }
 
 function buildImpostorMaterial(
-	frames,
+	atlas,
 	uniforms,
 	impostorUniforms,
-	{ singleFrame, shadowTaps },
+	{ singleFrame, shadowTaps, receiveShadows },
 ) {
 	const material = new MeshStandardMaterial({
 		roughness: 0.9,
@@ -94,17 +113,33 @@ function buildImpostorMaterial(
 		alphaToCoverage: true,
 	})
 	material.defines = {
-		// Must match the grid the atlas was baked with.
-		IMPOSTOR_FRAMES: frames,
-		IMPOSTOR_ATLAS_COLUMNS,
-		IMPOSTOR_ATLAS_ROWS,
-		IMPOSTOR_TYPE_COUNT,
+		// Must match the grid and layout the atlas was baked with.
+		IMPOSTOR_FRAMES: atlas.frames,
+		...getCatalogDefines(atlas.catalog),
 	}
 	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
+	// Keeps the unshadowed program apart from the shadowed one.
+	if (!receiveShadows) material.defines.SCENERY_NO_SHADOWS = ''
 
 	// Lets a re-bake swap the atlas without recompiling the material.
+	material.userData.atlas = atlas
 	material.userData.impostorUniforms = impostorUniforms
-	material.userData.impostorOptions = { uniforms, singleFrame, shadowTaps }
+	material.userData.impostorOptions = {
+		uniforms,
+		singleFrame,
+		shadowTaps,
+		receiveShadows,
+	}
+	const lightsFragment = receiveShadows
+		? createShadowedLightsFragment(
+				`getSceneryShadow(impostorShadowPosition, vShadowSelfBias, ${shadowTaps}, ${shadowTaps}) * getCloudShadow(impostorShadowPosition)`,
+			)
+		: createUnshadowedLightsFragment(
+				impostorUniforms.uSceneryAmbientScale ? 'uSceneryAmbientScale' : '1.0',
+			)
+	const ambientParsFragment = impostorUniforms.uSceneryAmbientScale
+		? 'uniform float uSceneryAmbientScale;'
+		: ''
 
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms = {
@@ -122,16 +157,11 @@ function buildImpostorMaterial(
 		shader.fragmentShader = shader.fragmentShader
 			.replace(
 				'#include <common>',
-				`${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}\n${sceneryShadowParsFragment}`,
+				`${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}\n${sceneryShadowParsFragment}\n${cloudShadowParsFragment}\n${ambientParsFragment}`,
 			)
 			.replace('#include <color_fragment>', impostorColorFragment)
 			.replace('#include <normal_fragment_begin>', impostorNormalFragment)
-			.replace(
-				'#include <lights_fragment_begin>',
-				createShadowedLightsFragment(
-					`getSceneryShadow(impostorShadowPosition, vShadowSelfBias, ${shadowTaps}, ${shadowTaps})`,
-				),
-			)
+			.replace('#include <lights_fragment_begin>', lightsFragment)
 		patchSceneryWireframeShader(shader, material)
 	}
 
@@ -141,8 +171,11 @@ function buildImpostorMaterial(
 // Installs a newly baked atlas (same frame count) and disposes the old one.
 export function setImpostorAtlas(material, atlas) {
 	const uniforms = material.userData.impostorUniforms
-	if (material.defines.IMPOSTOR_FRAMES !== atlas.frames) {
-		throw new Error('A re-bake must keep the impostor frame count')
+	if (
+		material.defines.IMPOSTOR_FRAMES !== atlas.frames ||
+		material.userData.atlas.catalog !== atlas.catalog
+	) {
+		throw new Error('A re-bake must keep the impostor catalog and frame count')
 	}
 	uniforms.uImpostorAlbedo.value = atlas.albedo
 	uniforms.uImpostorNormal.value = atlas.normal

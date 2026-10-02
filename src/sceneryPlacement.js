@@ -128,8 +128,9 @@ export function hashSeed(seed) {
 	return hash >>> 0
 }
 
-// Stateless per-cell random number in [0, 1).
-function cellRandom(seedHash, cellX, cellZ, salt) {
+// Stateless per-cell random number in [0, 1). Cloud placement
+// (src/cloudPlacement.js) uses it too.
+export function cellRandom(seedHash, cellX, cellZ, salt) {
 	let h = seedHash ^ Math.imul(cellX | 0, 0x27d4eb2d)
 	h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
 	h ^= Math.imul(cellZ | 0, 0x165667b1)

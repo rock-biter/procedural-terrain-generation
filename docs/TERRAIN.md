@@ -35,14 +35,14 @@ The desert is lower and softer than the temperate biome, while the large-scale s
 - Defaults live in `DESERT_TERRAIN_DEFAULTS`; `main.js` copies them into `params.desert`, and `ChunkManager` snapshots them into every worker request. The **Terrain > Desert topography** GUI edits them and regenerates the chunks when a control is released.
 - **Cost:** each height sample also evaluates the biome field (three `snoise` calls). In Node, a LOD `0` chunk at density `1` went from about `86` to `130`–`140` ms. The work runs in the workers.
 
-`ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random eight-character base-36 seed (`createRandomSeed()` in [`src/worldSeed.js`](../src/worldSeed.js)). One seed drives both topology (`seed:octave` noises) and biomes (`seed:biome` offset). Each worker caches its noise functions until the seed or octave count changes.
+`ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random eight-character base-36 seed (`createRandomSeed()` in [`src/worldSeed.js`](../src/worldSeed.js)). One seed drives topology (`seed:octave` noises), biomes (`seed:biome` offset), scenery placement, and the cloud field. Each worker caches its noise functions until the seed or octave count changes.
 
 With `?gui=1`, the **World** folder shows the current seed and changes it at runtime. Text is trimmed, and a blank value restores the current seed. **Random seed** picks a new one. The address bar is not updated. `ChunkManager.setSeed()` then:
 - rebuilds the noises and the biome offset;
 - writes `uBiomeOffset` in place;
 - regenerates every desired chunk, terrain and scenery, through the same revisioned path as a parameter change, so in-flight results for the old seed are discarded.
 
-`main.js` then lifts the airplane to the spawn floor (`max(height, 0) + 60`) if the new ground is above it and resets its smoothed terrain corridor. While chunks regenerate, the new biome colors briefly shade the old geometry, because `uBiomeOffset` is global. Entering the original seed again reproduces the original world.
+`main.js` also calls `Clouds.setSeed()`, which re-places the cloud field on the next frame. It then lifts the airplane to the spawn floor (`max(height, 0) + 60`) if the new ground is above it and resets its smoothed terrain corridor. While chunks regenerate, the new biome colors briefly shade the old geometry, because `uBiomeOffset` is global. Entering the original seed again reproduces the original world.
 
 `main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path, with `chunkManager.biomeOffset`. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
 
@@ -102,7 +102,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ## Per-Chunk Scenery
 
-`main.js` passes `worldFeatures` with `scenery` set to `true` and `clouds` and `boats` set to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds and boats keep their dormant implementations behind their flags.
+`main.js` passes `worldFeatures` with `scenery` and `clouds` set to `true` and `boats` set to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)). Boats keep their dormant implementation behind their flag.
 
 ### Biome Field
 
@@ -179,12 +179,6 @@ Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacem
 
 `reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing or heading change, so a change made just before it is not lost. A cell of `4` gives 4,096 candidates per chunk, four times as many as the desktop default of `8`; measure before using it on mobile.
 
-### Clouds (Dormant)
-
-- When enabled, clouds are generated once per chunk and passed to a `Clouds` instanced mesh.
-- The current candidate loop samples every integer position across the chunk. It computes a mobile/desktop `density` value but does not use it.
-- Placement combines two noise frequencies with a random threshold and stores cloud positions around Y `100`.
-
 ### Boats (Dormant)
 
 - When enabled, each chunk attempts to place between zero and three boats.
@@ -192,7 +186,27 @@ Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacem
 - Accepted terrain height must be between `-10` and `-2`.
 - The loaded boat model is cloned, randomly rotated, positioned at Y `0.8`, and given the boat vertex-shader replacement.
 
-Cloud and boat placement still uses `Math.random()`, so re-enabling them would not be reproducible between sessions.
+Boat placement still uses `Math.random()`, so re-enabling boats would not be reproducible between sessions.
+
+## Clouds
+
+Clouds are a world-level field around the airplane, independent of terrain chunks, LOD, and workers. [`src/clouds.js`](../src/clouds.js) owns it; [`src/cloudPlacement.js`](../src/cloudPlacement.js) holds the pure, deterministic placement. The rendering side (impostors, near meshes, shadows) is in [Rendering](RENDERING.md#clouds).
+
+- **Grid:** a jittered world-space grid of `CLOUD_CONFIG.cellSize` (`160`) units. Each cell holds at most one cloud, whose base stays at least `12%` of a cell from the cell edges. The grid is the same on every device, so desktop and mobile see the same sky.
+- **Randomness:** every value comes from `cellRandom()` (exported by `sceneryPlacement.js`) over the seed hash and the cell. A cell's cloud never depends on the field center, so the field can be rebuilt anywhere and every cloud stays where it was.
+- **Coverage:** a low-frequency `snoise()` field (wavelength `coverageScale`, `1400` units), offset per seed by `getCloudCoverageOffset()`, splits the sky into cloudy and clear regions with a soft edge. `settings.coverage` is the share of cloudy sky: `0` is clear everywhere, `1` cloudy everywhere. A cell holds a cloud with probability `settings.density × cloudiness`.
+- **Types and size:** each cloud draws a type (`BANK` `0.35`, `HEAP` `0.3`, `PUFF` `0.35`), a scale from its `CLOUD_CONFIG.shape` range times `settings.size[typeKey]`, and a vertical stretch.
+- **Altitude:** the base (the cloud's flat bottom) lies in `settings.altitude`, Y `130` to `190` by default. The highest eye is about Y `102`: the `95` flight ceiling plus the follow camera's `7`. Terrain peaks measured over several seeds stay below about `95`.
+- **Orientation:** placement stores no heading. The shaders turn every cloud about its vertical axis so its front face looks at the airplane (`getFacingYaw()`, see [Rendering](RENDERING.md#clouds)). The yaw slot of the instance layout holds only a dither seed.
+- **Neighbours:** `CLOUD_CONFIG.extent` bounds each source model. Because clouds turn, each one's footprint is the circle of radius `hypot(halfWidth, halfDepth) × scale` around its base. A cloud whose footprint and height range overlap those of a raw neighbouring candidate with a lower priority value is dropped. The test reads only neighbouring cells, so it stays independent of the field center.
+- **Output:** `generateCloudInstances()` returns a `Float32Array` in the `IMPOSTOR_INSTANCE_STRIDE` layout with world-space bases, for clouds whose base lies within `settings.radius` (horizontal) of the center.
+- **Field:** `Clouds.update(planePosition, camera)` regenerates when the airplane enters a new cloud cell, after `setSeed()`, or after `applySettings()`. It centers the field on the cell center and replaces the single impostor geometry, then selects the near meshes. The radius is `1500` units on desktop and `1100` on mobile (`CLOUD_FIELD_RADIUS`); impostors shrink into the fog over `getCloudFarFade(radius)`, inside it, so clouds never pop at the field edge.
+- **Seed:** `applyWorldSeed()` in `main.js` calls `Clouds.setSeed()`, so a GUI seed change also changes the sky.
+- **Cost:** about `0.3` ms per rebuild on desktop (about 95 clouds) and `0.1` ms on mobile (about 55) in Node, once per `160` units of travel.
+
+### Cloud Settings
+
+`params.clouds.placement` (`createCloudSettings()`) holds `radius`, `density` (`0.55`), `coverage` (`0.6`), `altitude` (`min 130`, `range 60`), and `size` (`bank`, `heap`, `puff`, all `1`). The **Clouds** GUI folder edits them and re-places the field when a control is released. The same folder sets the near-mesh bands, the wood detail (re-bake), the ambient boost, the brightness variation, and the shadows (see [Rendering](RENDERING.md#clouds)).
 
 ## Resource Lifecycle
 
@@ -202,7 +216,8 @@ Cloud and boat placement still uses `Math.random()`, so re-enabling them would n
 - The impostor material and its atlas textures are shared through `assets.impostorMaterial` and are never disposed by chunks.
 - `SceneryMeshes` reads each live chunk's instance array (`chunk.scenery.geometry.attributes.aInstanceA.data.array`) every frame and copies the near instances into its own buffers. It never keeps a reference to a chunk or its arrays across frames, so `clearScenery()` and `dispose()` need no coordination with it.
 - `SceneryShadows` points pooled caster proxies at live chunks' scenery geometries. It re-syncs them in every update before rendering any cascade, so proxies of removed chunks are hidden before they could draw. A hidden proxy may still hold a disposed geometry, but it is never rendered and never disposes it.
-- `createCloudsMesh()` disposes an existing cloud mesh before replacing it, but the main `Chunk.dispose()` path does not explicitly dispose that mesh. It also does not dispose shared materials or cloned boat resources.
+- `Chunk.dispose()` does not dispose shared materials or cloned boat resources.
+- Clouds own no per-chunk resources. `Clouds` disposes its previous impostor geometry on every regeneration, and its atlas, materials, and near meshes in `dispose()`. `CloudShadows` borrows the current impostor geometry for its caster proxy every render and never disposes it.
 
 Record and test ownership before changing disposal; shared resources must not be destroyed while another chunk still uses them.
 
@@ -223,6 +238,5 @@ Record and test ownership before changing disposal; shared resources must not be
 - Should a generated terrain seed be persisted when no URL seed is supplied? It is shown in the `?gui=1` **World** folder but not written to the URL.
 - What frame-time budget should govern queue throughput and chunk radius?
 - Should chunk resources be pooled rather than recreated after disposal?
-- Should clouds have an LOD policy independent of scenery?
 - What scenery density and instance scale best match the style references in `public/style-references/`?
 - How should visible geometric seams (T-junctions between LODs) be measured?

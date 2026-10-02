@@ -202,6 +202,10 @@ export default class SceneryShadows {
 			settings,
 		)
 		this.light = light
+		// Receivers dim only this light, for the cloud shadows too
+		// (src/cloudShadows.js), so it stays current even without scenery
+		// shadows.
+		uniforms.uSceneryShadowLight.value.fromArray(light.direction).normalize()
 		const strength = getShadowStrength(settings, light.strength)
 		uniforms.uSceneryShadowStrength.value = strength
 		if (strength <= 0) {
@@ -254,7 +258,6 @@ export default class SceneryShadows {
 	setLightBasis(direction) {
 		this.lightDirection = [...direction]
 		this.lightVector.fromArray(direction).normalize()
-		this.uniforms.uSceneryShadowLight.value.copy(this.lightVector)
 		// Steep light would make world up degenerate as the camera's up.
 		this.lightUp.copy(Math.abs(this.lightVector.y) > 0.999 ? WORLD_FORWARD : WORLD_UP)
 		this.basisCamera.position.copy(this.lightVector)

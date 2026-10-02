@@ -3,7 +3,8 @@
 // xyz: base position (chunk space for impostors, world space for meshes),
 // w: scale.
 attribute vec4 aInstanceA;
-// x: yaw, y: type index, z: packed RGB tint, w: vertical stretch.
+// x: yaw (also the dither seed; only the seed with SCENERY_FACE_AIRPLANE), y:
+// type index, z: packed RGB tint, w: vertical stretch.
 attribute vec4 aInstanceB;
 // Position-based brightness variation: amount per type and a shared world
 // frequency for the noise that drives it.
@@ -25,6 +26,8 @@ varying float vShadowSelfBias;
 vec3 rotateYaw(vec3 v, float c, float s) {
 	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
 }
+
+#include ./scenery-facing.glsl
 
 // Mirrors getSceneryMeshFade() in src/sceneryMeshPolicy.js.
 float getSceneryMeshFade(float eyeDistance) {
