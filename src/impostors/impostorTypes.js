@@ -36,11 +36,26 @@ export const CLOUD_TYPE = Object.freeze({
 
 export const CLOUD_TYPE_COUNT = 3
 
-// Clouds are seen only from below, so their atlas bakes the lower hemisphere.
-// They are much larger on screen than scenery, hence the bigger frames; the
+// Clouds always turn to face the airplane and float above it, so the camera
+// sees them only from the front and below. Their atlas therefore bakes a
+// frontal band (createFrontalViews() in octahedral.js): framesX azimuths
+// within ±azimuth of the front face, and framesY elevations from the horizon
+// down to `elevation` below it. Impostors appear only beyond the near meshes,
+// where the follow camera stays within about 4 degrees of the front and 10 to
+// 40 degrees below the horizon; the margins keep other settings plausible.
+export const CLOUD_IMPOSTOR_VIEWS = Object.freeze({
+	framesX: 3,
+	framesY: 10,
+	azimuth: (10 * Math.PI) / 180,
+	elevation: (75 * Math.PI) / 180,
+})
+// Clouds are much larger on screen than scenery, hence the bigger frames; the
 // baker shrinks them if the atlas would exceed the GPU texture limit.
-export const CLOUD_IMPOSTOR_FRAMES = 12
 export const CLOUD_IMPOSTOR_FRAME_SIZE_DESKTOP = 96
 export const CLOUD_IMPOSTOR_FRAME_SIZE_MOBILE = 64
+// Cloud shadows see the clouds along the light, from any side, so they read a
+// separate small lower-hemisphere atlas of coverage (src/cloudShadows.js).
+export const CLOUD_SHADOW_IMPOSTOR_FRAMES = 8
+export const CLOUD_SHADOW_IMPOSTOR_FRAME_SIZE = 32
 export const CLOUD_ATLAS_COLUMNS = 3
 export const CLOUD_ATLAS_ROWS = 1

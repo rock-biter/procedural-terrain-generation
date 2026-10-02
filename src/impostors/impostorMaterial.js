@@ -25,6 +25,7 @@ import {
 	createUnshadowedLightsFragment,
 } from '../curvedLights'
 import { getCatalogDefines } from './impostorCatalogs'
+import { getViewDefines, isSameViews } from './octahedral'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import {
 	makeSceneryWireframeMaterial,
@@ -113,8 +114,8 @@ function buildImpostorMaterial(
 		alphaToCoverage: true,
 	})
 	material.defines = {
-		// Must match the grid and layout the atlas was baked with.
-		IMPOSTOR_FRAMES: atlas.frames,
+		// Must match the view grid and layout the atlas was baked with.
+		...getViewDefines(atlas.views),
 		...getCatalogDefines(atlas.catalog),
 	}
 	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
@@ -168,14 +169,13 @@ function buildImpostorMaterial(
 	return material
 }
 
-// Installs a newly baked atlas (same frame count) and disposes the old one.
+// Installs a newly baked atlas (same catalog and view layout) and disposes the
+// old one.
 export function setImpostorAtlas(material, atlas) {
 	const uniforms = material.userData.impostorUniforms
-	if (
-		material.defines.IMPOSTOR_FRAMES !== atlas.frames ||
-		material.userData.atlas.catalog !== atlas.catalog
-	) {
-		throw new Error('A re-bake must keep the impostor catalog and frame count')
+	const previous = material.userData.atlas
+	if (previous.catalog !== atlas.catalog || !isSameViews(previous.views, atlas.views)) {
+		throw new Error('A re-bake must keep the impostor catalog and view layout')
 	}
 	uniforms.uImpostorAlbedo.value = atlas.albedo
 	uniforms.uImpostorNormal.value = atlas.normal

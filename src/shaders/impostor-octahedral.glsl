@@ -1,7 +1,11 @@
-// GLSL twin of src/impostors/octahedral.js. Directions point from the object
-// toward the viewer in the impostor's local frame (+Y up). With
-// IMPOSTOR_LOWER_HEMISPHERE the atlas holds the lower hemisphere (clouds seen
-// from below): the mapping is mirrored on y.
+// GLSL twin of the view layouts in src/impostors/octahedral.js. Directions
+// point from the object toward the viewer in the impostor's local frame (+Y
+// up). The atlas holds IMPOSTOR_FRAMES_X x IMPOSTOR_FRAMES_Y frames per type:
+// - hemi-octahedral (default): one hemisphere; with IMPOSTOR_LOWER_HEMISPHERE
+//   the lower one (cloud shadows), the mapping mirrored on y;
+// - IMPOSTOR_FRONTAL_VIEWS: the band within ±IMPOSTOR_FRONTAL_AZIMUTH of local
+//   -Z and from the horizon down to IMPOSTOR_FRONTAL_ELEVATION (clouds).
+// Grid positions are in [0, 1]² and clamp to the layout.
 
 #ifdef IMPOSTOR_LOWER_HEMISPHERE
 const float IMPOSTOR_HEMISPHERE = -1.0;
@@ -20,8 +24,37 @@ vec3 decodeHemiOct(vec2 uv) {
 	return normalize(vec3(p.x, (1.0 - abs(p.x) - abs(p.y)) * IMPOSTOR_HEMISPHERE, p.y));
 }
 
+#ifdef IMPOSTOR_FRONTAL_VIEWS
+vec2 encodeImpostorView(vec3 direction) {
+	float horizontal = length(direction.xz);
+	float azimuth = horizontal > 1e-6 ? atan(direction.x, -direction.z) : 0.0;
+	float elevation = atan(-direction.y, horizontal);
+	return clamp(
+		vec2(azimuth / IMPOSTOR_FRONTAL_AZIMUTH * 0.5 + 0.5, elevation / IMPOSTOR_FRONTAL_ELEVATION),
+		0.0,
+		1.0
+	);
+}
+
+vec3 decodeImpostorView(vec2 grid) {
+	float azimuth = (grid.x * 2.0 - 1.0) * IMPOSTOR_FRONTAL_AZIMUTH;
+	float elevation = grid.y * IMPOSTOR_FRONTAL_ELEVATION;
+	return vec3(cos(elevation) * sin(azimuth), -sin(elevation), -cos(elevation) * cos(azimuth));
+}
+#else
+vec2 encodeImpostorView(vec3 direction) {
+	return clamp(encodeHemiOct(direction) * 0.5 + 0.5, 0.0, 1.0);
+}
+
+vec3 decodeImpostorView(vec2 grid) {
+	return decodeHemiOct(grid * 2.0 - 1.0);
+}
+#endif
+
+const vec2 IMPOSTOR_LAST_FRAME = vec2(float(IMPOSTOR_FRAMES_X - 1), float(IMPOSTOR_FRAMES_Y - 1));
+
 vec3 getFrameDirection(vec2 frame) {
-	return decodeHemiOct(frame / float(IMPOSTOR_FRAMES - 1) * 2.0 - 1.0);
+	return decodeImpostorView(frame / IMPOSTOR_LAST_FRAME);
 }
 
 // UV of a quad vertex inside a baked frame: intersect the view ray with the

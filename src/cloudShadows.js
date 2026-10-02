@@ -21,7 +21,13 @@ import casterVertexShader from './shaders/scenery-shadow-caster-vertex.glsl'
 import casterFragmentShader from './shaders/scenery-shadow-caster-fragment.glsl'
 import fullscreenVertexShader from './shaders/fullscreen-vertex.glsl'
 import blurFragmentShader from './shaders/cloud-shadow-blur-fragment.glsl'
+import { bakeImpostorAtlas } from './impostors/impostorBaker'
 import { CLOUD_IMPOSTORS, getCatalogDefines } from './impostors/impostorCatalogs'
+import {
+	CLOUD_SHADOW_IMPOSTOR_FRAMES,
+	CLOUD_SHADOW_IMPOSTOR_FRAME_SIZE,
+} from './impostors/impostorTypes'
+import { createHemiOctViews, getViewDefines } from './impostors/octahedral'
 import {
 	CLOUD_SHADOW_DEFAULTS,
 	getCloudShadowBlurTexels,
@@ -65,9 +71,14 @@ export function createCloudShadowUniforms() {
 // the receivers sample it with. Casters and
 // receivers use flat world space; the curvature is visual only.
 //
-// Ownership: this object owns both render targets, the light camera, and the
-// caster and blur materials. The caster proxy borrows the cloud field's
-// impostor geometry and never disposes it. `uniforms` is main.js's shared
+// The drawn clouds' atlas holds only frontal views, but the light can look at
+// a cloud from any side, so the caster reads its own small lower-hemisphere
+// atlas (CLOUD_SHADOW_IMPOSTOR_FRAMES), baked here without wood detail: only
+// its coverage is used.
+//
+// Ownership: this object owns both render targets, the shadow atlas, the light
+// camera, and the caster and blur materials. The caster proxy borrows the
+// cloud field's impostor geometry and never disposes it. `uniforms` is main.js's shared
 // uniform object, which must hold createCloudShadowUniforms(); this object
 // writes them. `settings` is params.clouds.shadows
 // (createCloudShadowSettings()), `shadowSettings` the scenery shadow settings
@@ -94,9 +105,13 @@ export default class CloudShadows {
 		this.sphere = {}
 		this.previousClearColor = new Color()
 
-		const { impostorUniforms } = clouds.material.userData
+		this.atlas = bakeImpostorAtlas(renderer, {
+			catalog: CLOUD_IMPOSTORS,
+			views: createHemiOctViews(CLOUD_SHADOW_IMPOSTOR_FRAMES, CLOUD_IMPOSTORS.hemisphere),
+			frameSize: CLOUD_SHADOW_IMPOSTOR_FRAME_SIZE,
+		})
 		const defines = {
-			IMPOSTOR_FRAMES: clouds.material.defines.IMPOSTOR_FRAMES,
+			...getViewDefines(this.atlas.views),
 			...getCatalogDefines(CLOUD_IMPOSTORS),
 			SHADOW_CASTER_COVERAGE: '',
 		}
@@ -107,9 +122,14 @@ export default class CloudShadows {
 			vertexShader: casterVertexShader,
 			fragmentShader: casterFragmentShader,
 			uniforms: {
-				// Shared objects: a cloud re-bake updates them in place.
-				uImpostorAlbedo: impostorUniforms.uImpostorAlbedo,
-				uImpostorTypes: impostorUniforms.uImpostorTypes,
+				// Coverage does not depend on the wood detail, so a cloud re-bake
+				// leaves this atlas unchanged.
+				uImpostorAlbedo: { value: this.atlas.albedo },
+				uImpostorTypes: {
+					value: this.atlas.types.map(
+						({ frameRadius, centerY }) => new Vector2(frameRadius, centerY),
+					),
+				},
 				uShadowCasterLight: { value: this.lightVector },
 				// The clouds turn toward the airplane as they are drawn.
 				uShadowCasterFacing: { value: new Vector2() },
@@ -313,6 +333,7 @@ export default class CloudShadows {
 
 	dispose() {
 		for (const target of this.targets) target.dispose()
+		this.atlas.dispose()
 		this.casterMaterial.dispose()
 		this.blurMaterial.dispose()
 		this.placeholderGeometry.dispose()

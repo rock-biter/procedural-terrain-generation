@@ -7,8 +7,9 @@ import {
 	createImpostorWireframeMaterial,
 	setImpostorAtlas,
 } from './impostors/impostorMaterial'
+import { createFrontalViews } from './impostors/octahedral'
 import {
-	CLOUD_IMPOSTOR_FRAMES,
+	CLOUD_IMPOSTOR_VIEWS,
 	CLOUD_IMPOSTOR_FRAME_SIZE_DESKTOP,
 	CLOUD_IMPOSTOR_FRAME_SIZE_MOBILE,
 	CLOUD_TYPE_COUNT,
@@ -28,7 +29,7 @@ import {
 // Clouds are placed on a deterministic grid (src/cloudPlacement.js) whenever
 // the airplane enters a new cloud cell, the seed, or the placement settings
 // change, and drawn like the scenery: one octahedral impostor quad per cloud
-// (lower-hemisphere atlas, a single draw call) handed over near the eye to the
+// (frontal-band atlas, a single draw call) handed over near the eye to the
 // real meshes in two levels of detail (SceneryMeshes with CLOUD_IMPOSTORS).
 // Clouds receive no shadows; src/cloudShadows.js makes them cast theirs.
 //
@@ -103,7 +104,8 @@ export default class Clouds extends Group {
 	bake() {
 		return bakeImpostorAtlas(this.renderer, {
 			catalog: CLOUD_IMPOSTORS,
-			frames: CLOUD_IMPOSTOR_FRAMES,
+			// Clouds face the airplane, so only frontal views are baked.
+			views: createFrontalViews(CLOUD_IMPOSTOR_VIEWS),
 			frameSize: this.isMobile
 				? CLOUD_IMPOSTOR_FRAME_SIZE_MOBILE
 				: CLOUD_IMPOSTOR_FRAME_SIZE_DESKTOP,
@@ -214,7 +216,7 @@ export default class Clouds extends Group {
 			revision: this.revision,
 			regenerateMs: this.lastRegenerateMs,
 			atlas: {
-				frames: atlas.frames,
+				views: [atlas.views.framesX, atlas.views.framesY],
 				frameSize: atlas.frameSize,
 				width: atlas.target.width,
 				height: atlas.target.height,

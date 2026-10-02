@@ -19,7 +19,12 @@ import fullscreenVertexShader from '../shaders/fullscreen-vertex.glsl'
 import resolveFragmentShader from '../shaders/impostor-resolve-fragment.glsl'
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
 import { SCENERY_IMPOSTORS } from './impostorCatalogs'
-import { getFrameDirection } from './octahedral'
+import {
+	createHemiOctViews,
+	getAtlasLayout,
+	getMaxImpostorFrameSize,
+	getViewFrameDirection,
+} from './octahedral'
 import { IMPOSTOR_FRAMES_DESKTOP } from './impostorTypes'
 
 // Extra room around the bounding sphere so silhouettes never touch the frame
@@ -30,42 +35,34 @@ const DILATION_RADIUS = 4
 // Frames are rendered at this multiple of their final size, then downsampled.
 const SUPERSAMPLE = 2
 
-// Largest frame size whose supersampled bake target and atlas both fit the
-// GPU texture limit.
-export function getMaxImpostorFrameSize(maxTextureSize, frames, catalog) {
-	const widest = Math.max(SUPERSAMPLE, catalog.columns, catalog.rows)
-	return Math.floor(maxTextureSize / (frames * widest))
-}
-
-// Renders every type of an impostor `catalog` (impostorCatalogs.js) from
-// frames x frames hemi-octahedral directions of its hemisphere into one albedo
-// and one normal/depth atlas. `detail` optionally multiplies the albedo by a
-// tileable color texture: { texture, scale (repeats per unit), color
-// (strength) }. `frameSize` shrinks when the atlas would exceed the GPU limit.
+// Renders every type of an impostor `catalog` (impostorCatalogs.js) from the
+// grid directions of a view layout (`views`, octahedral.js) into one albedo
+// and one normal/depth atlas. Without `views`, the layout is a frames x frames
+// hemi-octahedral grid of the catalog's hemisphere. `detail` optionally
+// multiplies the albedo by a tileable color texture: { texture, scale (repeats
+// per unit), color (strength) }. `frameSize` shrinks when the atlas would
+// exceed the GPU limit.
 export function bakeImpostorAtlas(
 	renderer,
 	{
 		catalog = SCENERY_IMPOSTORS,
 		frames = IMPOSTOR_FRAMES_DESKTOP,
+		views = createHemiOctViews(frames, catalog.hemisphere),
 		frameSize: requestedFrameSize = 64,
 		detail = null,
 	} = {},
 ) {
-	if (frames < 2 || frames % 2 !== 0) {
-		throw new Error(`Impostor frame count ${frames} must be even`)
-	}
 	const frameSize = Math.min(
 		requestedFrameSize,
-		getMaxImpostorFrameSize(renderer.capabilities.maxTextureSize, frames, catalog),
+		getMaxImpostorFrameSize(renderer.capabilities.maxTextureSize, views, catalog, SUPERSAMPLE),
 	)
-	const cellSize = frames * frameSize
-	const width = cellSize * catalog.columns
-	const height = cellSize * catalog.rows
+	const { blockWidth, blockHeight, width, height } = getAtlasLayout(views, catalog, frameSize)
 
 	// One type block at a time keeps the supersampled target small enough for
 	// mobile texture limits (2048 px for 16 frames of 64 px).
-	const bakeSize = cellSize * SUPERSAMPLE
-	const bakeTarget = new WebGLRenderTarget(bakeSize, bakeSize, {
+	const bakeWidth = blockWidth * SUPERSAMPLE
+	const bakeHeight = blockHeight * SUPERSAMPLE
+	const bakeTarget = new WebGLRenderTarget(bakeWidth, bakeHeight, {
 		count: 2,
 		minFilter: NearestFilter,
 		magFilter: NearestFilter,
@@ -151,16 +148,16 @@ export function bakeImpostorAtlas(
 		bakeMaterial.uniforms.uCenter.value.copy(center)
 		bakeMaterial.uniforms.uFrameRadius.value = frameRadius
 
-		bakeTarget.viewport.set(0, 0, bakeSize, bakeSize)
+		bakeTarget.viewport.set(0, 0, bakeWidth, bakeHeight)
 		bakeTarget.scissorTest = false
 		renderer.setRenderTarget(bakeTarget)
 		renderer.clear()
 		bakeTarget.scissorTest = true
 
 		const bakeFrameSize = frameSize * SUPERSAMPLE
-		for (let frameY = 0; frameY < frames; frameY++) {
-			for (let frameX = 0; frameX < frames; frameX++) {
-				const direction = getFrameDirection(frameX, frameY, frames, catalog.hemisphere)
+		for (let frameY = 0; frameY < views.framesY; frameY++) {
+			for (let frameX = 0; frameX < views.framesX; frameX++) {
+				const direction = getViewFrameDirection(frameX, frameY, views)
 				bakeMaterial.uniforms.uForward.value.set(...direction)
 				// lookAt() with world up builds the same basis as getFrameBasis().
 				camera.position
@@ -185,10 +182,10 @@ export function bakeImpostorAtlas(
 		types.push({ frameRadius, centerY: center.y })
 
 		// Resolve this type into its block of the atlas.
-		const blockX = (type % catalog.columns) * cellSize
-		const blockY = Math.floor(type / catalog.columns) * cellSize
+		const blockX = (type % catalog.columns) * blockWidth
+		const blockY = Math.floor(type / catalog.columns) * blockHeight
 		resolveMaterial.uniforms.uBlockOrigin.value.set(blockX, blockY)
-		atlasTarget.viewport.set(blockX, blockY, cellSize, cellSize)
+		atlasTarget.viewport.set(blockX, blockY, blockWidth, blockHeight)
 		renderer.setRenderTarget(atlasTarget)
 		renderer.render(resolveScene, camera)
 	}
@@ -208,7 +205,7 @@ export function bakeImpostorAtlas(
 		albedo: atlasTarget.textures[0],
 		normal: atlasTarget.textures[1],
 		catalog,
-		frames,
+		views,
 		frameSize,
 		types,
 		dispose: () => atlasTarget.dispose(),

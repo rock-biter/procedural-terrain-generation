@@ -22,6 +22,7 @@ import {
 	IMPOSTOR_ATLAS_ROWS,
 	IMPOSTOR_TYPE_COUNT,
 } from './impostors/impostorTypes'
+import { getViewDefines } from './impostors/octahedral'
 import { chunkIntersectsSelection } from './sceneryMeshPolicy'
 import {
 	SCENERY_SHADOW_CASCADE_COUNT,
@@ -150,7 +151,7 @@ export default class SceneryShadows {
 				uShadowCasterLight: { value: this.lightVector },
 			},
 			defines: {
-				IMPOSTOR_FRAMES: impostorMaterial.defines.IMPOSTOR_FRAMES,
+				...getViewDefines(impostorMaterial.userData.atlas.views),
 				IMPOSTOR_ATLAS_COLUMNS,
 				IMPOSTOR_ATLAS_ROWS,
 				IMPOSTOR_TYPE_COUNT,

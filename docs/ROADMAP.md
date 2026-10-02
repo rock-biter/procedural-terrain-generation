@@ -138,7 +138,7 @@ vertices = triangles * 3
 
 The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead, in two levels of detail (264 to 876 triangles per type at LOD 0, 78 to 364 at LOD 1). They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
 
-The former clouds created new copies of that base geometry in every chunk. The current clouds (`FEAT-006`) are one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of three shared extruded sources per level: about 2,870–4,350 triangles at LOD 0 and 680–1,040 at LOD 1. A desktop flight view drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Their atlas takes about `40` MB on desktop.
+The former clouds created new copies of that base geometry in every chunk. The current clouds (`FEAT-006`) are one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of three shared extruded sources per level: about 2,870–4,350 triangles at LOD 0 and 680–1,040 at LOD 1. A desktop flight view drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Their frontal-view atlas takes about `9` MB on desktop (about `42` MB with the former lower-hemisphere grid), plus about `2` MB for the shadow atlas.
 
 ## Known Problem Register
 
@@ -538,25 +538,25 @@ See the owning guides for current behavior and constraints. Promote an item into
 - **Behavior:**
   - Three cloud shapes (`bank`, `heap`, `puff`), each two extruded slabs with flat faces and rounded edges, in varied sizes. Every cloud turns about its vertical axis so its front face looks at the airplane.
   - A world-level field around the airplane, independent of chunks: a deterministic seeded grid (`160` units) with cloudy and clear regions, bases at Y `130`–`190`, above the highest eye (about Y `102`). Radius `1500` units on desktop and `1100` on mobile, with a far fade inside it. Three seeded low-frequency noise fields vary density, coverage, and size smoothly across the world (about `4000`-unit regions), so the sky changes character during the flight; altitude and radius stay fixed.
-  - The scenery treatment: octahedral impostors far away, baked from the lower hemisphere only because clouds are always seen from below, and real meshes in two levels of detail near the eye, cross-faded by the shared dither.
+  - The scenery treatment: impostors far away, baked only from a frontal band of views because clouds face the airplane and are always seen from below, and real meshes in two levels of detail near the eye, cross-faded by the shared dither.
   - Soft cloud shadows on the terrain and the scenery from a blurred, light-aligned coverage map, re-rendered only after travel, light rotation, or a field change.
   - The `?gui=1` **Clouds** folder tunes placement and its regional variation, near-mesh bands, wood detail, ambient boost, brightness variation, and shadows.
 - **Dependencies:** `FEAT-003` and `FEAT-004` (impostor pipeline and near meshes, generalized through impostor catalogs), `FEAT-005` (shadowing light). Resolves `PERF-001`, `PERF-004`, `CORR-001`, and the cloud parts of `LIFE-001`, `STATE-002`, and `DET-001`. Frame-time acceptance depends on `OBS-001`.
 - **Affected systems:**
   - Terrain: `cloudPlacement.js` (pure), the removed per-chunk cloud code in `Chunk`, and `sceneryPlacement.js` (exported `cellRandom()`).
-  - Rendering: `impostorCatalogs.js`, `cloudArchetypes.js`, `scenery-facing.glsl` (the facing yaw), the generalized baker, impostor material, and `SceneryMeshes`, `octahedral.js` and its GLSL twin (lower hemisphere), `curvedLights.js` (unshadowed variant with ambient scale), `clouds.js`, `cloudShadows.js`, the shadow caster shaders, and every shadow receiver.
+  - Rendering: `impostorCatalogs.js`, `cloudArchetypes.js`, `scenery-facing.glsl` (the facing yaw), the generalized baker, impostor material, and `SceneryMeshes`, `octahedral.js` and its GLSL twin (view layouts: the lower hemisphere and the frontal band), `curvedLights.js` (unshadowed variant with ambient scale), `clouds.js`, `cloudShadows.js`, the shadow caster shaders, and every shadow receiver.
   - Also the frame loop, the GUI, the stats, and tests.
 - **Performance budget:**
   - Draws: one impostor draw for the whole field, at most six near cloud mesh draws, and per shadow render one caster draw and two blur passes.
   - Geometry: about 11,000–20,000 near cloud triangles in a desktop flight view (13–15 meshes).
   - CPU: about `0.3` ms per field rebuild on desktop (once per `160` units of travel), and a near-mesh selection over about 95 instances per frame.
-  - Memory: a `3456 × 1152` RGBA8 atlas pair on desktop (about `40` MB with mips), `2304 × 768` on mobile; two `R8` coverage maps (`1024²` desktop, `512²` mobile).
+  - Memory: an `864 × 960` RGBA8 atlas pair on desktop (about `9` MB with mips), `576 × 640` on mobile (about `4` MB); a `768 × 256` shadow atlas (about `2` MB); two `R8` coverage maps (`1024²` desktop, `512²` mobile). The former lower-hemisphere grid took about `42` MB on desktop and `19` MB on mobile.
   - Receivers: one extra texture tap within the shadow disk.
   - Real-GPU frame time has not been measured.
 - **Options:**
   - Per-chunk clouds in the worker were rejected: clouds are few and large and must stay visible beyond the scenery range, and per-chunk impostor meshes would add a draw call per chunk.
   - Adding the clouds to the existing shadow cascades was rejected: their `450`-unit fade would cut cloud shadows off near the airplane, and depth cascades need many PCF taps. Clouds float above every receiver, so a blurred coverage map needs one tap.
-  - A full-sphere atlas was rejected: the lower hemisphere doubles the view density for the same memory, and the shadow caster can look from below because an orthographic silhouette is the same from both ends of the light ray.
+  - A full-sphere atlas was rejected, and then the lower-hemisphere grid too: clouds face the airplane, so a frontal band of 30 views per type replaces 144 at the same frame resolution, about four times less memory. Only the shadow caster needs other sides (the light can come from any side), so it reads its own small lower-hemisphere coverage atlas. It can look from below because an orthographic silhouette is the same from both ends of the light ray.
 - **Acceptance criteria:**
   - Met so far:
     - no shader errors on the desktop and 390 px mobile paths in headless Chrome (Metal);

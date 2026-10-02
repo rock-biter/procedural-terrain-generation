@@ -9,8 +9,8 @@ varying vec4 vFrame2;
 varying vec3 vFrameWeights;
 
 const vec2 IMPOSTOR_ATLAS_FRAMES = vec2(
-	float(IMPOSTOR_ATLAS_COLUMNS * IMPOSTOR_FRAMES),
-	float(IMPOSTOR_ATLAS_ROWS * IMPOSTOR_FRAMES)
+	float(IMPOSTOR_ATLAS_COLUMNS * IMPOSTOR_FRAMES_X),
+	float(IMPOSTOR_ATLAS_ROWS * IMPOSTOR_FRAMES_Y)
 );
 
 float getFrameCoverage(vec4 frame) {

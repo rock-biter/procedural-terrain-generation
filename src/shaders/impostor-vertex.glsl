@@ -63,9 +63,8 @@ vec3 localScale = vec3(1.0, impostorStretch, 1.0) * max(impostorScale, 1e-4);
 vec3 cameraLocal = rotateYaw(rotateAroundAxis(cameraPosition - impostorCenter, bendAxis, bendCos, -bendSin), yawCos, -yawSin) / localScale;
 vec3 vertexLocal = rotateYaw(rotateAroundAxis(impostorVertex - impostorCenter, bendAxis, bendCos, -bendSin), yawCos, -yawSin) / localScale;
 
-float lastFrame = float(IMPOSTOR_FRAMES - 1);
-vec2 frameGrid = clamp((encodeHemiOct(normalize(cameraLocal)) * 0.5 + 0.5) * lastFrame, 0.0, lastFrame);
-vec2 baseFrame = min(floor(frameGrid), vec2(lastFrame - 1.0));
+vec2 frameGrid = encodeImpostorView(normalize(cameraLocal)) * IMPOSTOR_LAST_FRAME;
+vec2 baseFrame = min(floor(frameGrid), IMPOSTOR_LAST_FRAME - 1.0);
 vec2 frameFraction = frameGrid - baseFrame;
 vec2 middleFrame;
 if (frameFraction.x > frameFraction.y) {
@@ -81,7 +80,7 @@ float typeIndex = float(impostorType);
 vec2 typeCell = vec2(
 	mod(typeIndex, float(IMPOSTOR_ATLAS_COLUMNS)),
 	floor(typeIndex / float(IMPOSTOR_ATLAS_COLUMNS))
-) * float(IMPOSTOR_FRAMES);
+) * vec2(float(IMPOSTOR_FRAMES_X), float(IMPOSTOR_FRAMES_Y));
 vFrame0 = vec4(typeCell + baseFrame, getFrameUv(cameraLocal, vertexLocal, baseFrame, frameRadius));
 vFrame1 = vec4(typeCell + middleFrame, getFrameUv(cameraLocal, vertexLocal, middleFrame, frameRadius));
 vFrame2 = vec4(typeCell + farFrame, getFrameUv(cameraLocal, vertexLocal, farFrame, frameRadius));

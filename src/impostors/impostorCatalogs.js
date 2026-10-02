@@ -10,9 +10,10 @@ import {
 } from './impostorTypes'
 
 // The families of objects drawn through the impostor pipeline: their source
-// models, atlas layout, baked hemisphere (1 upper, -1 lower; see
-// octahedral.js), and the shader defines that adapt the shared impostor and
-// near-mesh shaders to them. createSources(type, lodCount) returns [LOD 0,
+// models, atlas layout, the hemisphere they are seen from (1 upper, -1 lower;
+// the default hemi-octahedral bake uses it, see octahedral.js), and the shader
+// defines that adapt the shared impostor and near-mesh shaders to them. The
+// bake's view layout adds its own defines (getViewDefines()). createSources(type, lodCount) returns [LOD 0,
 // LOD 1, ...] indexed geometries in one local frame, base on y = 0.
 //
 // Every material built from a catalog carries its defines, so materials of
@@ -42,7 +43,6 @@ export const CLOUD_IMPOSTORS = Object.freeze({
 	hemisphere: -1,
 	createSources: createCloudSources,
 	defines: Object.freeze({
-		IMPOSTOR_LOWER_HEMISPHERE: '',
 		SCENERY_FACE_AIRPLANE: '',
 		SCENERY_DETAIL_NORMALIZED: '',
 		SCENERY_NO_ATMOSPHERE_CLAMP: '',
