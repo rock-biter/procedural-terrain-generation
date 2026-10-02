@@ -1,5 +1,6 @@
-import { createScenerySources } from './impostorArchetypes'
+import { createScenerySources } from './impostorArchetypes.js'
 import { createCloudSources } from './cloudArchetypes.js'
+import { SCENERY_MESH_LOD_COUNT } from '../sceneryMeshPolicy.js'
 import {
 	CLOUD_ATLAS_COLUMNS,
 	CLOUD_ATLAS_ROWS,
@@ -7,7 +8,7 @@ import {
 	IMPOSTOR_ATLAS_COLUMNS,
 	IMPOSTOR_ATLAS_ROWS,
 	IMPOSTOR_TYPE_COUNT,
-} from './impostorTypes'
+} from './impostorTypes.js'
 
 // The families of objects drawn through the impostor pipeline: their source
 // models, atlas layout, the hemisphere they are seen from (1 upper, -1 lower;
@@ -48,6 +49,22 @@ export const CLOUD_IMPOSTORS = Object.freeze({
 		SCENERY_NO_ATMOSPHERE_CLAMP: '',
 	}),
 })
+
+// Source geometries built once per catalog and type, every near-mesh level at
+// once, and shared by the atlas bakes and the near meshes: their attributes
+// are uploaded once. They live as long as the page; consumers never dispose
+// or modify them.
+const sources = new Map()
+
+export function getCatalogSources(catalog, type) {
+	const key = `${catalog.name}:${type}`
+	let levels = sources.get(key)
+	if (!levels) {
+		levels = catalog.createSources(type, SCENERY_MESH_LOD_COUNT)
+		sources.set(key, levels)
+	}
+	return levels
+}
 
 // Layout defines shared by every impostor shader of the catalog.
 export function getCatalogDefines(catalog) {

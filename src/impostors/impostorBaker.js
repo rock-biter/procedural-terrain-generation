@@ -18,7 +18,7 @@ import bakeFragmentShader from '../shaders/impostor-bake-fragment.glsl'
 import fullscreenVertexShader from '../shaders/fullscreen-vertex.glsl'
 import resolveFragmentShader from '../shaders/impostor-resolve-fragment.glsl'
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
-import { SCENERY_IMPOSTORS } from './impostorCatalogs'
+import { SCENERY_IMPOSTORS, getCatalogSources } from './impostorCatalogs'
 import {
 	createHemiOctViews,
 	getAtlasLayout,
@@ -34,6 +34,35 @@ const FRAME_MARGIN = 1.04
 const DILATION_RADIUS = 4
 // Frames are rendered at this multiple of their final size, then downsampled.
 const SUPERSAMPLE = 2
+
+// The resolve pass is the same for every bake, so its material (and compiled
+// program) and quad are kept across bakes instead of being rebuilt each time.
+let resolvePass = null
+
+function getResolvePass() {
+	if (!resolvePass) {
+		const material = new ShaderMaterial({
+			glslVersion: GLSL3,
+			defines: { SUPERSAMPLE, DILATION_RADIUS },
+			uniforms: {
+				tAlbedo: { value: null },
+				tNormal: { value: null },
+				uFrameSize: { value: 1 },
+				uBlockOrigin: { value: new Vector2() },
+			},
+			vertexShader: fullscreenVertexShader,
+			fragmentShader: resolveFragmentShader,
+			depthTest: false,
+			depthWrite: false,
+		})
+		const quad = new Mesh(new PlaneGeometry(2, 2), material)
+		quad.frustumCulled = false
+		const scene = new Scene()
+		scene.add(quad)
+		resolvePass = { material, scene }
+	}
+	return resolvePass
+}
 
 // Renders every type of an impostor `catalog` (impostorCatalogs.js) from the
 // grid directions of a view layout (`views`, octahedral.js) into one albedo
@@ -104,25 +133,11 @@ export function bakeImpostorAtlas(
 			sceneryDetailParsFragment,
 		),
 	})
-	const resolveMaterial = new ShaderMaterial({
-		glslVersion: GLSL3,
-		defines: { SUPERSAMPLE, DILATION_RADIUS },
-		uniforms: {
-			tAlbedo: { value: bakeTarget.textures[0] },
-			tNormal: { value: bakeTarget.textures[1] },
-			uFrameSize: { value: frameSize },
-			uBlockOrigin: { value: new Vector2() },
-		},
-		vertexShader: fullscreenVertexShader,
-		fragmentShader: resolveFragmentShader,
-		depthTest: false,
-		depthWrite: false,
-	})
+	const { material: resolveMaterial, scene: resolveScene } = getResolvePass()
+	resolveMaterial.uniforms.tAlbedo.value = bakeTarget.textures[0]
+	resolveMaterial.uniforms.tNormal.value = bakeTarget.textures[1]
+	resolveMaterial.uniforms.uFrameSize.value = frameSize
 	const bakeScene = new Scene()
-	const resolveScene = new Scene()
-	const quad = new Mesh(new PlaneGeometry(2, 2), resolveMaterial)
-	quad.frustumCulled = false
-	resolveScene.add(quad)
 	const camera = new OrthographicCamera()
 	const types = []
 
@@ -130,8 +145,8 @@ export function bakeImpostorAtlas(
 	renderer.autoClear = false
 
 	for (let type = 0; type < catalog.typeCount; type++) {
-		const sources = catalog.createSources(type)
-		const geometry = sources[0]
+		// Shared with the near meshes: not disposed here.
+		const geometry = getCatalogSources(catalog, type)[0]
 		const { center, radius } = geometry.boundingSphere
 		const frameRadius = radius * FRAME_MARGIN
 		const mesh = new Mesh(geometry, bakeMaterial)
@@ -178,7 +193,6 @@ export function bakeImpostorAtlas(
 		}
 
 		bakeScene.remove(mesh)
-		sources.forEach((source) => source.dispose())
 		types.push({ frameRadius, centerY: center.y })
 
 		// Resolve this type into its block of the atlas.
@@ -187,6 +201,11 @@ export function bakeImpostorAtlas(
 		resolveMaterial.uniforms.uBlockOrigin.value.set(blockX, blockY)
 		atlasTarget.viewport.set(blockX, blockY, blockWidth, blockHeight)
 		renderer.setRenderTarget(atlasTarget)
+		// Three regenerates the mipmaps after every render into a target. The
+		// mip storage is allocated on the first setRenderTarget(), so only the
+		// last block's render generates them, once for the whole atlas.
+		const lastBlock = type === catalog.typeCount - 1
+		for (const texture of atlasTarget.textures) texture.generateMipmaps = lastBlock
 		renderer.render(resolveScene, camera)
 	}
 
@@ -195,8 +214,8 @@ export function bakeImpostorAtlas(
 	renderer.autoClear = previousAutoClear
 	atlasTarget.viewport.set(0, 0, width, height)
 
-	quad.geometry.dispose()
-	resolveMaterial.dispose()
+	resolveMaterial.uniforms.tAlbedo.value = null
+	resolveMaterial.uniforms.tNormal.value = null
 	bakeMaterial.dispose()
 	bakeTarget.dispose()
 

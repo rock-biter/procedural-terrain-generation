@@ -6,6 +6,20 @@
 		<link rel="icon" href="data:," />
 		<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 		<title>Infinite Procedural World</title>
+		<script>
+			// Starts the default airplane download while the main bundle loads.
+			// The path is the default model's in src/airplaneModels.js (checked by
+			// test/airplaneModels.test.js); with ?plane= the app may load another
+			// model, so the preload is skipped.
+			if (!new URLSearchParams(location.search).has('plane')) {
+				const link = document.createElement('link')
+				link.rel = 'preload'
+				link.as = 'fetch'
+				link.crossOrigin = 'anonymous'
+				link.href = '/plane-toy/plane-toy-2.glb'
+				document.head.appendChild(link)
+			}
+		</script>
 	</head>
 	<body style="background-color: #000000">
 		<div

@@ -30,3 +30,10 @@ test('every model has the data the loader and Plane need', () => {
 		}
 	}
 })
+
+test('index.html preloads the default model', async () => {
+	const { readFile } = await import('node:fs/promises')
+	const html = await readFile(new URL('../index.html', import.meta.url), 'utf8')
+	const [, path] = html.match(/link\.href = '([^']+)'/) ?? []
+	assert.equal(path, AIRPLANE_MODELS[DEFAULT_AIRPLANE_MODEL].path)
+})

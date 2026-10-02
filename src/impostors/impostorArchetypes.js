@@ -14,8 +14,8 @@ import {
 	mergeGeometries,
 	mergeVertices,
 } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { snoise } from '../biome'
-import { IMPOSTOR_TYPE } from './impostorTypes'
+import { snoise } from '../biome.js'
+import { IMPOSTOR_TYPE } from './impostorTypes.js'
 
 // Source models for the impostor baker and the near scenery meshes. They are
 // built from Three.js primitives in world units with the base on y = 0. The

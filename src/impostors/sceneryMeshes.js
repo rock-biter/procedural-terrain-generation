@@ -27,7 +27,11 @@ import {
 	createShadowedLightsFragment,
 	createUnshadowedLightsFragment,
 } from '../curvedLights'
-import { SCENERY_IMPOSTORS, getCatalogDefines } from './impostorCatalogs'
+import {
+	SCENERY_IMPOSTORS,
+	getCatalogDefines,
+	getCatalogSources,
+} from './impostorCatalogs'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import {
 	makeSceneryWireframeMaterial,
@@ -126,7 +130,7 @@ export default class SceneryMeshes extends Group {
 		}))
 
 		for (let type = 0; type < this.typeCount; type++) {
-			const sources = catalog.createSources(type, SCENERY_MESH_LOD_COUNT)
+			const sources = getCatalogSources(catalog, type)
 			const { center, radius } = sources[0].boundingSphere
 			this.bounds.push({ centerY: center.y, radius })
 			this.boundRadius.value[type] = radius

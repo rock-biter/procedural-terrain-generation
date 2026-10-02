@@ -2,7 +2,6 @@ import './style.css'
 import * as THREE from 'three'
 // Patches the fog shader chunk before any material compiles.
 import './src/radialFog'
-import * as dat from 'lil-gui'
 import { CURVATURE } from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import DayNight from './src/dayNight'
@@ -52,7 +51,6 @@ import {
 	parseWorldSeed,
 } from './src/worldSeed'
 import { AIRPLANE_MODELS, getAirplaneModelKey } from './src/airplaneModels'
-import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
 import Soundtrack from './src/soundtrack'
@@ -88,6 +86,11 @@ const debugFeatures = Object.freeze({
 	terrainSamples: isDebugEnabled(urlParams),
 	flightPause: isDebugEnabled(urlParams),
 })
+// Debug-only modules load only behind their URL flags, so the default bundle
+// carries neither lil-gui nor OrbitControls (used by the flight pause).
+const FlightPauseDebug = debugFeatures.flightPause
+	? (await import('./src/flightPauseDebug')).default
+	: null
 
 const assets = {
 	planeModel: null,
@@ -204,7 +207,10 @@ gltfLoader.load(airplaneModel.path, (gltf) => {
  * Debug
  */
 let gui
-if (urlParams.get('gui') === '1') gui = new dat.GUI()
+if (urlParams.get('gui') === '1') {
+	const { GUI } = await import('lil-gui')
+	gui = new GUI()
+}
 
 // Streamed when Play is pressed instead of being loaded with the startup
 // assets, so it never delays the first frame. The ?gui=1 tuning mode never
