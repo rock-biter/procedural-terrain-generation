@@ -309,12 +309,11 @@ const params = {
 		placement: createCloudSettings({ isMobile }),
 		meshes: createCloudMeshSettings({ isMobile }),
 		detail: { scale: 0.012, color: 0.6 },
-		ambient: 2.8,
+		ambient: 2.72,
 		variation: {
-			frequency: 0.004,
-			amount: Object.fromEntries(
-				Object.values(CLOUD_TYPE_KEYS).map((key) => [key, 0.15]),
-			),
+			frequency: 0.0405,
+			// Keyed like CLOUD_TYPE_KEYS.
+			amount: { bank: 0.99, heap: 1.26, puff: 0.99 },
 		},
 		shadows: createCloudShadowSettings({ isMobile }),
 	},
