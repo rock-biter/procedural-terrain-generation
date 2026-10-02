@@ -13,7 +13,7 @@ import {
 import { CLOUD_TYPE } from './impostorTypes.js'
 
 // Source models for the cloud impostors and the near cloud meshes, in the
-// carved-wood style of public/style-references/cloud-reference.png: every
+// carved-wood style of docs/style-references/cloud-reference.png: every
 // cloud is two or three slabs, each a flat cloud outline extruded along Z with
 // rounded (bevelled) edges, so the flat faces look along ±Z. The front face
 // (-Z) is the one the shaders turn toward the airplane (scenery-facing.glsl).

@@ -6,7 +6,7 @@ This is the living register for technical debt, performance work, architectural 
 
 The first analysis focuses on terrain generation and streaming because they dominate current startup and traversal cost. Current behavior remains documented in [Terrain](TERRAIN.md), [Architecture](ARCHITECTURE.md), and [Rendering](RENDERING.md). Validation rules remain in [Quality](QUALITY.md).
 
-Last baseline review: **2026-09-26**.
+Last baseline review: **2026-09-26**. The full-project review of **2026-10-02** ([Project Review](reviews/2026-10-02-project-review.md)) lists its findings by area, a phased plan, and which items are done; promote an item into this register when it becomes part of a milestone.
 
 Current implementation scope: `worldFeatures` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`), and still disables boats. The dormant boat implementation remains for later reintroduction; the historical cost analysis of the former per-chunk clouds stays in this document for reference.
 
@@ -103,7 +103,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Scenery height evaluations    |                                                       1,064,960 |                                            261,120 |
 | Former per-chunk cloud candidates |                                                   7,208,960 |                                          4,784,128 |
 | Former cloud noise evaluations |                                                     14,417,920 |                                          9,568,256 |
-| Cloud field cells per rebuild |                                         400 (484 with the border) |                           225 (289 with the border) |
+| Cloud field cells per rebuild |                       625 (841 with the two-cell neighbour border) |      225 (361 with the two-cell neighbour border) |
 
 Terrain startup performs about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile, distributed across up to two desktop workers or one mobile worker.
 
@@ -147,7 +147,7 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `OBS-001`   | P0       | In progress | No repeatable performance baseline or complete streaming telemetry.                     | Read-only chunk counters now exist; frame time, stage duration, and `renderer.info` telemetry remain absent.                                     |
 | `STRM-001`  | P0       | Done        | Pending work must be keyed consistently and reject stale operations.                    | One `Map` entry per key plus desired-set revisions prevent duplicate and obsolete jobs.                                                          |
 | `STRM-002`  | P0       | Done        | Desired-set reconciliation must inspect all live chunks.                                | A pure symmetric desired set is diffed against every live and pending key on each chunk transition.                                              |
-| `PERF-001`  | P0       | Done        | Dormant cloud placement scanned all 65,536 integer positions in every chunk at every LOD. | Replaced by the world-level cloud field (`FEAT-006`): a `160`-unit grid, at most 484 cells per rebuild, once per cell of travel.                 |
+| `PERF-001`  | P0       | Done        | Dormant cloud placement scanned all 65,536 integer positions in every chunk at every LOD. | Replaced by the world-level cloud field (`FEAT-006`): a `160`-unit grid, at most 841 cells per rebuild with the default sizes, once per cell of travel.                 |
 | `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; clouds are no longer per-chunk. Boat clones and their shared resources remain undisposed.        |
 | `PERF-002`  | P1       | In progress | Main-thread commits are limited by job count rather than a frame-time budget.           | Workers handle sampling/normals; buffer wrapping, GPU upload, scene mutation, and future scenery still commit synchronously.                     |
 | `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Workers now perform the computation, but each transition still creates and transfers a complete replacement buffer set.                          |
@@ -161,8 +161,8 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `STRM-003`  | P2       | In progress | Priority is biased by heading only and LOD has no hysteresis.                           | The set and LOD follow a quantized heading with sector hysteresis; camera visibility and recent LOD state are ignored, so turns re-generate many chunks. |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
 | `FRAME-001` | P2       | Observed    | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
-| `LOAD-001`  | P3       | Done        | Re-enabling trees loaded the normal map through two independent paths.                  | The tree path was removed; `normal.jpg` now loads once from `chunk.js`.                                                                          |
-| `MAINT-001` | P3       | Observed    | Dead paths and misleading names still obscure some lifecycle behavior.                  | `camera` is the plane and dormant scenery code remains; the former callback pool and unnecessary async declaration were removed.                 |
+| `LOAD-001`  | P3       | Done        | Re-enabling trees loaded the normal map through two independent paths.                  | The tree path was removed; terrain normal maps load once through `getTerrainNormalTexture()` in `terrainNormals.js`.                              |
+| `MAINT-001` | P3       | In progress | Dead paths and misleading names still obscure some lifecycle behavior.                  | `camera` is the plane and the dormant boat code remains. Removed: the former callback pool, an unnecessary async declaration, and (2026-10-02) `Chunk.applyCurvature()`, the forced-LOD path, unused fields and imports, and most commented-out code. |
 
 ## Detailed Findings
 
@@ -317,7 +317,7 @@ Tasks:
 
 Acceptance criteria:
 
-- Cloud candidates fall by at least 90 percent from 65,536 per chunk, subject to visual approval. Met: at most 484 candidates per field rebuild, independent of chunks.
+- Cloud candidates fall by at least 90 percent from 65,536 per chunk, subject to visual approval. Met: at most 841 candidates per field rebuild with the default sizes, independent of chunks.
 - Only one base geometry per decoration type exists unless variants are justified.
 - No scheduled main-thread stage exceeds the agreed frame budget on target devices.
 - Visual comparison covers terrain seams, biome bands, scenery, clouds, boats, and distance fades.
@@ -392,12 +392,12 @@ See the owning guides for current behavior and constraints. Promote an item into
 
 - **Status:** In progress
 - **User value:** Makes acceleration feel faster without affecting the sharp center of the view.
-- **Behavior:** A minimum edge blur and chromatic aberration is always on, equal to a `0.3` speed effect (`params.postProcessing.idleSpeedEffect`). While boosting they grow from configurable radii toward the viewport edges up to full strength. The FOV kick is unchanged. With the idle level at `0`, idle frames bypass post-processing as before.
+- **Behavior:** A minimum edge blur and chromatic aberration is always on, equal to a `0.4` speed effect (`params.postProcessing.idleSpeedEffect`). While boosting they grow from configurable radii toward the viewport edges up to full strength. The FOV kick is unchanged. Every frame renders through the composer, whose 2x MSAA is the only antialiasing; the canvas has no MSAA or depth buffer, and the film grain is the last effect of the same pass. With the idle level at `0` the edges stay sharp, but the chain still runs.
 - **Dependencies:** `postprocessing` 6.x within its `three` peer range.
 - **Affected systems:** Rendering, frame loop, debug GUI.
-- **Performance budget:** With the default idle level the composer chain runs every frame, so the active-path cost below (mostly the 2x MSAA resolve, measured at about +3–4 ms at 2560×1600 on an Apple M1) now applies at cruise too; at the low idle intensity only the first pyramid levels render. With the idle level at `0`: no idle cost beyond the canvas render and, when the grain intensity is above `0`, one fullscreen canvas overlay without texture reads. While active: one 2x MSAA scene target, up to four downsample and three upsample passes at half resolution and below, and one fullscreen composite that samples only where masks are nonzero.
+- **Performance budget:** The composer chain runs every frame, so the cost below (mostly the 2x MSAA resolve, measured at about +3–4 ms at 2560×1600 on an Apple M1) applies at cruise too. At the default idle intensity (about `0.259`) the reachable blur exceeds `8` pixels on viewports taller than about `825` pixels, so all four pyramid levels render. The canvas no longer allocates or resolves its own MSAA color and depth buffers (removed 2026-10-02, because the composer was already always on), and the grain no longer adds a blended full-screen draw. Per frame: one 2x MSAA scene target, up to four downsample and three upsample passes at half resolution and below, and one fullscreen composite that samples only where masks are nonzero. Not yet measured against a baseline.
 - **Options:** Hardware mipmap blur was rejected because box-filtered mips looked blocky. A single-level blurred image mixed with the sharp image was rejected because it ghosts. The pyramid with B-spline sampling gives a variable radius at low cost. Its downsample started as the 13-tap Jimenez filter and now uses a 5-tap dual filter (Bjørge 2015), about 60% fewer pyramid reads. Measured in headless Chrome on an Apple M1 at 2560×1600 with the flight paused, as frame time over idle at full intensity: the composer path alone cost about +6 ms with 4x MSAA, +3–4 ms with 2x, and +0.5 ms without MSAA; blur and aberration together add only 1–2 ms. The composer therefore uses 2x MSAA. Skipping the MSAA depth resolve (`resolveDepthBuffer`/`storeMultisampledDepthBuffer`) gave no measurable gain and was reverted. A masked upsample chain that moves the two-level blend from the full-resolution composite to the reduced levels (24 to 12 composite taps per aberrated pixel) also showed no measurable gain on the M1, where the whole blur costs 1–2 ms; it was later reintroduced to cut composite reads after reading red and blue with one bilinear tap per level visibly degraded the blur. Untried options for the remaining MSAA cost: rendering the scene to the MSAA canvas and copying it to a texture only while active (same quality), or SMAA with an unsampled composer (about −5 ms, different antialiasing in the sharp center).
-- **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; bypass restored after the boost when the idle level is `0`, and the cruise minimum restored with the default idle level. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
+- **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; the cruise minimum restored after the boost with the default idle level. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
 - **Documentation:** [Rendering](RENDERING.md), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
 
 ### `FEAT-002`: Day/Night Cycle
@@ -416,7 +416,7 @@ See the owning guides for current behavior and constraints. Promote an item into
 ### `FEAT-003`: Biome Scenery With Octahedral Impostors
 
 - **Status:** In progress
-- **User value:** Populates each biome in the clay/toy style of `public/style-references/`: round trees and conifers in temperate areas; cacti and red layered rocks in the desert; boulders in both.
+- **User value:** Populates each biome in the clay/toy style of [`docs/style-references/`](style-references/): round trees and conifers in temperate areas; cacti and red layered rocks in the desert; boulders in both.
 - **Behavior:**
   - Six scenery types are built from Three.js primitives and baked at startup into a hemi-octahedral impostor atlas with albedo plus normals: `12 × 12` views per type on desktop and mobile (desktop used `16 × 16` until the near meshes took over the close range).
   - Each instance is one camera-facing quad. It blends three frames and is lit from its baked normals with the terrain's curvature bend and terminator.
@@ -534,10 +534,10 @@ See the owning guides for current behavior and constraints. Promote an item into
 ### `FEAT-006`: Carved-Wood Clouds With Impostors And Cloud Shadows
 
 - **Status:** In progress
-- **User value:** Fills the sky with cream, carved-wood clouds in the style of `public/style-references/cloud-reference.png`, above the flight ceiling, and lets their soft shadows drift over the land.
+- **User value:** Fills the sky with cream, carved-wood clouds in the style of [`docs/style-references/cloud-reference.png`](style-references/cloud-reference.png), above the flight ceiling, and lets their soft shadows drift over the land.
 - **Behavior:**
   - Three cloud shapes (`bank`, `heap`, `puff`), each two extruded slabs with flat faces and rounded edges, in varied sizes. Every cloud turns about its vertical axis so its front face looks at the airplane.
-  - A world-level field around the airplane, independent of chunks: a deterministic seeded grid (`160` units) with cloudy and clear regions, bases at Y `130`–`190`, above the highest eye (about Y `102`). Radius `1500` units on desktop and `1100` on mobile, with a far fade inside it. Three seeded low-frequency noise fields vary density, coverage, and size smoothly across the world (about `4000`-unit regions), so the sky changes character during the flight; altitude and radius stay fixed.
+  - A world-level field around the airplane, independent of chunks: a deterministic seeded grid (`160` units) with cloudy and clear regions, bases at Y `197`–`257` (raised from `130`–`190` on 2026-10-02), above the highest eye (about Y `102`). Radius `1850` units on desktop (`1500` before 2026-10-02) and `1100` on mobile, with a far fade inside it. Three seeded low-frequency noise fields vary density, coverage, and size smoothly across the world (about `4000`-unit regions), so the sky changes character during the flight; altitude and radius stay fixed.
   - The scenery treatment: impostors far away, baked only from a frontal band of views because clouds face the airplane and are always seen from below, and real meshes in two levels of detail near the eye, cross-faded by the shared dither.
   - Soft cloud shadows on the terrain and the scenery from a blurred, light-aligned coverage map, re-rendered only after travel, light rotation, or a field change.
   - The `?gui=1` **Clouds** folder tunes placement and its regional variation, near-mesh bands, wood detail, ambient boost, brightness variation, and shadows.

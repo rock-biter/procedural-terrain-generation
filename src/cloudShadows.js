@@ -194,6 +194,15 @@ export default class CloudShadows {
 		this.uniforms.uCloudShadowMap.value = this.targets[0].texture
 	}
 
+	// Compiles the caster and blur programs before their first render, which
+	// waits for daylight (main.js precompileShaders()).
+	compileAsync() {
+		return Promise.all([
+			this.renderer.compileAsync(this.scene, this.camera),
+			this.renderer.compileAsync(this.blurScene, this.camera),
+		])
+	}
+
 	// Re-reads the live settings; the next update renders the map again.
 	applySettings() {
 		if (this.settings.mapSize !== this.mapSize) this.createTargets()

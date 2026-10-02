@@ -7,9 +7,10 @@ import {
 	Matrix4,
 	Mesh,
 	OrthographicCamera,
+	RedFormat,
 	Scene,
 	ShaderMaterial,
-	UnsignedIntType,
+	UnsignedShortType,
 	Vector2,
 	Vector3,
 	Vector4,
@@ -116,14 +117,19 @@ export default class SceneryShadows {
 		})
 		this.airplane = null
 
+		// 16-bit depth: the far cascade spans about 1100 units of depth (2100 at
+		// the GUI's largest radius), so a step of 0.017 to 0.032 units stays below
+		// the default depth bias. Casters never write color, but a render target
+		// needs a color attachment; one 8-bit channel keeps it small.
 		this.cascades = settings.cascades.map((cascade, index) => {
-			const depthTexture = new DepthTexture(cascade.mapSize, cascade.mapSize, UnsignedIntType)
+			const depthTexture = new DepthTexture(cascade.mapSize, cascade.mapSize, UnsignedShortType)
 			depthTexture.format = DepthFormat
 			depthTexture.compareFunction = LessEqualCompare
 			depthTexture.minFilter = LinearFilter
 			depthTexture.magFilter = LinearFilter
 			const target = new WebGLRenderTarget(cascade.mapSize, cascade.mapSize, {
 				depthTexture,
+				format: RedFormat,
 				generateMipmaps: false,
 			})
 			target.texture.name = `scenery-shadow-${index}`

@@ -19,7 +19,7 @@ const isMobile = window.innerWidth < 768
 function canAdoptJob(job, target, chunk) {
 	if (job.scenery !== target.scenery || job.LOD !== target.LOD) return false
 	if (!chunk) return job.type === 'create'
-	if (job.type === 'updateLOD') return !job.forceLOD
+	if (job.type === 'updateLOD') return true
 	return (
 		(job.type === 'regenerate' || job.type === 'scenery') &&
 		chunk.LOD === target.LOD
@@ -77,10 +77,6 @@ export default class ChunkManager {
 
 	init() {
 		this.updateChunks()
-	}
-
-	getLODbyCoords(k, w) {
-		return this.desired.get(getChunkKey(k, w))?.LOD
 	}
 
 	reconcileChunks(i, j) {
@@ -238,7 +234,8 @@ export default class ChunkManager {
 			scenery: wantsScenery
 				? {
 						biomeOffset: this.biomeOffset,
-						settings: structuredClone(this.params.scenery),
+						// postMessage() clones it for the worker.
+						settings: this.params.scenery,
 					}
 				: null,
 			geometry: {
@@ -335,7 +332,7 @@ export default class ChunkManager {
 			return !this.chunks.has(job.key) && target.LOD === job.LOD
 		}
 		if (!this.chunks.has(job.key)) return false
-		if (job.type === 'regenerate' || job.type === 'scenery' || job.forceLOD) {
+		if (job.type === 'regenerate' || job.type === 'scenery') {
 			return true
 		}
 
@@ -382,7 +379,7 @@ export default class ChunkManager {
 		this.onParamsChange()
 	}
 
-	onParamsChange(LOD) {
+	onParamsChange() {
 		this.revision++
 		this.noise = createTerrainNoises(this.seed, this.params.octaves)
 		this.pending.clear()
@@ -398,12 +395,10 @@ export default class ChunkManager {
 				continue
 			}
 
-			const forceLOD = LOD !== undefined
 			this.pending.set(key, {
 				...target,
-				type: forceLOD ? 'updateLOD' : 'regenerate',
-				LOD: forceLOD ? LOD : chunk.LOD,
-				forceLOD,
+				type: 'regenerate',
+				LOD: chunk.LOD,
 				revision: this.revision,
 			})
 		}

@@ -10,6 +10,7 @@ import {
 	getCloudCell,
 	getCloudFarFade,
 	getCloudFieldOffsets,
+	getCloudNeighbourRing,
 	getCloudRegion,
 	getFacingYaw,
 } from '../src/cloudPlacement.js'
@@ -47,10 +48,11 @@ test('settings are fresh per device', () => {
 	const mobile = createCloudSettings({ isMobile: true })
 	assert.equal(desktop.radius, CLOUD_FIELD_RADIUS.desktop)
 	assert.equal(mobile.radius, CLOUD_FIELD_RADIUS.mobile)
+	const defaults = createCloudSettings()
 	desktop.size.bank = 3
 	desktop.altitude.min = 500
-	assert.equal(createCloudSettings().size.bank, 1)
-	assert.equal(createCloudSettings().altitude.min, 130)
+	assert.equal(createCloudSettings().size.bank, defaults.size.bank)
+	assert.equal(createCloudSettings().altitude.min, defaults.altitude.min)
 	assert.deepEqual(Object.keys(desktop.size).sort(), Object.values(CLOUD_TYPE_KEYS).sort())
 })
 
@@ -103,9 +105,9 @@ test('density and coverage scale the cloud count', () => {
 	assert.ok(generate({ settings: { ...settings, density: 1, coverage: 1 } }).length > full)
 })
 
-test('drops neighbours that could cut through each other at any heading', () => {
-	const settings = { ...createCloudSettings(), density: 1, coverage: 1, altitude: { min: 130, range: 0 } }
-	const instances = generate({ settings })
+// Asserts that no two footprints of `instances` intersect; with a single
+// base altitude every pair could cut through each other.
+function assertFootprintsApart(instances) {
 	const clouds = []
 	for (let i = 0; i < instances.length; i += IMPOSTOR_INSTANCE_STRIDE) {
 		const [x, , z, scale, , type] = instances.subarray(i, i + IMPOSTOR_INSTANCE_STRIDE)
@@ -121,6 +123,32 @@ test('drops neighbours that could cut through each other at any heading', () => 
 			const distance = Math.hypot(first.x - second.x, first.z - second.z)
 			assert.ok(distance >= first.footprint + second.footprint)
 		}
+	}
+}
+
+test('drops neighbours that could cut through each other at any heading', () => {
+	const settings = { ...createCloudSettings(), density: 1, coverage: 1, altitude: { min: 130, range: 0 } }
+	assertFootprintsApart(generate({ settings }))
+})
+
+test('checks farther cells when clouds can outgrow the adjacent ones', () => {
+	const small = createCloudSettings()
+	small.size = { bank: 1, heap: 1, puff: 1 }
+	assert.equal(getCloudNeighbourRing(small), 1)
+	assert.ok(getCloudNeighbourRing(createCloudSettings()) >= 2)
+
+	// The largest GUI sizes: bases several cells apart can still touch.
+	const large = {
+		...createCloudSettings(),
+		density: 1,
+		coverage: 1,
+		altitude: { min: 130, range: 0 },
+		size: { bank: 3, heap: 3, puff: 3 },
+	}
+	large.regional = { ...large.regional, size: 1.5 }
+	assert.ok(getCloudNeighbourRing(large) > 2)
+	for (const seed of ['ring-a', 'ring-b', 'ring-c']) {
+		assertFootprintsApart(generate({ seed, settings: large }))
 	}
 })
 
@@ -166,8 +194,10 @@ test('regional fields leave the settings unchanged at zero amplitude', () => {
 	}
 	const instances = generate({ settings })
 	for (let i = 0; i < instances.length; i += IMPOSTOR_INSTANCE_STRIDE) {
-		const [, maxScale] = CLOUD_CONFIG.shape[instances[i + 5]]
-		assert.ok(instances[i + 3] <= maxScale + 1e-6, 'no regional size change')
+		const type = instances[i + 5]
+		const [, maxScale] = CLOUD_CONFIG.shape[type]
+		const size = settings.size[CLOUD_TYPE_KEYS[type]]
+		assert.ok(instances[i + 3] <= maxScale * size + 1e-5, 'no regional size change')
 	}
 })
 

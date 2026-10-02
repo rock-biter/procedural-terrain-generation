@@ -35,7 +35,6 @@ import {
 } from './flightPolicy'
 import gsap from 'gsap'
 const V3 = new Vector3(0, 0, 0)
-const isMobile = window.innerWidth < 768
 const TRAIL_LENGTH = 60
 const TRAIL_SEGMENTS = 30
 // Dark plugs inside the cowl (AIRPLANE_MODELS[*].propeller.plugs), matching
@@ -43,7 +42,6 @@ const TRAIL_SEGMENTS = 30
 const PROPELLER_PLUG_COLOR = '#3b291c'
 
 export default class Plane extends Object3D {
-	velocity = new Vector3(0, 0, 35)
 	baseSpeed = 35
 	speed = 0
 	cursor = new Vector2(0, 0)
@@ -57,11 +55,8 @@ export default class Plane extends Object3D {
 	terrainSlowdown = 0
 	terrainBrakeEffect = 0
 	initialFov
-	finalFov
 	initialPosition
 	finalPosition
-	intialTan
-	RATIO
 	acceleration = 0
 	inputEnabled = true
 	uniforms = {
@@ -70,14 +65,9 @@ export default class Plane extends Object3D {
 
 	// `modelConfig` is the airplane's entry in AIRPLANE_MODELS
 	// (src/airplaneModels.js): trail anchor and propeller data.
-	constructor(airplane, noise, params, camera, modelConfig) {
-		// const geometry = new BoxGeometry(1, 1, 1)
-		// const material = new MeshNormalMaterial()
-
-		// super(geometry, material)
+	constructor(airplane, params, camera, modelConfig) {
 		super()
 
-		this.noise = noise
 		this.params = params
 		this.model = airplane
 		this.modelConfig = modelConfig
@@ -200,6 +190,30 @@ export default class Plane extends Object3D {
 				#include <color_fragment>
 				float side = step(0.5, vUV.x);
 				float widthFactor = side > 0.5 ? vTrailWidths.y : vTrailWidths.x;
+				float taper = max(0.0, sin(3.14159265 * vUV.y));
+				float noiseFade = taper * taper;
+				float halfWidth = 0.5 * uTrailLineWidth / uTrailRibbonWidth * taper * widthFactor;
+				// Before any discard, so the derivative stays in uniform control flow.
+				float widthInPixels = 2.0 * halfWidth / max(fwidth(vUV.x), 0.000001);
+				float edge = side > 0.5 ? 1.0 - vUV.x : vUV.x;
+				float outlineWidth = uTrailBorderWidth / uTrailRibbonWidth * taper * widthFactor;
+				float stripeCenter = max(0.07,
+					(uTrailLineWidth * 0.5 + uTrailOuterAmplitude + uTrailBorderWidth)
+					/ uTrailRibbonWidth + 0.005);
+				float oscillationRamp = smoothstep(0.0, 0.35, 1.0 - vUV.y);
+				float oscillationScale = uTrailOscillationAmplitude / uTrailRibbonWidth
+					* oscillationRamp * vTrailBank;
+				float outerReach = uTrailOuterAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
+				float innerReach = uTrailInnerAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
+				// Most of the ribbon never shows a stripe. The noise sums below stay
+				// within ±1 (1.05 leaves a margin), so fragments outside the widest
+				// possible stripe are discarded before any noise is evaluated.
+				float noiseBound = 1.05;
+				if (halfWidth <= 0.0001
+					|| edge < stripeCenter - noiseBound * (abs(oscillationScale) + outerReach)
+						- halfWidth - outlineWidth
+					|| edge > stripeCenter + noiseBound * (abs(oscillationScale) + innerReach)
+						+ halfWidth + outlineWidth) discard;
 				// Trail space: arc length along the flown path, so the edge noise keeps
 				// the same frequency in turns and stays attached to emitted sections.
 				// The 0.5 scale keeps the existing GUI frequencies close to their old look.
@@ -207,18 +221,10 @@ export default class Plane extends Object3D {
 					vTrailDistance * 0.5 + side * 19.0,
 					side * 31.0
 				);
-				float taper = max(0.0, sin(3.14159265 * vUV.y));
-				float noiseFade = taper * taper;
-				float halfWidth = 0.5 * uTrailLineWidth / uTrailRibbonWidth * taper * widthFactor;
-				float widthInPixels = 2.0 * halfWidth / max(fwidth(vUV.x), 0.000001);
 				float outerNoise = snoise(noisePosition * uTrailOuterFrequency) * 0.7
 					+ snoise(noisePosition * uTrailOuterFrequency * 2.4 + 17.0) * 0.3;
 				float innerNoise = snoise(noisePosition * uTrailInnerFrequency * 1.27 + 13.0) * 0.7
 					+ snoise(noisePosition * uTrailInnerFrequency * 3.1 + 41.0) * 0.3;
-				float stripeCenter = max(0.07,
-					(uTrailLineWidth * 0.5 + uTrailOuterAmplitude + uTrailBorderWidth)
-					/ uTrailRibbonWidth + 0.005);
-				float oscillationRamp = smoothstep(0.0, 0.35, 1.0 - vUV.y);
 				float sideOffset = side * 17.0;
 				float oscillation = 0.8 * sin(
 					vTrailDistance * 6.2831853 * uTrailOscillationFrequency + side * 2.1
@@ -226,16 +232,10 @@ export default class Plane extends Object3D {
 					vTrailDistance * uTrailOscillationFrequency * 2.0 + sideOffset,
 					sideOffset + 7.0
 				));
-				stripeCenter += oscillation * uTrailOscillationAmplitude / uTrailRibbonWidth
-					* oscillationRamp * vTrailBank;
-				float outerEdge = stripeCenter - halfWidth
-					+ outerNoise * uTrailOuterAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
-				float innerEdge = stripeCenter + halfWidth
-					+ innerNoise * uTrailInnerAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;
-				float edge = side > 0.5 ? 1.0 - vUV.x : vUV.x;
-				float outlineWidth = uTrailBorderWidth / uTrailRibbonWidth * taper * widthFactor;
-				if (halfWidth <= 0.0001 || edge < outerEdge - outlineWidth
-					|| edge > innerEdge + outlineWidth) discard;
+				stripeCenter += oscillation * oscillationScale;
+				float outerEdge = stripeCenter - halfWidth + outerNoise * outerReach;
+				float innerEdge = stripeCenter + halfWidth + innerNoise * innerReach;
+				if (edge < outerEdge - outlineWidth || edge > innerEdge + outlineWidth) discard;
 				float core = step(outerEdge, edge) * step(edge, innerEdge);
 				diffuseColor.rgb *= mix(vec3(0.03), uTrailTint, core);
 				diffuseColor.a *= mix(0.65, 1.0, smoothstep(0.75, 2.5, widthInPixels));
@@ -367,6 +367,8 @@ export default class Plane extends Object3D {
 		const widths = geometry.attributes.trailWidths.array
 		const distances = geometry.attributes.trailDistance.array
 		const banks = geometry.attributes.trailBank.array
+		let firstStripeRow = -1
+		let lastStripeRow = -1
 		for (let row = 0; row <= TRAIL_SEGMENTS; row++) {
 			this.trailHistory.sample(row * TRAIL_LENGTH / TRAIL_SEGMENTS, this.trailRow)
 			const x = this.trailRow[0]
@@ -399,10 +401,23 @@ export default class Plane extends Object3D {
 			banks[row * 2 + 1] = this.trailRow[11]
 			distances[row * 2] = this.trailRow[12]
 			distances[row * 2 + 1] = this.trailRow[12]
+			if (this.trailRow[9] > 0 || this.trailRow[10] > 0) {
+				if (firstStripeRow < 0) firstStripeRow = row
+				lastStripeRow = row
+			}
 		}
+		// Segment s joins rows s and s + 1. The fragment shader discards every
+		// pixel without stripe width, so only segments touching a row with a
+		// stripe are drawn; in level, cruise-speed flight that is none.
+		const segments = Math.min(
+			TRAIL_SEGMENTS,
+			Math.ceil(this.trailHistory.availableDistance / 2),
+		)
+		const firstSegment = Math.max(firstStripeRow - 1, 0)
+		const endSegment = firstStripeRow < 0 ? 0 : Math.min(lastStripeRow + 1, segments)
 		geometry.setDrawRange(
-			0,
-			Math.min(TRAIL_SEGMENTS, Math.ceil(this.trailHistory.availableDistance / 2)) * 6,
+			firstSegment * 6,
+			Math.max(endSegment - firstSegment, 0) * 6,
 		)
 		geometry.attributes.position.needsUpdate = true
 		geometry.attributes.trailWidths.needsUpdate = true
@@ -410,32 +425,10 @@ export default class Plane extends Object3D {
 		geometry.attributes.trailBank.needsUpdate = true
 	}
 
-	updateSpeedEffect(progress) {
-		// console.log(progress)
-
-		this.updateSpeed(progress)
-
-		const newFov = this.getEffectFov(progress)
-		// const length = this.RATIO / Math.tan(MathUtils.degToRad(newFov / 2))
-
-		// this.camera.position.normalize().multiplyScalar(length)
-		this.camera.fov = newFov
-		// this.camera.position.z = this.initialPosition.z - 5 * progress
-		this.finalPosition.z =
-			this.initialPosition.z - FLIGHT_LIMITS.cameraEffectDistance * progress
-		// this.camera.position.y = this.initialPosition.y - 3 * progress
-
-		// this.camera.lookAt(new Vector3(0, 6.9, 0).add(this.position))
-		this.camera.updateProjectionMatrix()
-	}
-
 	addEffect() {
 		this.initialPosition = new Vector3(0, 7, -18)
 		this.finalPosition = new Vector3(0, 7, -18)
 		this.initialFov = this.camera.fov
-		this.finalFov = this.camera.fov + FLIGHT_LIMITS.boostFovOffset
-		this.intialTan = Math.tan(MathUtils.degToRad(this.initialFov / 2))
-		this.RATIO = this.initialPosition.length() * this.intialTan
 	}
 
 	updateSpeed(progress) {
@@ -602,27 +595,11 @@ export default class Plane extends Object3D {
 	}
 
 	update(dt) {
-		// const nextPos = this.position.clone()
-
-		V3.set(0, 0, 1).multiplyScalar(this.speed * dt)
-		this.translateZ(V3.length())
-		// this.rotation.z = 0
-		// V3.set(-1, 0, 0)
-		// 	.multiplyScalar(this.cursor.x * 0.2)
-		// 	.applyQuaternion(this.quaternion)
-		// nextPos.addScaledVector(V3, dt)
-
+		this.translateZ(Math.abs(this.speed * dt))
 		this.rotation.y += Math.PI * -this.cursor.x * dt * 0.2
 		this.updateAltitude(dt)
 		this.updatePropeller(dt)
 		const visualSpeedEffect = this.getVisualSpeedEffect()
-		// V3.set(0, 1, 0)
-		// 	.multiplyScalar(this.cursor.y * 0.2)
-		// 	.applyQuaternion(this.quaternion)
-		// nextPos.addScaledVector(V3, dt)
-
-		// this.lookAt(nextPos)
-		// this.position.copy(nextPos)
 
 		if (this.model) {
 			this.model.rotation.z = MathUtils.lerp(
@@ -643,12 +620,6 @@ export default class Plane extends Object3D {
 		}
 
 		if (this.camera && this.finalPosition && this.initialPosition) {
-			// 	this.camera.position.x = MathUtils.lerp(
-			// 		this.camera.position.x,
-			// 		-this.cursor.x * 5,
-			// 		dt * 1
-			// 	)
-			// this.updateSpeedEffect(this.acceleration)
 			this.updateSpeed(this.acceleration)
 
 			this.finalPosition.z =
@@ -664,7 +635,6 @@ export default class Plane extends Object3D {
 			this.camera.fov = fov
 			this.camera.updateProjectionMatrix()
 		}
-		// this.position
 
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
 		this.uniforms.uAcceleration.value = Math.max(visualSpeedEffect, 0)
@@ -726,9 +696,6 @@ export default class Plane extends Object3D {
 				duration: 0.2,
 				overwrite: 'auto',
 			})
-			// this.acceleration = MathUtils.clamp(0, 1, this.acceleration)
-
-			// console.log(this.acceleration)
 		})
 
 		window.addEventListener('touchmove', (e) => {

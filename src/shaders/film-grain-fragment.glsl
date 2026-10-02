@@ -1,7 +1,8 @@
-// Static film grain drawn over the finished canvas by PostProcessing.
-// The hash depends only on the pixel coordinate, so the pattern stays fixed on
-// screen and never animates.
-uniform float uIntensity;
+// Static film grain, the last effect of PostProcessing's effect pass. It runs
+// in display (sRGB) space, so it scales the displayed value like a multiply
+// overlay on the canvas would. The hash depends only on the pixel coordinate,
+// so the pattern stays fixed on screen and never animates.
+uniform float intensity;
 
 // Dave Hoskins' hash12 (MIT).
 float hash12(vec2 p) {
@@ -10,9 +11,8 @@ float hash12(vec2 p) {
 	return fract((p3.x + p3.y) * p3.z);
 }
 
-void main() {
+void mainImage(const in vec4 inputColor, const in vec2 uv, out vec4 outputColor) {
 	float noise = hash12(floor(gl_FragCoord.xy)) - 0.5;
-	// Blended as 2 * src * dst: 0.5 keeps the pixel, so the canvas color is
-	// scaled by a factor in [1 - uIntensity, 1 + uIntensity].
-	gl_FragColor = vec4(vec3(0.5 + noise * uIntensity), 1.0);
+	// Scales the color by a factor in [1 - intensity, 1 + intensity].
+	outputColor = vec4(inputColor.rgb * (1.0 + 2.0 * noise * intensity), inputColor.a);
 }

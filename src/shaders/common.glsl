@@ -11,18 +11,6 @@ uniform vec2 uBiomeOffset;
 varying vec3 wPosition;
 varying float distanceFromCamera;
 
-mat4 rotateZ(float alpha) {
-    float cosA = cos(alpha);
-    float sinA = sin(alpha);
-
-    return mat4(
-        cosA, -sinA, 0.0, 0.0,
-        sinA, cosA,  0.0, 0.0,
-        0.0,  0.0,   1.0, 0.0,
-        0.0,  0.0,   0.0, 1.0
-    );
-}
-
 // Rodrigues rotation of v around a unit axis by the angle with cosine c and sine s.
 vec3 rotateAroundAxis(vec3 v, vec3 axis, float c, float s) {
     return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);

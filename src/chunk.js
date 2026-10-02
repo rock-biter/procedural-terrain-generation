@@ -1,15 +1,4 @@
-import {
-	BoxGeometry,
-	MathUtils,
-	Mesh,
-	MeshBasicMaterial,
-	MeshNormalMaterial,
-	MeshStandardMaterial,
-	MultiplyBlending,
-	Scene,
-	Vector2,
-	Vector3,
-} from 'three'
+import { MathUtils, Mesh, MeshStandardMaterial, Vector3 } from 'three'
 import projectVertex from './shaders/project-vertex.glsl'
 import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
@@ -29,21 +18,16 @@ import { getHeight } from './chunkGeometry'
 // path, whose tangent frame comes from the chunk uv.
 const normalMap = getTerrainNormalTexture(TERRAIN_NORMAL_LAYERS.sea.texture)
 const material = new MeshStandardMaterial({
-	// wireframe: true,
 	color: 'lightblue',
 	normalMap,
-	// transparent: true,
-	// opacity: 0.8,
-	// flatShading: true,
 })
 
 // Shared with GLSL through the `uCurvature` uniform created in main.js.
 export const CURVATURE = 3000
 
-const V2 = new Vector2(0, 0)
 const DEFAULT_FEATURES = Object.freeze({
 	scenery: true,
-	boats: true,
+	boats: false,
 })
 
 export default class Chunk extends Mesh {
@@ -74,17 +58,11 @@ export default class Chunk extends Mesh {
 		this.assets = assets
 		this.features = features
 
-		// sea.scale.setScalar(size)
-
 		this.updateScenery()
 		this.onBeforeCompile()
-		// this.add(sea.clone())
-
-		// console.log('chunk created LOD:', LOD)
 	}
 
 	dispose() {
-		// console.log(this)
 		this.parent.remove(this)
 		this.geometry.dispose()
 		this.clearScenery()
@@ -95,9 +73,6 @@ export default class Chunk extends Mesh {
 
 	onBeforeCompile() {
 		this.material.onBeforeCompile = (shader) => {
-			// const { fragmentShader, vertexShader } = shader
-			// console.log(fragmentShader)
-
 			if (this.uniforms) {
 				shader.uniforms = {
 					...shader.uniforms,
@@ -191,7 +166,6 @@ export default class Chunk extends Mesh {
 	}
 
 	addBoats() {
-		// if (!BOAT) return
 		const boats = []
 		const n = MathUtils.randInt(0, 3)
 
@@ -215,7 +189,6 @@ export default class Chunk extends Mesh {
 				attempt++
 			} while ((h > -2 || h < -10) && attempt < 20)
 
-			// console.log(attempt)
 			if (attempt === 20) {
 				continue
 			}
@@ -224,21 +197,13 @@ export default class Chunk extends Mesh {
 
 			boats.push(boat)
 		}
-		// console.log(boats)
 		this.boats = boats
 	}
 
 	createBoat(x, z) {
-		// const model = this.scene.children[0].children[0]
-		// model.scale.setScalar(1.3)
-		// // model.scale.setScalar(0.1)
-		// model.rotation.x = 0
-
 		const m = this.boat.clone()
 		m.rotation.y = Math.random() * Math.PI * 2
 		m.position.set(x, 0.8, z)
-
-		// console.log(m)
 
 		m.traverse((el) => {
 			if (el instanceof Mesh) {
@@ -266,15 +231,5 @@ export default class Chunk extends Mesh {
 		this.add(m)
 
 		return m
-	}
-
-	applyCurvature(x, y) {
-		// da applciare con vertex shader
-		const l = V2.set(x, y).length()
-
-		const diff = -CURVATURE * (1 - Math.cos(l / CURVATURE))
-
-		// return diff
-		return 0
 	}
 }

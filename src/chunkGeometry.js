@@ -8,8 +8,10 @@ import {
 import { createNoise2D } from 'simplex-noise'
 import { getBiomeValue } from './biome.js'
 
+// getLandmass() always reads noises 0 and 1, so at least two are created even
+// for a single octave; the extra one does not change any other octave.
 export function createTerrainNoises(seed, octaves) {
-	return Array.from({ length: octaves }, (_, octave) =>
+	return Array.from({ length: Math.max(octaves, 2) }, (_, octave) =>
 		createNoise2D(alea(`${seed}:${octave}`)),
 	)
 }

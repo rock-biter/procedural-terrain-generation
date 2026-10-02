@@ -52,7 +52,7 @@ export const CLOUD_TYPE_KEYS = Object.freeze({
 // Field radius around the airplane, in world units. Clouds shrink into the
 // fog before it (getCloudFarFade()), and the curved horizon hides them beyond
 // about 1,500 units.
-export const CLOUD_FIELD_RADIUS = Object.freeze({ desktop: 1500, mobile: 1100 })
+export const CLOUD_FIELD_RADIUS = Object.freeze({ desktop: 1850, mobile: 1100 })
 
 // Eye distances inside the field radius where cloud impostors shrink into the
 // fog, so clouds entering or leaving the field never pop.
@@ -76,8 +76,8 @@ export function createCloudSettings({ isMobile = false } = {}) {
 		radius: isMobile ? CLOUD_FIELD_RADIUS.mobile : CLOUD_FIELD_RADIUS.desktop,
 		density: 0.55,
 		coverage: 0.6,
-		altitude: { min: 130, range: 60 },
-		size: { bank: 1, heap: 1, puff: 1 },
+		altitude: { min: 197, range: 60 },
+		size: { bank: 1.69, heap: 1.04, puff: 1.14 },
 		regional: {
 			scale: 4000,
 			// Relative: density × (1 ± amount).
@@ -212,6 +212,27 @@ function getCandidate(seedHash, cellX, cellZ, offsets, settings, config, region)
 	}
 }
 
+// Cells to check in each direction around a cloud for neighbours it could cut
+// through. Bases `k` cells apart are at least (k - span) * cellSize apart
+// (span: the jittered share of a cell), so the ring ends where that distance
+// reaches two of the largest possible footprints: the largest type scale,
+// times its size setting and the largest regional size factor. It depends
+// only on the settings, never on the field center.
+export function getCloudNeighbourRing(settings, config = CLOUD_CONFIG) {
+	const span = 1 - config.jitterMargin * 2
+	const regionalSize = 2 ** Math.max(settings.regional.size, 0)
+	let largest = 0
+	for (const [type, [, maxScale]] of Object.entries(config.shape)) {
+		const [halfWidth, , halfDepth] = config.extent[type]
+		const size = Math.max(settings.size[CLOUD_TYPE_KEYS[type]], 0)
+		largest = Math.max(
+			largest,
+			Math.hypot(halfWidth, halfDepth) * maxScale * size * regionalSize,
+		)
+	}
+	return Math.max(1, Math.ceil((2 * largest) / config.cellSize + span) - 1)
+}
+
 function overlaps(a, b) {
 	return (
 		Math.hypot(a.x - b.x, a.z - b.z) < a.footprint + b.footprint &&
@@ -222,8 +243,8 @@ function overlaps(a, b) {
 
 // Clouds whose base lies within `radius` (horizontal) of (centerX, centerZ).
 // A candidate that would cut through a neighbour with a lower priority value
-// is dropped; the test reads only the raw neighbouring candidates, so the
-// result never depends on the center.
+// is dropped; the test reads only the raw candidates of the cells within
+// getCloudNeighbourRing(), so the result never depends on the center.
 export function generateCloudInstances({
 	seed,
 	centerX,
@@ -236,15 +257,16 @@ export function generateCloudInstances({
 	const seedHash = hashSeed(seed)
 	const offsets = getCloudFieldOffsets(seed)
 	const region = {}
+	const ring = getCloudNeighbourRing(settings, config)
 	const [minCellX, minCellZ] = getCloudCell(centerX - radius, centerZ - radius, cellSize)
 	const [maxCellX, maxCellZ] = getCloudCell(centerX + radius, centerZ + radius, cellSize)
 
-	// Candidates of the scanned cells plus a one-cell border for the
+	// Candidates of the scanned cells plus a `ring`-cell border for the
 	// neighbour test, computed once each.
-	const columns = maxCellX - minCellX + 3
-	const candidates = new Array(columns * (maxCellZ - minCellZ + 3))
+	const columns = maxCellX - minCellX + 1 + ring * 2
+	const candidates = new Array(columns * (maxCellZ - minCellZ + 1 + ring * 2))
 	const getCell = (cellX, cellZ) => {
-		const index = (cellZ - minCellZ + 1) * columns + (cellX - minCellX + 1)
+		const index = (cellZ - minCellZ + ring) * columns + (cellX - minCellX + ring)
 		if (candidates[index] === undefined) {
 			candidates[index] = getCandidate(seedHash, cellX, cellZ, offsets, settings, config, region)
 		}
@@ -262,8 +284,8 @@ export function generateCloudInstances({
 			if (dx * dx + dz * dz > radiusSquared) continue
 
 			let blocked = false
-			for (let z = -1; z <= 1 && !blocked; z++) {
-				for (let x = -1; x <= 1 && !blocked; x++) {
+			for (let z = -ring; z <= ring && !blocked; z++) {
+				for (let x = -ring; x <= ring && !blocked; x++) {
 					if (x === 0 && z === 0) continue
 					const neighbour = getCell(cellX + x, cellZ + z)
 					blocked = Boolean(

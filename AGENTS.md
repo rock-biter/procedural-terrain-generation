@@ -35,14 +35,13 @@ pnpm dev
 pnpm test
 pnpm build
 pnpm preview
-pnpm texture:wood
 ```
 
 Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. Do not introduce another lockfile or edit generated `dist/` output.
 
 ## Source Map
 
-- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, the render loop, and resize behavior.
+- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume.
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
 - [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, the heading-biased desired set (`CHUNK_STREAMING`), heading sectors, forward-shifted LOD, and the radial scenery range.
 - [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and transferable terrain buffers shared by tests and workers.
@@ -57,11 +56,11 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
 - [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
 - [`src/dayNight.js`](src/dayNight.js) owns the sky dome and applies time of day to lights, fog, and `uAtmosphere`; [`src/dayNightPolicy.js`](src/dayNightPolicy.js) owns the pure keyframes and their editable copies, celestial directions, curved-horizon dip and palette time (and its inverse), and `?time=` parsing; [`src/radialFog.js`](src/radialFog.js) makes Three.js fog radial.
-- [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer, the always-on idle edge-effect level, and the idle bypass when that level is `0`; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
+- [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer that renders every frame (the only antialiasing), the idle edge-effect level, and the film grain; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
 - [`src/clouds.js`](src/clouds.js) owns the world-level cloud field (impostor mesh, cloud atlas, near cloud meshes); [`src/cloudPlacement.js`](src/cloudPlacement.js) owns its pure deterministic placement; [`src/cloudShadows.js`](src/cloudShadows.js) owns the blurred cloud shadow coverage map and its receiver uniforms, with pure rules in `shadowPolicy.js`.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
-- [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets.
+- [`public/`](public/) and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
 
 ## Project Rules
 

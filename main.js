@@ -3,7 +3,7 @@ import * as THREE from 'three'
 // Patches the fog shader chunk before any material compiles.
 import './src/radialFog'
 import * as dat from 'lil-gui'
-import Chunk, { CURVATURE } from './src/chunk'
+import { CURVATURE } from './src/chunk'
 import ChunkManager from './src/chunkManager'
 import DayNight from './src/dayNight'
 import {
@@ -55,6 +55,7 @@ import { AIRPLANE_MODELS, getAirplaneModelKey } from './src/airplaneModels'
 import FlightPauseDebug from './src/flightPauseDebug'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
+import Soundtrack from './src/soundtrack'
 import TerrainSampleDebug from './src/terrainSampleDebug'
 import {
 	SCENERY_CATEGORIES,
@@ -94,21 +95,17 @@ const assets = {
 	impostorMaterial: null,
 	impostorWireframeMaterial: null,
 	woodTexture: null,
-	soundtrack: null,
 }
 
 const loaderManager = new THREE.LoadingManager()
 loaderManager.onLoad = () => {
-	// console.log('load!')
-
 	gsap.set('canvas', { autoAlpha: 0 })
 
 	toggleEl.addEventListener('click', () => {
 		volume = !volume
 
-		assets.soundtrack.setVolume(volume ? 0.1 : 0)
+		soundtrack.setMuted(!volume)
 		gsap.to(toggleEl, { opacity: volume ? 1 : 0.4, duration: 0.2 })
-		// gsap.to(assets.soundtrack, { volume: volume ? 0.1 : 0, duration: 1 })
 	})
 
 	gsap.to(loadingEl, {
@@ -116,6 +113,7 @@ loaderManager.onLoad = () => {
 		duration: 1,
 		onComplete: () => {
 			init(assets)
+			precompileShaders()
 
 			gsap.to(playEl, {
 				autoAlpha: 1,
@@ -123,7 +121,7 @@ loaderManager.onLoad = () => {
 				onComplete: () => {
 					playEl.addEventListener('click', () => {
 						if (!gui) {
-							assets.soundtrack.play()
+							soundtrack.play()
 						}
 						gsap.fromTo(
 							plane,
@@ -136,11 +134,8 @@ loaderManager.onLoad = () => {
 							{ z: -1 },
 							{
 								duration: 1,
-								ease: 'expo3.out',
+								ease: 'expo.out',
 								z: isMobile ? -16 : -18,
-								// z: 20,
-								// y: -2,
-								// x: 0,
 								onComplete: () => {
 									plane.addEffect()
 									if (flightPause) flightPause.canPause = true
@@ -158,7 +153,6 @@ loaderManager.onLoad = () => {
 loaderManager.onProgress = (a, i, total) => {
 	const progress = (100 * i) / total
 	gsap.to(progressEl, { width: `${progress}%`, duration: 1 })
-	// console.log(progress)
 }
 
 loaderManager.onStart = () => {
@@ -167,7 +161,6 @@ loaderManager.onStart = () => {
 
 // The airplane GLBs are packed with gltfpack (EXT_meshopt_compression).
 const gltfLoader = new GLTFLoader(loaderManager).setMeshoptDecoder(MeshoptDecoder)
-const audioLoader = new THREE.AudioLoader(loaderManager)
 const textureLoader = new THREE.TextureLoader(loaderManager)
 
 if (worldFeatures.scenery || worldFeatures.clouds) {
@@ -179,24 +172,10 @@ if (worldFeatures.scenery || worldFeatures.clouds) {
 	assets.woodTexture.wrapT = THREE.RepeatWrapping
 }
 
-audioLoader.load(audioSrc, (buffer) => {
-	const listener = new THREE.AudioListener()
-	const sound = new THREE.Audio(listener)
-	sound.setBuffer(buffer)
-	sound.setLoop(true)
-	sound.setVolume(0.1)
-	assets.soundtrack = sound
-
-	camera.add(listener)
-})
-
 if (worldFeatures.boats) {
 	gltfLoader.load('/boat/scene.gltf', (gltf) => {
-		// console.log('boat', gltf)
-
 		const model = gltf.scene.children[0].children[0]
 		model.scale.setScalar(1.3)
-		// model.scale.setScalar(0.1)
 		model.rotation.x = 0
 
 		assets.boatModel = model
@@ -227,6 +206,11 @@ gltfLoader.load(airplaneModel.path, (gltf) => {
 let gui
 if (urlParams.get('gui') === '1') gui = new dat.GUI()
 
+// Streamed when Play is pressed instead of being loaded with the startup
+// assets, so it never delays the first frame. The ?gui=1 tuning mode never
+// plays it, so it does not preload either.
+const soundtrack = new Soundtrack(audioSrc, { volume: 0.1, preload: !gui })
+
 const params = {
 	speedEffect: 0,
 	// Peak intensities; the day/night cycle scales them every frame.
@@ -248,15 +232,12 @@ const params = {
 		x: 0.5,
 		z: 0.5,
 	},
-	xOffset: 0,
-	zOffset: 0,
 	octaves: 3,
 	lacunarity: 2,
 	persistance: 0.5,
 	// Desert detail topography and progressive height reduction; see
 	// DESERT_TERRAIN_DEFAULTS.
 	desert: { ...DESERT_TERRAIN_DEFAULTS },
-	LOD: 0,
 	colors: {
 		uGrass: '#6d976d',
 		uLand: '#5e551d',
@@ -282,11 +263,11 @@ const params = {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
 		// Edge blur and aberration always shown, as for a speed effect of this
-		// value; boosting animates the rest. 0 restores the idle bypass. The
+		// value; boosting animates the rest. 0 leaves the edges sharp at rest. The
 		// camera FOV kick ignores it.
 		idleSpeedEffect: 0.4,
 		// Static screen-space grain; intensity is the maximum brightness change
-		// (0.05 = ±5%). 0 skips the overlay pass.
+		// (0.05 = ±5%). 0 disables it.
 		grain: { intensity: 0.035 },
 		// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
 		// verticalScale shrinks only the vertical distance (1 = circular falloff).
@@ -352,7 +333,6 @@ const params = {
 
 const uniforms = {
 	uTime: { value: 0 },
-	uRocksColor: { value: new THREE.Color('brown') },
 	uCamera: { value: new THREE.Vector3() },
 	uCurvature: { value: CURVATURE },
 	uLand: { value: new THREE.Color(params.colors.uLand) },
@@ -437,35 +417,25 @@ if (gui) {
 	terrainFolder.addColor(params.colors, 'uRocks').onChange((val) => {
 		uniforms.uRocks.value.set(val)
 	})
+	// Each change regenerates every desired chunk, so it waits for the release.
 	terrainFolder
 		.add(params, 'amplitude', 0, 100, 0.1)
-		.onChange(() => chunkManager.onParamsChange())
-	// gui.add(params, 'LOD', 0, 4, 1).onChange((val) => chunk.updateLOD(val))
+		.onFinishChange(regenerateTerrain)
 	terrainFolder
 		.add(params, 'octaves', 1, 10, 1)
-		.onChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 	terrainFolder
 		.add(params, 'persistance', 0, 1, 0.05)
-		.onChange(() => chunkManager.onParamsChange())
-
+		.onFinishChange(regenerateTerrain)
 	terrainFolder
 		.add(params, 'lacunarity', 1, 5, 0.5)
-		.onChange(() => chunkManager.onParamsChange())
-
+		.onFinishChange(regenerateTerrain)
 	terrainFolder
 		.add(params.frequency, 'x', 0.01, 2, 0.01)
-		.onChange(() => chunkManager.onParamsChange())
-		.onChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 	terrainFolder
 		.add(params.frequency, 'z', 0.01, 2, 0.01)
-		.onChange(() => chunkManager.onParamsChange())
-	terrainFolder
-		.add(params, 'xOffset', -10, 10, 0.1)
-		.onChange(() => chunkManager.onParamsChange())
-		.onChange(() => chunkManager.onParamsChange())
-	terrainFolder
-		.add(params, 'zOffset', -10, 10, 0.1)
-		.onChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 
 	const colorNoiseFolder = terrainFolder.addFolder('Color noise')
 	const colorNoiseControls = [
@@ -488,23 +458,23 @@ if (gui) {
 	desertFolder
 		.add(params.desert, 'frequency', 0.1, 2, 0.01)
 		.name('Detail frequency ×')
-		.onFinishChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 	desertFolder
 		.add(params.desert, 'amplitude', 0, 2, 0.01)
 		.name('Detail amplitude ×')
-		.onFinishChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 	desertFolder
 		.add(params.desert, 'blend', 0.01, 0.4, 0.005)
 		.name('Blend width')
-		.onFinishChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 	desertFolder
 		.add(params.desert, 'flatten', 0, 1, 0.01)
 		.name('Height reduction')
-		.onFinishChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 	desertFolder
 		.add(params.desert, 'depth', 0.01, 1.5, 0.01)
 		.name('Reduction depth')
-		.onFinishChange(() => chunkManager.onParamsChange())
+		.onFinishChange(regenerateTerrain)
 
 	const updateTerrainNormals = () =>
 		updateTerrainNormalUniforms(uniforms, params.terrainNormals)
@@ -644,9 +614,8 @@ if (gui) {
 	const updatePost = () =>
 		postProcessing.speedEffect.setParams(params.postProcessing)
 	const speedFolder = gui.addFolder('Speed effect')
-	speedFolder.add(params, 'speedEffect', 0, 1, 0.01).onChange((val) => {
-		plane.updateSpeedEffect(val)
-	})
+	// Read by tic(): holds the edge effect at least at this speed effect.
+	speedFolder.add(params, 'speedEffect', 0, 1, 0.01)
 	speedFolder.add(params.postProcessing, 'preview', 0, 1, 0.01)
 	speedFolder
 		.add(params.postProcessing, 'idleSpeedEffect', 0, 1, 0.01)
@@ -959,15 +928,6 @@ if (gui) {
 const scene = new THREE.Scene()
 
 /**
- * BOX
- */
-// const material = new THREE.MeshNormalMaterial()
-// const geometry = new THREE.BoxGeometry(1, 1, 1)
-
-// const mesh = new THREE.Mesh(geometry, material)
-// scene.add(mesh)
-
-/**
  * render sizes
  */
 const sizes = {
@@ -986,24 +946,17 @@ const camera = new THREE.PerspectiveCamera(
 )
 camera.position.set(0, 7, -1)
 camera.zoom = isMobile ? 0.8 : 1
-// camera.position.set(0, 7, -18)
-// camera.position.set(0, 0, 15)
-// camera.position.set(0, 2500, -18)
 camera.lookAt(cameraTarget)
-// camera.lookAt(0, 0, 0)
-// camera.rotateY(Math.PI)
-
-/**
- * Show the axes of coordinates system
- */
-const axesHelper = new THREE.AxesHelper(3)
-// scene.add(axesHelper)
 
 /**
  * renderer
  */
+// The scene always renders through PostProcessing's offscreen chain, whose
+// 2x MSAA buffer is the only antialiasing. The canvas only receives the
+// finished full-screen composite, so it needs neither MSAA nor depth.
 const renderer = new THREE.WebGLRenderer({
-	antialias: true, //window.devicePixelRatio < 2,
+	antialias: false,
+	depth: false,
 	logarithmicDepthBuffer: true,
 })
 renderer.toneMapping = params.toneMapping.mode
@@ -1017,33 +970,8 @@ const postProcessing = new PostProcessing(
 )
 handleResize()
 
-/**
- * OrbitControls
- */
-// const controls = new OrbitControls(camera, renderer.domElement)
-// controls.enableDamping = true
-// controls.screenSpacePanning = false
-// const controls = new FlyControls(camera, renderer.domElement)
-// controls.movementSpeed = 50
-// controls.rollSpeed = 0.75
-
-/**
- * Plane
- */
-
-// const plane = new Plane()
-
-// /**
-//  * Terrain chunk
-//  */
 const chunkSize = 256
 
-// const chunkManager = new ChunkManager(chunkSize, plane, params, scene, uniforms)
-
-// plane.position.y = Math.max(getHeight(0, 0, chunkManager.noise, params), 0) + 60
-// scene.add(plane)
-// plane.camera = camera
-// plane.add(camera)
 let chunkManager, plane, terrainSampleDebug, flightPause, sceneryMeshes, sceneryShadows
 let clouds, cloudShadows
 
@@ -1085,9 +1013,37 @@ function applyWorldSeed(seed) {
 	}
 
 	chunkManager.setSeed(seed)
+	liftPlaneAboveTerrain()
+}
+
+// Regenerates every desired chunk after a ?gui=1 terrain parameter change.
+function regenerateTerrain() {
+	if (!chunkManager) return
+	chunkManager.onParamsChange()
+	liftPlaneAboveTerrain()
+}
+
+// After the terrain changes under the airplane, lifts it above the new ground
+// and resets the smoothed corridor so the jump does not trigger a brake.
+function liftPlaneAboveTerrain() {
 	const floor = getSpawnAltitude(plane.position.x, plane.position.z)
 	if (plane.position.y < floor) plane.position.y = floor
 	plane.resetTerrainState()
+}
+
+// Compiles the programs that would otherwise compile on first use in flight:
+// near scenery and cloud meshes stay hidden until something enters their
+// band, and cloud shadows render only while a light is up. Program variants
+// depend on the bound render target, so the scene compiles against the
+// offscreen buffer PostProcessing renders it into. With
+// KHR_parallel_shader_compile the driver links them in the background.
+function precompileShaders() {
+	const target = renderer.getRenderTarget()
+	renderer.setRenderTarget(postProcessing.composer.inputBuffer)
+	const compiles = [renderer.compileAsync(scene, camera)]
+	if (cloudShadows) compiles.push(cloudShadows.compileAsync())
+	renderer.setRenderTarget(target)
+	return Promise.all(compiles)
 }
 
 // Bakes every scenery type into the impostor atlas, with the wood detail.
@@ -1100,7 +1056,7 @@ function bakeImpostors() {
 }
 
 function init(assets) {
-	plane = new Plane(assets.planeModel, null, params, camera, airplaneModel)
+	plane = new Plane(assets.planeModel, params, camera, airplaneModel)
 
 	if (worldFeatures.scenery) {
 		assets.impostorMaterial = createImpostorMaterial(
@@ -1192,9 +1148,6 @@ function init(assets) {
 			domElement: renderer.domElement,
 		})
 	}
-	// plane.addCamera(camera)
-	// plane.camera = camera
-	// plane.add(camera)
 
 	// start rendering
 	requestAnimationFrame(tic)
@@ -1219,7 +1172,6 @@ timer.connect(document)
 // measures fog distance from the eye.
 scene.fog = new THREE.Fog(0x000000, params.fog.near, params.fog.far)
 scene.background = new THREE.Color()
-// scene.background = new THREE.Color('white')
 
 const dayNight = new DayNight({
 	scene,
@@ -1251,10 +1203,6 @@ function tic(timestamp) {
 	if (isFlightPaused) flightPause.update()
 	else plane.update(Math.min(deltaTime, 0.016))
 	terrainSampleDebug?.update(plane.flightCorridor?.samples)
-	// camera.position.copy(plane.position.clone())
-	// camera.position.z += -20
-	// camera.position.y += 10
-	// camera.lookAt(plane.position)
 
 	// update uniforms values
 	uniforms.uTime.value = time
@@ -1272,8 +1220,6 @@ function tic(timestamp) {
 	// After SceneryShadows picked the shadowing light.
 	cloudShadows?.update(sceneryShadows.light, plane)
 
-	// controls.update(deltaTime)
-
 	// The GUI speedEffect slider holds post-processing at least at that level,
 	// even while the flight is paused.
 	postProcessing.setSpeedEffect(
@@ -1286,8 +1232,6 @@ function tic(timestamp) {
 
 	requestAnimationFrame(tic)
 }
-
-// requestAnimationFrame(tic)
 
 window.addEventListener('resize', handleResize)
 

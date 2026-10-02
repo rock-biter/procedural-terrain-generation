@@ -56,10 +56,6 @@ export default class ChunkWorkerPool {
 		return this.workers.length
 	}
 
-	get busy() {
-		return this.workers.filter((state) => state.resolve !== null).length
-	}
-
 	run(request) {
 		const state = this.workers.find(
 			(workerState) => workerState.resolve === null,

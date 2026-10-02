@@ -13,17 +13,17 @@ This document covers user-visible startup, flight input, camera behavior, audio,
 | `loader`       | `index.html` and `main.js` | Full startup loading state.                                    |
 | `progress`     | `index.html` and `main.js` | Width-based asset progress indicator.                          |
 | `play`         | `index.html` and `main.js` | Starts movement, audio, camera transition, and flight effects. |
-| `sound-toggle` | `index.html` and `main.js` | Toggles soundtrack volume between `0.1` and `0`.               |
+| `sound-toggle` | `index.html` and `main.js` | Mutes or unmutes the soundtrack (volume `0.1` or `0`).         |
 
 Changing an ID requires updating both files. UI classes are Tailwind utilities in `index.html`; [`style.css`](../style.css) imports Tailwind and prevents document scrolling.
 
 ## Loading Flow
 
-1. The module starts soundtrack, airplane, and wood-grain texture requests with a shared `THREE.LoadingManager` (the texture is shared by scenery and clouds). The terrain normal maps load independently; the boat request is disabled by `worldFeatures`.
+1. The module starts the airplane and white oak wood detail texture requests with a shared `THREE.LoadingManager` (the texture is shared by scenery and clouds). The soundtrack is not part of it: its media element buffers in the background and never delays startup. The terrain normal maps load independently; the boat request is disabled by `worldFeatures`.
 2. `onStart` reveals the loader.
 3. `onProgress` animates the progress width from loaded item count divided by total item count.
 4. `onLoad` hides the canvas, registers the sound toggle, and fades out the loader.
-5. After the loader fade, `init(assets)` bakes the scenery impostor atlas, starts the scene, and the play action fades in.
+5. After the loader fade, `init(assets)` bakes the scenery impostor atlas and starts the scene, shader precompilation starts in the background, and the play action fades in.
 6. The canvas fades in while the scene is already rendering.
 
 The current flow has no explicit asset error handler. A failed startup-critical request can therefore leave the experience without a useful recovery message.
@@ -32,10 +32,10 @@ The current flow has no explicit asset error handler. A failed startup-critical 
 
 The play action is the required user gesture for audio and movement:
 
-- Start the looping soundtrack when the debug GUI (`?gui=1`) is disabled.
+- Start the looping soundtrack when the debug GUI (`?gui=1`) is disabled. A failed or blocked playback only logs a warning; the flight starts anyway.
 - Animate plane `baseSpeed` and `speed` from the initial values to `55`.
 - Hide the play action.
-- Move camera Z from `-1` to `-18` on desktop or `-16` on mobile.
+- Move camera Z from `-1` to `-18` on desktop or `-16` on mobile in one second with an `expo.out` ease.
 - Call `plane.addEffect()` after the camera transition.
 
 Keep audio playback behind a user gesture to comply with browser autoplay policies. If startup is redesigned, verify that playback still begins from a direct interaction.
@@ -76,7 +76,7 @@ With `?debug=1`, [`src/flightPauseDebug.js`](../src/flightPauseDebug.js) registe
 - Automatic terrain braking applies only above cruise speed and while the sampled target minimum is above the airplane's actual altitude. With that collision risk present, relief over `10` units smoothly reduces the excess speed; at `30` units of relief the reduction grows to `25%` for a `20`-unit altitude deficit and `45%` for a severe `40`-unit deficit.
 - While that same collision risk is present, a target minimum that rises more than `8` units above the smoothed minimum also triggers a temporary automatic brake pulse. It reaches `0.65` for a `30`-unit jump, reducing a full boost from `165` to `93.5`; the wheel brake remains stronger at `1`. Camera Z and FOV move in the braking direction and the acceleration trail is suppressed. Both automatic braking effects clear as soon as the airplane reaches the target minimum; cruise speed and manual braking remain unchanged.
 - When a downward command would cross the smoothed minimum altitude, its negative vertical velocity is cancelled. The plane holds the floor without repeatedly descending into and climbing out of it; if the floor is rising, automatic climb remains gradual.
-- Flight altitude is capped at Y `95`. With the follow camera `7` units above the airplane, the eye stays below about Y `102`, under the cloud layer (cloud bases from Y `130` to `190`). The airplane can never reach a cloud and always sees them from below.
+- Flight altitude is capped at Y `95`. With the follow camera `7` units above the airplane, the eye stays below about Y `102`, under the cloud layer (cloud bases from Y `197` to `257`). The airplane can never reach a cloud and always sees them from below.
 - After `addEffect()`, boost and braking change speed, camera Z, and FOV in opposite directions; values ease back toward the base state over time. Braking does not activate the acceleration-driven trail contribution.
 - `Plane.addEffect()` currently uses Z `-18` as its follow/effect baseline on every viewport, even after the mobile play transition ends at `-16`.
 - The airplane mesh roll and two wing trails visualize turning and acceleration. At cruise speed, only pronounced turns reveal a trail; curvature alone can reach at most `75%` of full width, with the outer wing's stripe wider. Increasing actual speed above cruise can reach full width at maximum boost. Each recorded section keeps its width until it leaves the approximately `60`-unit trail. The world-space path follows the airplane's position and wing bank at emission. Each stripe begins and ends at zero thickness, grows wider near the middle, and has irregular inner and outer edges with a thin dark outline. The stripes drift sideways in slightly different gentle waves: the offsets are zero for level wings, grow with the bank recorded at emission, and ramp up along the trail from zero at the wings. Very thin projected sections become slightly translucent to reduce flicker.
@@ -84,7 +84,7 @@ With `?debug=1`, [`src/flightPauseDebug.js`](../src/flightPauseDebug.js) registe
 - The propeller turns continuously while flying, at `params.propeller.speed` turns per second (default `4`), and stops during the debug flight pause. With `?gui=1`, **Airplane > Propeller speed** changes it live (`0`–`20`).
 - With `?gui=1`, the **Trails** folder tunes ribbon width, white line width, black border width, separate turbulence frequency and amplitude for the inner and outer edges, and frequency and amplitude of the line oscillation. Changes affect the visible trail immediately.
 - A continuous day/night cycle (default `240` seconds per day, starting in the morning) changes the sky, lighting, fog, and distant terrain color. The sun and moon rise and set behind the curved edge of the world, and at dusk distant terrain toward the sun stays lit after nearby terrain darkens. The wing trails follow the cycle: pink at dawn, orange at sunset, white by day, and blue at night. The airplane has no navigation lights. See [Rendering](RENDERING.md#daynight-cycle).
-- A light blur and chromatic aberration are always present at the viewport edges, matching a `0.3` speed effect. Boosting grows them from the center toward the edges up to full strength, and they ease back to that minimum as the boost fades. Braking does not raise them. The FOV and camera-distance kick still starts from the base view. See [Rendering](RENDERING.md#post-processing-pipeline) for parameters.
+- A light blur and chromatic aberration are always present at the viewport edges, matching a `0.4` speed effect. Boosting grows them from the center toward the edges up to full strength, and they ease back to that minimum as the boost fades. Braking does not raise them. The FOV and camera-distance kick still starts from the base view. See [Rendering](RENDERING.md#post-processing-pipeline) for parameters.
 
 `window.__INFINITE_WORLD__.getFlightStats()` exposes read-only position, speed, manual and visual speed effects, terrain-brake effect, pointer ratio, vertical input, vertical velocity, camera state, and terrain-corridor values for browser checks. Corridor diagnostics include all four sampled heights, their speed-scaled distances, target and smoothed minimum altitudes, collision-risk state, minimum-altitude jump, brake impulse, and target and smoothed terrain slowdowns.
 
@@ -92,9 +92,9 @@ Changes to movement should be checked together with chunk tracking because `Chun
 
 ## Audio
 
-- `THREE.AudioListener` is attached to the camera.
-- The soundtrack is non-positional, loops continuously, and starts at volume `0.1`.
-- The sound toggle changes volume and its own opacity; it does not pause or stop the audio buffer.
+- [`src/soundtrack.js`](../src/soundtrack.js) streams the music through an `Audio` media element (`preload = 'auto'`, or `'none'` with `?gui=1`, which never plays it). It is not decoded into memory up front and is not part of the loading manager.
+- The first `play()`, inside the play action, creates an `AudioContext` and routes the element through a gain node, because iOS ignores the volume of media elements. The soundtrack loops continuously at volume `0.1`.
+- The sound toggle sets the gain to `0` or `0.1` and changes its own opacity; it does not pause or stop the stream. Muting before the play action applies once playback starts.
 - The initial toggle state is audible.
 
 See [Assets](ASSETS.md) for the soundtrack path and unresolved provenance metadata.
