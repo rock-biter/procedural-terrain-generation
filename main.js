@@ -289,7 +289,8 @@ const params = {
 	// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
 	terrainNormals: createTerrainNormalSettings(),
 	// Renderer tone mapping operator (a THREE.*ToneMapping constant) and exposure.
-	toneMapping: { mode: THREE.NoToneMapping, exposure: 1 },
+	// A tone-mapped mode switches the composer to half-float buffers.
+	toneMapping: { mode: THREE.ACESFilmicToneMapping, exposure: 1 },
 	postProcessing: {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,

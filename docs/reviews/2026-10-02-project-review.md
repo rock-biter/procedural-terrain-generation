@@ -195,6 +195,8 @@ Verification:
 - Captures at a held frame against the build before Phase 3 at the same airplane position: day `49.9` dB PSNR (`0.008%` of pixels off by more than `16` levels), dusk `43.6` dB, and night `43.2` dB, within the run-to-run noise; no z-fighting at the horizon, stars and discs unchanged. The debug wireframe overlay (`?gui=1`) looks the same, with continuous edges.
 - Not checked: real phones and Windows or Linux GPUs, and `powerPreference` on a dual-GPU laptop.
 
+Also on 2026-10-03, by owner decision: ACES Filmic became the default tone mapping. Its half-float composer buffers cost about `23%` more frame time than `NoToneMapping` at `3840 × 2160` (`39.9` against `32.6` ms, alternated runs while another Chrome tab loaded the GPU, so the absolute values are higher than in the table above). Captures at `?time=0.35`, `0.72`, and `0.9` show no artifact; the palettes, tuned without tone mapping, look slightly less saturated by day, more saturated at dusk, and darker at night.
+
 ### Phase 4: Refactor
 
 O1–O10, O12, T1–T4, B6, B8, B9, B12, C9, C10.
