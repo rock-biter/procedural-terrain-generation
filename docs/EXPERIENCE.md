@@ -68,7 +68,7 @@ With `?debug=1`, [`src/flightPauseDebug.js`](../src/flightPauseDebug.js) registe
 ## Movement And Camera
 
 - `Plane` moves forward along its local positive Z axis.
-- `main.js` clamps the movement delta passed to `Plane.update()` to `0.016` seconds.
+- `main.js` clamps the movement delta passed to `Plane.update()` to `0`–`0.016` seconds; after a hidden tab the timer can report `0` or a negative first delta, and `Plane` treats a zero delta as no vertical motion.
 - The camera is parented to `Plane`, so world traversal follows the player automatically.
 - The plane samples terrain at its current position and three points along its heading. At cruise speed those points are `20.625`, `41.25`, and `61.875` units ahead; they expand smoothly to `41.25`, `82.5`, and `123.75` units at maximum boost.
 - The highest sampled terrain point plus a fixed `10`-unit clearance sets the target minimum altitude. That target rises promptly and falls more slowly; current terrain still provides the hard collision floor.

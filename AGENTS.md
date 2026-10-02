@@ -42,7 +42,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 
 ## Source Map
 
-- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume.
+- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume; [`src/frameStats.js`](src/frameStats.js) owns the frame telemetry behind `window.__INFINITE_WORLD__.getRenderStats()` (frame and stage times, whole-frame draw counters, GPU time).
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
 - [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, the heading-biased desired set and per-frame commit budget (`CHUNK_STREAMING`), the worker count, heading sectors, forward-shifted LOD, and the radial scenery range.
 - [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and the three-free terrain buffers shared by tests and workers; [`src/chunkTopology.js`](src/chunkTopology.js) owns the per-LOD shared index and uv attributes and the chunk `BufferGeometry` wrapping and disposal.
@@ -79,7 +79,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, terrain-buffer, and encoded-asset coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, terrain-buffer, encoded-asset, and frame-telemetry coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

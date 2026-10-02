@@ -40,7 +40,7 @@ Do not edit or commit generated files under `dist/`.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
 - Textures and the airplane GLB textures are KTX2 (Basis ETC1S). three's `KTX2Loader` transcodes them with its own `basis_transcoder.js` and `.wasm`, which Vite bundles. `@gltf-transform/core`, `@gltf-transform/extensions`, and `meshoptimizer` are dev dependencies used only by `scripts/encode-assets.mjs`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
-- Node's built-in test runner covers pure chunk-policy, flight-policy, day/night-policy, shadow-policy, trail-history, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source geometry, impostor-catalog source sharing, near-scenery-mesh selection, deterministic terrain-buffer behavior, and the encoded assets (every texture master has its KTX2 file, the airplane GLBs require `KHR_texture_basisu`) under `test/`.
+- Node's built-in test runner covers pure chunk-policy, flight-policy, day/night-policy, shadow-policy, trail-history, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source geometry, impostor-catalog source sharing, near-scenery-mesh selection, deterministic terrain-buffer behavior, the frame telemetry, and the encoded assets (every texture master has its KTX2 file, the airplane GLBs require `KHR_texture_basisu`) under `test/`.
 - Vite bundles `src/chunkGeometry.worker.js` as a module worker; no separate worker build command is required.
 - The repository currently has no formatter, linter, browser test suite, or CI workflow.
 
@@ -81,6 +81,7 @@ When updating dependencies, keep `package.json` and `pnpm-lock.yaml` in sync and
 - `?seed=<value>` fixes the world seed for topology, biomes, scenery, and clouds. The value is trimmed, and a blank or missing value falls back to a random eight-character seed.
 - `?plane=<key>` picks the airplane model from `AIRPLANE_MODELS` in `src/airplaneModels.js`: `biplane` (default) or `toy`; unknown keys use the default.
 - `?debug=1` enables the terrain-sample markers and the flight pause, and is the only case that downloads `FlightPauseDebug` and `OrbitControls`. After the play intro, **P** freezes the airplane while global time keeps running and switches the camera to `OrbitControls`. See [Experience](EXPERIENCE.md#debug-flight-pause). `window.__INFINITE_WORLD__.getDebugStats()` reports the pause state.
+- `window.__INFINITE_WORLD__.getRenderStats()` reports frame intervals, main-thread time per frame-loop stage, the draw calls and triangles of the whole last frame, and GPU time where the browser has the timer extension; the first call starts the GPU timing. See [Frame Telemetry](QUALITY.md#frame-telemetry) before comparing numbers.
 
 ## Open Questions
 

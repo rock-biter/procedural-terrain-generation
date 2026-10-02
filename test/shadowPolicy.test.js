@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
 	CLOUD_SHADOW_DEFAULTS,
 	CLOUD_SHADOW_PRESETS,
 	SCENERY_SHADOW_CASCADE_COUNT,
+	SCENERY_SHADOW_MAX_TAPS,
 	SCENERY_SHADOW_PRESETS,
 	createCloudShadowSettings,
 	createSceneryShadowSettings,
@@ -13,6 +15,7 @@ import {
 	getCascadeDepthRange,
 	getCascadeSphere,
 	getLightAngle,
+	getSceneryShadowTapDefines,
 	getShadowStrength,
 	hasLightDirectionChanged,
 	selectShadowLight,
@@ -133,6 +136,44 @@ test('cascades render on staggered frames unless forced', () => {
 	const third = [0, 1, 2, 3, 4, 5].filter((frame) => shouldRenderCascade(frame, 1, 3))
 	assert.deepEqual(third, [2, 5])
 	assert.equal(shouldRenderCascade(0, 1, 3, true), true)
+})
+
+test('shadow tap defines cover both cascades and reject unsupported counts', () => {
+	assert.deepEqual(getSceneryShadowTapDefines(8, 4), {
+		SCENERY_SHADOW_TAPS_NEAR: 8,
+		SCENERY_SHADOW_TAPS_FAR: 4,
+	})
+	assert.deepEqual(getSceneryShadowTapDefines(2), {
+		SCENERY_SHADOW_TAPS_NEAR: 2,
+		SCENERY_SHADOW_TAPS_FAR: 2,
+	})
+	for (const taps of [0, SCENERY_SHADOW_MAX_TAPS + 1, 2.5]) {
+		assert.throws(() => getSceneryShadowTapDefines(taps), RangeError)
+	}
+	for (const preset of Object.values(SCENERY_SHADOW_PRESETS)) {
+		const { terrain, mesh, impostor } = preset.taps
+		assert.doesNotThrow(() => getSceneryShadowTapDefines(...terrain))
+		assert.doesNotThrow(() => getSceneryShadowTapDefines(mesh))
+		assert.doesNotThrow(() => getSceneryShadowTapDefines(impostor))
+	}
+})
+
+test('the GLSL PCF kernel is the golden-angle spiral', () => {
+	const glsl = readFileSync(
+		new URL('../src/shaders/scenery-shadow-pars-fragment.glsl', import.meta.url),
+		'utf8',
+	)
+	const table = glsl.match(/SCENERY_SHADOW_SPIRAL\[(\d+)\] = vec2\[\d+\]\(([^;]*)\);/)
+	assert.ok(table, 'SCENERY_SHADOW_SPIRAL table')
+	assert.equal(Number(table[1]), SCENERY_SHADOW_MAX_TAPS)
+	const taps = [...table[2].matchAll(/vec2\(([-\d.]+), ([-\d.]+)\)/g)]
+	assert.equal(taps.length, SCENERY_SHADOW_MAX_TAPS)
+	taps.forEach(([, x, y], i) => {
+		const radius = Math.sqrt(i + 0.5)
+		const angle = i * 2.39996323
+		assert.ok(Math.abs(Number(x) - radius * Math.cos(angle)) < 1e-6, `tap ${i} x`)
+		assert.ok(Math.abs(Number(y) - radius * Math.sin(angle)) < 1e-6, `tap ${i} y`)
+	})
 })
 
 test('cloud shadow settings are fresh copies of the device preset', () => {

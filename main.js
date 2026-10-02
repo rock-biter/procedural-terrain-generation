@@ -55,6 +55,7 @@ import {
 import { AIRPLANE_MODELS, getAirplaneModelKey } from './src/airplaneModels'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
+import FrameStats from './src/frameStats'
 import Soundtrack from './src/soundtrack'
 import TerrainSampleDebug from './src/terrainSampleDebug'
 import {
@@ -180,11 +181,15 @@ loaderManager.onStart = () => {
 // 2x MSAA buffer is the only antialiasing. The canvas only receives the
 // finished full-screen composite, so it needs neither MSAA nor depth. It is
 // created before the asset requests: the KTX2 loader picks its GPU format
-// from it.
+// from it. The depth buffer is the standard one: a logarithmic depth buffer
+// makes every material write gl_FragDepth, which disables early depth
+// rejection, so hidden terrain would still run its whole fragment shader
+// (camera near plane below). On laptops with two GPUs, high-performance asks
+// for the discrete one.
 const renderer = new THREE.WebGLRenderer({
 	antialias: false,
 	depth: false,
-	logarithmicDepthBuffer: true,
+	powerPreference: 'high-performance',
 })
 const ktx2Loader = initKTX2Loader(renderer, loaderManager)
 
@@ -965,10 +970,12 @@ const sizes = {
  * Camera
  */
 const fov = isMobile ? 80 : 60
+// Near 1 keeps the 24-bit depth step under 0.25 units out to the fog end
+// (about 2000 units); nothing comes within one unit of the chase camera.
 const camera = new THREE.PerspectiveCamera(
 	fov,
 	sizes.width / sizes.height,
-	0.1,
+	1,
 	10000,
 )
 camera.position.set(0, 7, -1)
@@ -987,6 +994,8 @@ const postProcessing = new PostProcessing(
 	camera,
 	params.postProcessing,
 )
+// Frame time, stage time, draw counters, and GPU time for getRenderStats().
+const frameStats = new FrameStats(renderer)
 handleResize()
 
 const chunkSize = 256
@@ -1004,6 +1013,7 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getShadowStats: () => sceneryShadows?.getStats() ?? null,
 	getCloudStats: () => clouds?.getStats() ?? null,
 	getCloudShadowStats: () => cloudShadows?.getStats() ?? null,
+	getRenderStats: () => frameStats.getStats(),
 })
 
 // Height above the terrain (or the sea) the airplane starts at, and the floor
@@ -1206,6 +1216,7 @@ const dayNight = new DayNight({
  * frame loop
  */
 function tic(timestamp) {
+	frameStats.beginFrame(timestamp)
 	timer.update(timestamp)
 
 	/**
@@ -1220,8 +1231,10 @@ function tic(timestamp) {
 	// The debug pause freezes only the flight; global time keeps advancing.
 	const isFlightPaused = flightPause?.paused ?? false
 	if (isFlightPaused) flightPause.update()
-	else plane.update(Math.min(deltaTime, 0.016))
+	// The timer's first delta after the tab is shown again can be negative.
+	else plane.update(THREE.MathUtils.clamp(deltaTime, 0, 0.016))
 	terrainSampleDebug?.update(plane.flightCorridor?.samples)
+	frameStats.mark('flight')
 
 	// update uniforms values
 	uniforms.uTime.value = time
@@ -1229,15 +1242,20 @@ function tic(timestamp) {
 
 	const dayNightState = dayNight.update(deltaTime)
 	plane.setDayNight(dayNightState)
+	frameStats.mark('dayNight')
 
 	chunkManager.updateChunks()
+	frameStats.mark('chunks')
 	// After this frame's scenery commits, with the camera that renders it.
 	sceneryMeshes?.update(chunkManager.chunks, chunkSize, camera)
+	frameStats.mark('scenery')
 	clouds?.update(plane.position, camera)
+	frameStats.mark('clouds')
 	// Shadow maps for this frame's scenery and airplane pose, before the main pass.
 	sceneryShadows.update(chunkManager.chunks, chunkSize, plane, dayNightState)
 	// After SceneryShadows picked the shadowing light.
 	cloudShadows?.update(sceneryShadows.light, plane)
+	frameStats.mark('shadows')
 
 	// The GUI speedEffect slider holds post-processing at least at that level,
 	// even while the flight is paused.
@@ -1248,6 +1266,8 @@ function tic(timestamp) {
 		),
 	)
 	postProcessing.render(deltaTime)
+	frameStats.mark('render')
+	frameStats.endFrame()
 
 	requestAnimationFrame(tic)
 }

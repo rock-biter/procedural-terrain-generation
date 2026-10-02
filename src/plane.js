@@ -582,7 +582,9 @@ export default class Plane extends Object3D {
 			this.flightCorridor.collisionAltitude,
 			this.flightCorridor.maximumAltitude,
 		)
-		this.actualVerticalSpeed = (this.position.y - previousAltitude) / dt
+		// A zero delta (THREE.Timer reports one while the page is hidden) would
+		// make this NaN, and the pitch lerp would keep the NaN for good.
+		this.actualVerticalSpeed = dt > 0 ? (this.position.y - previousAltitude) / dt : 0
 
 		if (
 			(this.position.y === this.flightCorridor.maximumAltitude &&

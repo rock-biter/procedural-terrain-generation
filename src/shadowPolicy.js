@@ -6,6 +6,21 @@
 
 // Must match the array sizes in scenery-shadow-pars-fragment.glsl.
 export const SCENERY_SHADOW_CASCADE_COUNT = 2
+// Length of the precomputed PCF kernel in scenery-shadow-pars-fragment.glsl.
+export const SCENERY_SHADOW_MAX_TAPS = 16
+
+// Material defines with the PCF sample counts of a scenery shadow receiver,
+// near and far cascade. As defines they are compile-time loop bounds and part
+// of the program cache key, so receivers with different counts never share a
+// program.
+export function getSceneryShadowTapDefines(near, far = near) {
+	for (const taps of [near, far]) {
+		if (!Number.isInteger(taps) || taps < 1 || taps > SCENERY_SHADOW_MAX_TAPS) {
+			throw new RangeError(`Shadow taps must be an integer from 1 to ${SCENERY_SHADOW_MAX_TAPS}: ${taps}`)
+		}
+	}
+	return { SCENERY_SHADOW_TAPS_NEAR: near, SCENERY_SHADOW_TAPS_FAR: far }
+}
 
 // Per device:
 // - `cascades`: disk `radius` (world units) of terrain each cascade covers,

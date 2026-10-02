@@ -24,6 +24,7 @@ import {
 	createShadowedLightsFragment,
 	createUnshadowedLightsFragment,
 } from '../curvedLights'
+import { getSceneryShadowTapDefines } from '../shadowPolicy'
 import { getCatalogDefines } from './impostorCatalogs'
 import { getViewDefines, isSameViews } from './octahedral'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
@@ -120,7 +121,11 @@ function buildImpostorMaterial(
 	}
 	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
 	// Keeps the unshadowed program apart from the shadowed one.
-	if (!receiveShadows) material.defines.SCENERY_NO_SHADOWS = ''
+	if (receiveShadows) {
+		Object.assign(material.defines, getSceneryShadowTapDefines(shadowTaps))
+	} else {
+		material.defines.SCENERY_NO_SHADOWS = ''
+	}
 
 	// Lets a re-bake swap the atlas without recompiling the material.
 	material.userData.atlas = atlas
@@ -133,7 +138,7 @@ function buildImpostorMaterial(
 	}
 	const lightsFragment = receiveShadows
 		? createShadowedLightsFragment(
-				`getSceneryShadow(impostorShadowPosition, vShadowSelfBias, ${shadowTaps}, ${shadowTaps}) * getCloudShadow(impostorShadowPosition)`,
+				'getSceneryShadow(impostorShadowPosition, vShadowSelfBias) * getCloudShadow(impostorShadowPosition)',
 			)
 		: createUnshadowedLightsFragment(
 				impostorUniforms.uSceneryAmbientScale ? 'uSceneryAmbientScale' : '1.0',

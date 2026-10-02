@@ -10,6 +10,7 @@ import sceneryShadowParsFragment from './shaders/scenery-shadow-pars-fragment.gl
 import cloudShadowParsFragment from './shaders/cloud-shadow-pars-fragment.glsl'
 import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
 import { createShadowedLightsFragment } from './curvedLights'
+import { getSceneryShadowTapDefines } from './shadowPolicy'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import { getHeight } from './chunkGeometry'
 import { disposeChunkGeometry } from './chunkTopology'
@@ -73,6 +74,9 @@ export default class Chunk extends Mesh {
 	}
 
 	onBeforeCompile() {
+		// Every chunk shares the material and the same tap counts.
+		const [nearTaps, farTaps] = this.params.shadows.taps.terrain
+		this.material.defines = getSceneryShadowTapDefines(nearTaps, farTaps)
 		this.material.onBeforeCompile = (shader) => {
 			if (this.uniforms) {
 				shader.uniforms = {
@@ -114,11 +118,10 @@ export default class Chunk extends Mesh {
 				colorFragment,
 			)
 			// Terrain casts no shadows, so it needs no self-shadow bias.
-			const [nearTaps, farTaps] = this.params.shadows.taps.terrain
 			shader.fragmentShader = shader.fragmentShader.replace(
 				'#include <lights_fragment_begin>',
 				createShadowedLightsFragment(
-					`getSceneryShadow(vShadowPosition, 0.0, ${nearTaps}, ${farTaps}) * getCloudShadow(vShadowPosition)`,
+					'getSceneryShadow(vShadowPosition, 0.0) * getCloudShadow(vShadowPosition)',
 				),
 			)
 			shader.fragmentShader = shader.fragmentShader.replace(

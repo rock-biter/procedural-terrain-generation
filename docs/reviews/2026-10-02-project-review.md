@@ -2,14 +2,14 @@
 
 ## Purpose
 
-This is a snapshot of a full-project review: organization, code reuse, bottlenecks, and general optimizations. It records every finding with its location and status, and the phased plan that follows from them. Phase 1 was implemented on the same day; its items are marked **Done**.
+This is a snapshot of a full-project review: organization, code reuse, bottlenecks, and general optimizations. It records every finding with its location and status, and the phased plan that follows from them. Phase 1 was implemented on the same day; its items are marked **Done**, as are the Phase 2 and Phase 3 items implemented since.
 
 This document does not replace the owning guides. Current behavior lives in [Architecture](../ARCHITECTURE.md), [Terrain](../TERRAIN.md), [Rendering](../RENDERING.md), [Experience](../EXPERIENCE.md), and [Assets](../ASSETS.md); tracked debt lives in the [Roadmap](../ROADMAP.md). Promote an open item into the roadmap register when it becomes part of a milestone. Line numbers refer to the code at review time and drift as the code changes.
 
 ## Method And Evidence
 
 - Five parallel read-only reviews, one per area: bootstrap and post-processing; terrain streaming; impostors and shadows; clouds and airplane; assets, build, tests, and docs. The key claims were re-checked in the code before being recorded here.
-- **Measured** values come from Node 24 on an Apple M1 (worker jobs, scheduler simulation, noise micro-benchmarks), from `vite build`, from re-encoding assets, or from headless Chrome on the same machine (ANGLE Metal). Values marked **est.** are estimates. No GPU frame time was profiled; that remains [`OBS-001`](../ROADMAP.md#known-problem-register).
+- **Measured** values come from Node 24 on an Apple M1 (worker jobs, scheduler simulation, noise micro-benchmarks), from `vite build`, from re-encoding assets, or from headless Chrome on the same machine (ANGLE Metal). Values marked **est.** are estimates. No GPU frame time was profiled at review time; Phase 3 (2026-10-03) added the telemetry and the first measurements ([`OBS-001`](../ROADMAP.md#known-problem-register), [Phase 3](#phase-3-measurement-and-gpu-experiments)).
 - `[KNOWN]` marks findings the roadmap or the architecture guide already listed.
 
 ## Summary
@@ -36,7 +36,7 @@ The largest margins were in five places:
 
 | Status | Meaning |
 | --- | --- |
-| Done | Implemented and verified in Phase 1 (2026-10-02). |
+| Done | Implemented and verified (Phase 1 on 2026-10-02 unless the row or the plan says otherwise). |
 | Partial | Part implemented; the rest is described in the row. |
 | Open | Not started. |
 | Decision | Needs an owner decision before work starts. |
@@ -58,18 +58,19 @@ The largest margins were in five places:
 | B11 | The cloud overlap test checked only the 8 neighbor cells; larger sizes could overlap undetected. The new default sizes (`bank 1.69`) made it happen: about 2 pairs per 79,000 clouds, up to 15 units deep. | `cloudPlacement.js` | Done (with the new cloud defaults): `getCloudNeighbourRing()` derives the ring from the largest possible footprint (2 cells by default); test added. |
 | B12 | A worker `error` restarts the worker with no retry cap, so a module that fails to load loops forever. | `chunkWorkerPool.js` | Open: cap and back off. |
 | B13 | No favicon, so every page load logged a `favicon.ico` 404. | `index.html` | Done: empty data-URI icon. |
+| B14 | A zero frame delta (`THREE.Timer` reports `0` while the page is hidden) made the vertical speed `0 / 0`, and the pitch `lerp()` kept the NaN, so the airplane disappeared until the page was reloaded. A negative first delta after the tab is shown again also reached `plane.update()`. Found in Phase 3, when a controlled benchmark clock produced such deltas. | `plane.js` `updateAltitude()`, `main.js` `tic()` | Done (2026-10-03): the vertical speed is `0` for a zero delta, and `tic()` clamps the delta to `0`–`0.016`. |
 
 ## 2. GPU Cost Per Frame
 
 | ID | Finding | Where | Status |
 | --- | --- | --- | --- |
-| G1 | `logarithmicDepthBuffer` makes every built-in material write `gl_FragDepth`, which disables early-Z. Hidden terrain fragments still run biome noise, normal maps, and up to 12 PCF taps. | `main.js` renderer | Open: measure with `false` and near `0.5–1`, or `reversedDepthBuffer: true`. The wireframe would then need `polygonOffset`. Likely the largest single GPU gain. |
+| G1 | `logarithmicDepthBuffer` makes every built-in material write `gl_FragDepth`, which disables early-Z. Hidden terrain fragments still run biome noise, normal maps, and up to 12 PCF taps. | `main.js` renderer | Done (2026-10-03): standard depth with near `1` (one depth step below `0.25` units out to the fog end), `-10%` frame time. Reversed depth would need a float depth buffer in the composer and `EXT_clip_control`, so it was not needed. Polygon offset does not apply to lines, so the wireframe pulls its fragment depth by `0.1%` of the distance instead. |
 | G2 | With `idleSpeedEffect = 0.4` the composer never bypasses, yet the canvas had 4x MSAA and depth (about 130 MB at 2560×1600), and the grain was a separate blended full-screen pass. | `main.js`, `postProcessing.js` | Done: canvas `antialias: false, depth: false`; grain is the last effect of the `EffectPass`; the bypass path is removed. |
 | G3 | Sea pixels evaluated 7–13 land-only `snoise()` calls whose results were masked. | `color-fragment.glsl` | Partial: land block inside `if (wPosition.y >= 0.1)`, identical output. `getBiomeValue()` (3 samples) stays outside for `fwidth()`; an analytic derivative would remove it too. |
-| G4 | PCF computes `cos`/`sin` per tap and per cascade (16–24 transcendentals per terrain pixel near the airplane). | `scenery-shadow-pars-fragment.glsl` | Open: constant Vogel offsets, one rotation `mat2` per pixel, taps as defines (also fixes the program-cache-key gap, O12). |
-| G5 | The airplane has 183k triangles and is drawn in the main pass and the near cascade every frame. | `plane-toy-2.glb`, `sceneryShadows.js` | Open: a 2–5k-triangle shadow caster; simplify the GLB (keep the propeller UV charts). |
+| G4 | PCF computes `cos`/`sin` per tap and per cascade (16–24 transcendentals per terrain pixel near the airplane). | `scenery-shadow-pars-fragment.glsl` | Done (2026-10-03): a constant 16-tap spiral table, one rotation `mat2` per pixel for both cascades, and tap counts as material defines (`getSceneryShadowTapDefines()`); `-0.5` ms per frame, identical shadows. |
+| G5 | The airplane has 183k triangles and is drawn in the main pass and the near cascade every frame. | `plane-toy-2.glb`, `sceneryShadows.js` | Decision: a 2–5k-triangle shadow caster is invisible; simplifying the drawn GLB (keeping the propeller UV charts) changes the look and needs approval. |
 | G6 | The trail ran 5 `snoise()` calls before its discard, over the full ribbon, even at cruise when nothing shows. | `plane.js` | Done: the draw range covers only segments with a stripe (none at cruise), and a conservative bound discards before the noise. |
-| G7 | The sky is shaded on every pixel before the scene (`depthTest: false`, `renderOrder = -1`). | `dayNight.js` | Open: draw last at the far plane (`xyww`) with the depth test on; upload `dip` instead of `asin()` per pixel. |
+| G7 | The sky is shaded on every pixel before the scene (`depthTest: false`, `renderOrder = -1`). | `dayNight.js` | Done (2026-10-03): drawn after the opaque meshes just inside the far plane with the depth test on, and the dip uploaded in radians; `-0.3` ms per frame. |
 | G8 | Shadow cascades used 32-bit depth plus an RGBA8 color attachment nobody writes (64 MB on desktop). | `sceneryShadows.js` | Done: `DEPTH_COMPONENT16` and `RedFormat` (24 MB). A 1024² far cascade (about 15 MB) is Open and needs a visual check. |
 | G9 | Micro costs: the normal map is fetched past its fade; impostor quad corners (21%) are discarded after 6 atlas fetches; single-frame impostors still compute 3 frames; clouds read a constant `textureLod(…, 16.0)` per fragment; light direction is normalized per fragment; `speed-effect.glsl` re-reads `inputColor`. | various shaders | Open. |
 | G10 | Cloud shadow blur computes `exp()` per tap; the map re-renders about 7.5 times per second during the day cycle. | `cloud-shadow-blur-fragment.glsl`, `cloudShadows.js` | Open (low value). |
@@ -94,7 +95,7 @@ The largest margins were in five places:
 | ID | Finding | Status |
 | --- | --- | --- |
 | M1 | The soundtrack was decoded to about 76 MB of PCM. | Done: streamed through a media element. |
-| M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Partial (Phase 2): the textures stay 2048² but are ETC1S, so they take about an eighth of their RGBA8 memory (about 8 MB instead of 67 MB, est.). The 183k triangles (G5) are Open. |
+| M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Partial (Phase 2): the textures stay 2048² but are ETC1S, so they take about an eighth of their RGBA8 memory (about 8 MB instead of 67 MB, est.). The 183k triangles wait for the G5 decision. |
 | M3 | Shadow targets: 64 MB on desktop, 16 MB on mobile. | Done: 24 MB and 6 MB (G8). |
 | M4 | Terrain index and UV depend only on LOD but are generated, transferred, uploaded, and kept per chunk: 7.16 of 17.35 MB on desktop. The CPU copies stay on the heap after upload. | Partial (Phase 2): index and uv shared per LOD (`src/chunkTopology.js`), per-chunk CPU arrays freed after upload, bounding sphere from the worker. Int16 normals and a shared XZ grid are Open. |
 | M5 | Mobile uses the same 38 MB scenery atlas as desktop. | Open: 48 px frames (about 21 MB) after an art check. |
@@ -127,7 +128,7 @@ The largest margins were in five places:
 | O9 | `plane.js` (744 lines at review time) keeps about 85 lines of trail GLSL inline, against the project convention; `project-vertex-plane.glsl` is really the trail chunk. | Open: split into `wingTrails.js`, `propeller.js`, `flightInput.js` (with `dispose()`), `followCamera.js`. |
 | O10 | 37 `.replace('#include <…>')` sites fail silently if a three.js upgrade renames a chunk. | Open: a `replaceChunk()` that throws, plus a test against `ShaderLib`. |
 | O11 | Dead code: unused imports, `uRocksColor`, `params.LOD`, `axesHelper`, `Plane` fields (`velocity`, `noise`, `finalFov`, `intialTan`, `RATIO`), `updateSpeedEffect()`, `getLODbyCoords()`, the forced-LOD path, `ChunkWorkerPool.busy`, `Chunk.applyCurvature()`, `rotateZ()`, a redundant `structuredClone`, and about 85 lines of commented-out code. | Done (`MAINT-001` updated). |
-| O12 | No material defines `customProgramCacheKey`; tap counts and the ambient scale are captured by closures, not defines, so two materials differing only in those would share a program. | Open (latent; G4 fixes the taps). |
+| O12 | No material defines `customProgramCacheKey`; tap counts and the ambient scale are captured by closures, not defines, so two materials differing only in those would share a program. | Partial: tap counts are defines since G4; the ambient scale is still a closure (latent). |
 
 ## 7. Tests, Tooling, And Documentation
 
@@ -135,7 +136,7 @@ The largest margins were in five places:
 | --- | --- | --- |
 | T1 | No lint, formatter, or CI (`QUAL-001` [KNOWN]). ESLint `no-unused-vars` would have caught most of O11; `pnpm test && pnpm build` takes about 1 s. | Open |
 | T2 | Untested: `terrainNormals.js` (imports images, not loadable in Node), `impostorArchetypes.js`, `impostorCatalogs.js`, `chunkWorkerPool.js`, and the reconcile state machine. | Open: a Node loader hook for `.glsl` and images, or pure policy splits. |
-| T3 | Documentation drift. Fixed in Phase 1 where touched: post-processing, idle level `0.4`, grain `0.035`, the sea normal map, style references, `texture:wood`, audio. Still stale: fog default (`250`–`900` in docs, `200`–`2100` in code), color-noise defaults, `skyGradientHeight`, terrain normal fade, the impostor far fade "inside the fog", tree and rock densities and cell sizes in `TERRAIN.md`, "three jobs per frame", "dependency-free" tests, the test lists in `AGENTS.md` and `DEVELOPMENT.md`. `trailHistory.js` and `terrainSampleDebug.js` are not mentioned in any guide. | Partial |
+| T3 | Documentation drift. Fixed in Phase 1 where touched: post-processing, idle level `0.4`, grain `0.035`, the sea normal map, style references, `texture:wood`, audio. Still stale: color-noise defaults, `skyGradientHeight`, terrain normal fade, the impostor far fade "inside the fog", tree and rock densities and cell sizes in `TERRAIN.md`, "three jobs per frame", "dependency-free" tests, the test lists in `AGENTS.md` and `DEVELOPMENT.md`. `trailHistory.js` and `terrainSampleDebug.js` are not mentioned in any guide. | Partial |
 | T4 | The docs total about 258 KB; finished FEAT specs in the roadmap repeat the owning guides, and the module map exists in both `AGENTS.md` and `ARCHITECTURE.md`. | Open |
 
 ## Preserve
@@ -173,6 +174,26 @@ Done on 2026-10-02: C1, C4, C6, M4 (partial), A6, then C5, C2, and A5 (partial).
 ### Phase 3: Measurement And GPU Experiments
 
 `OBS-001` telemetry first (`renderer.info.autoReset = false` with a reset at the start of `tic`, frame-time percentiles), then G1, G4, G5 with M2, G7, adaptive device pixel ratio, and `powerPreference: 'high-performance'`.
+
+Done on 2026-10-03: the telemetry (`src/frameStats.js`, `getRenderStats()`), G1, G4, G7, `powerPreference: 'high-performance'`, and B14, found while measuring. Waiting for a decision: G5 with M2 (a simplified drawn airplane changes its look) and the adaptive device pixel ratio (a product choice: minimum ratio and target frame rate).
+
+Measurements, using the deterministic method in [Quality](../QUALITY.md#comparing-builds): headless Chrome, ANGLE Metal, Apple M1, `3840 × 2160` canvas, `?seed=s762&time=0.35`, mean of frames `300`–`900` after Play, two runs per build, alternated:
+
+| Build | Mean frame time | Change |
+| --- | --- | --- |
+| Before Phase 3 (with the telemetry, which costs nothing measurable) | `21.6` ms | |
+| G1 | `19.45` ms | `-10%` |
+| G1 + G4 | `18.9` ms | `-12.5%` |
+| G1 + G4 + G7 | `18.65` ms | `-14%` |
+
+The p95 of the last build reads higher (`32` ms instead of `22`) because Chrome's headless compositor delivered more frame pairs (`~40` ms then `~0` ms); the mean, and the median of single frames, both fell. At `390 × 844` (DPR 3) the M1 is not GPU-bound (about `3` ms per frame): `3.1`–`3.4` ms became `2.9` ms. Phones remain to be measured.
+
+Verification:
+
+- `pnpm test`: 152 of 152 tests passed (frame telemetry, tap defines, and the GLSL kernel against its formula are new). `pnpm build` succeeded.
+- Headless Chrome, production build: desktop `1440 × 900` at DPR 2, mobile `390 × 844` at DPR 3 (one-tap impostor shadows), and `?debug=1` at night, with no console errors or warnings.
+- Captures at a held frame against the build before Phase 3 at the same airplane position: day `49.9` dB PSNR (`0.008%` of pixels off by more than `16` levels), dusk `43.6` dB, and night `43.2` dB, within the run-to-run noise; no z-fighting at the horizon, stars and discs unchanged. The debug wireframe overlay (`?gui=1`) looks the same, with continuous edges.
+- Not checked: real phones and Windows or Linux GPUs, and `powerPreference` on a dual-GPU laptop.
 
 ### Phase 4: Refactor
 

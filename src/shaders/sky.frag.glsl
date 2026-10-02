@@ -5,8 +5,10 @@ uniform vec3 uSunColor;
 uniform vec3 uSunDirection;
 uniform vec3 uMoonDirection;
 uniform float uStarVisibility;
-// sin() of the curved world's horizon dip below the horizontal.
+// The curved world's horizon dip below the horizontal, as its sin() and in
+// radians.
 uniform float uHorizonDip;
+uniform float uHorizonDipAngle;
 // Angular falloff of the gradient above the curved edge, in radians.
 uniform float uGradientHeight;
 varying vec3 vDirection;
@@ -25,7 +27,7 @@ void main() {
 	// also fades terrain into. An exponential falloff concentrates the change
 	// near the edge, where lines of equal elevation still follow its arc on
 	// screen; a wide gradient would read as flat horizontal bands.
-	float aboveEdge = max(asin(clamp(direction.y, -1.0, 1.0)) + asin(uHorizonDip), 0.0);
+	float aboveEdge = max(asin(clamp(direction.y, -1.0, 1.0)) + uHorizonDipAngle, 0.0);
 	float height = 1.0 - exp(-aboveEdge / uGradientHeight);
 	vec3 color = mix(uHorizon, uZenith, height);
 

@@ -19,8 +19,11 @@ import {
 import skyVertex from './shaders/sky.vert.glsl'
 import skyFragment from './shaders/sky.frag.glsl'
 
-// Inside the camera far plane (10000) so the dome is never clipped.
+// Inside the camera far plane (10000) so the dome is never clipped; the
+// vertex shader moves it to the far plane for the depth test.
 const SKY_RADIUS = 5000
+// Above every other opaque mesh (the debug wireframe overlays use 1).
+const SKY_RENDER_ORDER = 10
 
 function setSRGB(color, [r, g, b]) {
 	return color.setRGB(r, g, b, SRGBColorSpace)
@@ -62,10 +65,15 @@ export default class DayNight {
 			uMoonDirection: { value: new Vector3() },
 			uStarVisibility: { value: 0 },
 			uHorizonDip: { value: 0 },
+			uHorizonDipAngle: { value: 0 },
 			uGradientHeight: { value: settings.skyGradientHeight },
 		}
 
 		// The only ShaderMaterial in the scene: the sky is unlit and ignores fog.
+		// It is drawn after every opaque mesh, on the far plane (sky.vert.glsl)
+		// with the depth test on, so only the pixels the scene leaves empty run
+		// its shader. Samples that alpha-to-coverage impostors leave uncovered
+		// keep the cleared depth, so the sky still fills them.
 		this.sky = new Mesh(
 			new SphereGeometry(SKY_RADIUS, 32, 16),
 			new ShaderMaterial({
@@ -74,11 +82,10 @@ export default class DayNight {
 				fragmentShader: skyFragment,
 				side: BackSide,
 				depthWrite: false,
-				depthTest: false,
 				fog: false,
 			}),
 		)
-		this.sky.renderOrder = -1
+		this.sky.renderOrder = SKY_RENDER_ORDER
 		this.sky.frustumCulled = false
 		scene.add(this.sky)
 
@@ -133,6 +140,7 @@ export default class DayNight {
 		this.skyUniforms.uMoonDirection.value.fromArray(state.moonDirection)
 		this.skyUniforms.uStarVisibility.value = state.stars
 		this.skyUniforms.uHorizonDip.value = Math.sin(dip)
+		this.skyUniforms.uHorizonDipAngle.value = dip
 		this.skyUniforms.uGradientHeight.value = Math.max(
 			settings.skyGradientHeight,
 			0.001,

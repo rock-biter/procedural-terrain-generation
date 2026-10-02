@@ -20,29 +20,60 @@ uniform vec2 uSceneryShadowSoftness;
 uniform float uSceneryShadowBias;
 varying vec3 vShadowPosition;
 
+// PCF samples per cascade come from the material defines
+// SCENERY_SHADOW_TAPS_NEAR and SCENERY_SHADOW_TAPS_FAR
+// (getSceneryShadowTapDefines() in src/shadowPolicy.js), at most 16. Unshadowed
+// materials (SCENERY_NO_SHADOWS) include this chunk without them and get only
+// the declarations above.
+#ifdef SCENERY_SHADOW_TAPS_NEAR
+
 // Interleaved gradient noise (Jimenez 2014) rotates the kernel per pixel.
 float getSceneryShadowNoise() {
 	return fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
 }
 
-// Vogel-disk PCF; each tap is a bilinear hardware comparison.
+// Golden-angle (Vogel) spiral: tap i at angle i * 2.39996323 and radius
+// sqrt(i + 0.5). A kernel of n taps divides the first n by sqrt(n), so tap i
+// lands at sqrt((i + 0.5) / n) of the penumbra radius. Precomputed, so no tap
+// evaluates a trigonometric function.
+const vec2 SCENERY_SHADOW_SPIRAL[16] = vec2[16](
+	vec2(0.7071068, 0.0000000),
+	vec2(-0.9030888, 0.8273033),
+	vec2(0.1382322, -1.5750847),
+	vec2(1.1382849, 1.4846911),
+	vec2(-2.0888927, -0.3694957),
+	vec2(1.9787816, -1.2587389),
+	vec2(-0.6618637, 2.4621000),
+	vec2(-1.2622459, -2.4303776),
+	vec2(2.7385686, 1.0001209),
+	vec2(-2.8490243, 1.1760358),
+	vec2(1.3734180, -2.9349145),
+	vec2(1.0149210, 3.2357280),
+	vec2(-3.0589836, -1.7727435),
+	vec2(3.5885359, -0.7889295),
+	vec2(-2.1900276, 3.1150889),
+	vec2(-0.5059471, -3.9043588)
+);
+
+// Vogel-disk PCF; each tap is a bilinear hardware comparison. `rotation` is
+// the per-pixel kernel rotation, shared by both cascades; one tap samples the
+// center.
 float sampleSceneryShadowCascade(
 	sampler2DShadow map,
 	mat4 shadowMatrix,
 	vec3 position,
 	float radiusUv,
 	float depthBias,
-	float rotation,
+	mat2 rotation,
 	int taps
 ) {
 	vec3 coord = (shadowMatrix * vec4(position, 1.0)).xyz;
 	float reference = clamp(coord.z - depthBias, 0.0, 1.0);
+	if (taps == 1) return texture(map, vec3(coord.xy, reference));
+	mat2 kernel = rotation * (radiusUv * inversesqrt(float(taps)));
 	float lit = 0.0;
 	for (int i = 0; i < taps; i++) {
-		float radius = taps == 1 ? 0.0 : sqrt((float(i) + 0.5) / float(taps));
-		float angle = float(i) * 2.39996323 + rotation;
-		vec2 offset = vec2(cos(angle), sin(angle)) * radius * radiusUv;
-		lit += texture(map, vec3(coord.xy + offset, reference));
+		lit += texture(map, vec3(coord.xy + kernel * SCENERY_SHADOW_SPIRAL[i], reference));
 	}
 	return lit / float(taps);
 }
@@ -52,7 +83,7 @@ float sampleSceneryShadowCascade(
 // far one in a radial band, the far one fades to lit at its edge, and the
 // whole result fades out with distance from the plane, so no transition has a
 // hard edge.
-float getSceneryShadow(vec3 position, float selfBias, int tapsNear, int tapsFar) {
+float getSceneryShadow(vec3 position, float selfBias) {
 	if (uSceneryShadowStrength <= 0.0) return 1.0;
 	float planeDistance = length(position.xz - uCamera.xz);
 	float fade = 1.0 - smoothstep(uSceneryShadowFade.x, uSceneryShadowFade.y, planeDistance);
@@ -63,7 +94,10 @@ float getSceneryShadow(vec3 position, float selfBias, int tapsNear, int tapsFar)
 		uSceneryShadowSoftness.y,
 		smoothstep(0.0, uSceneryShadowFade.y, planeDistance)
 	);
-	float rotation = 6.28318531 * getSceneryShadowNoise();
+	float angle = 6.28318531 * getSceneryShadowNoise();
+	float cosine = cos(angle);
+	float sine = sin(angle);
+	mat2 rotation = mat2(cosine, sine, -sine, cosine);
 	float bias = uSceneryShadowBias + selfBias;
 	vec4 nearCascade = uSceneryShadowCascades[0];
 	vec4 farCascade = uSceneryShadowCascades[1];
@@ -79,7 +113,7 @@ float getSceneryShadow(vec3 position, float selfBias, int tapsNear, int tapsFar)
 			softness * farCascade.w,
 			bias * uSceneryShadowDepthScale[1],
 			rotation,
-			tapsFar
+			SCENERY_SHADOW_TAPS_FAR
 		);
 		visibility = mix(1.0, farLit, farWeight);
 	}
@@ -91,9 +125,11 @@ float getSceneryShadow(vec3 position, float selfBias, int tapsNear, int tapsFar)
 			softness * nearCascade.w,
 			bias * uSceneryShadowDepthScale[0],
 			rotation,
-			tapsNear
+			SCENERY_SHADOW_TAPS_NEAR
 		);
 		visibility = mix(visibility, nearLit, nearWeight);
 	}
 	return mix(1.0, visibility, fade * uSceneryShadowStrength);
 }
+
+#endif

@@ -27,6 +27,7 @@ import {
 	createShadowedLightsFragment,
 	createUnshadowedLightsFragment,
 } from '../curvedLights'
+import { getSceneryShadowTapDefines } from '../shadowPolicy'
 import {
 	SCENERY_IMPOSTORS,
 	getCatalogDefines,
@@ -182,10 +183,14 @@ export default class SceneryMeshes extends Group {
 			SCENERY_MESH_LOD: lod,
 		}
 		// Keeps the unshadowed program apart from the shadowed one.
-		if (!this.receiveShadows) material.defines.SCENERY_NO_SHADOWS = ''
+		if (this.receiveShadows) {
+			Object.assign(material.defines, getSceneryShadowTapDefines(this.shadowTaps))
+		} else {
+			material.defines.SCENERY_NO_SHADOWS = ''
+		}
 		const lightsFragment = this.receiveShadows
 			? createShadowedLightsFragment(
-					`getSceneryShadow(vShadowPosition, vShadowSelfBias, ${this.shadowTaps}, ${this.shadowTaps}) * getCloudShadow(vShadowPosition)`,
+					'getSceneryShadow(vShadowPosition, vShadowSelfBias) * getCloudShadow(vShadowPosition)',
 				)
 			: createUnshadowedLightsFragment(
 					this.ambientScale ? 'uSceneryAmbientScale' : '1.0',
