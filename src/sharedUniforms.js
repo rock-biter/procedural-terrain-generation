@@ -10,7 +10,7 @@ import { CURVATURE } from './worldConstants'
 // object whose entries every material references, so a write reaches them
 // all. `params` is createAppParams(); `seed` sets the biome offset.
 export function createSharedUniforms(params, seed) {
-	return {
+	const uniforms = {
 		uTime: { value: 0 },
 		uCamera: { value: new Vector3() },
 		uCurvature: { value: CURVATURE },
@@ -26,6 +26,8 @@ export function createSharedUniforms(params, seed) {
 		uColorNoiseSoftness: { value: params.terrainColorNoise.softness },
 		uColorNoiseSpeed: { value: params.terrainColorNoise.speed },
 		uCoastSandShade: { value: params.coastSand.shade },
+		uCoastRockNoise: { value: new Vector3() },
+		uCoastRockEdge: { value: new Vector2() },
 		...createTerrainNormalUniforms(params.terrainNormals),
 		// Impostor-to-mesh band; written by SceneryMeshes.applySettings().
 		uSceneryMeshRange: { value: new Vector2(-2, -1) },
@@ -36,4 +38,14 @@ export function createSharedUniforms(params, seed) {
 		// Sea rock distance map and ripple shape; written by SeaFoam.
 		...createSeaFoamUniforms(),
 	}
+	updateCoastMaskUniforms(uniforms, params.coast.mask)
+	return uniforms
+}
+
+// Writes the rocky coast mask settings (params.coast.mask) into the terrain
+// shader's uniforms, in place; the CPU reads the same settings
+// (getCoastRockMask() in src/coast.js).
+export function updateCoastMaskUniforms(uniforms, mask) {
+	uniforms.uCoastRockNoise.value.set(mask.frequency, mask.detailFrequency, mask.detailWeight)
+	uniforms.uCoastRockEdge.value.set(mask.threshold, mask.softness)
 }

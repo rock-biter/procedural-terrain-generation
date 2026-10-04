@@ -1,7 +1,7 @@
 import alea from 'alea'
 import { createNoise2D } from 'simplex-noise'
 import { getBiomeValue } from './biome.js'
-import { getCoastRelief } from './coast.js'
+import { COAST_MASK_DEFAULTS, getCoastRelief } from './coast.js'
 import { lerp, smoothstep } from './math.js'
 
 // getLandmass() always reads noises 0 and 1, so at least two are created even
@@ -25,12 +25,13 @@ export const DESERT_TERRAIN_DEFAULTS = Object.freeze({
 	depth: 0.4,
 })
 
-// Default relief of rocky coasts (src/coast.js): mound height in world units
-// and noise frequency per world unit. An amplitude of 0 leaves the coast
-// unchanged.
+// Default rocky coast (src/coast.js): the relief's mound height in world
+// units and noise frequency per world unit, and the mask that picks the rocky
+// stretches. An amplitude of 0 leaves the coast unchanged.
 export const COAST_TERRAIN_DEFAULTS = Object.freeze({
 	amplitude: 1.6,
 	frequency: 0.07,
+	mask: COAST_MASK_DEFAULTS,
 })
 
 // Height of the visible sea surface: the mesh clamps lower terrain to it, and
@@ -58,7 +59,7 @@ export function createTerrainSettings() {
 		...TERRAIN_DEFAULTS,
 		frequency: { ...TERRAIN_DEFAULTS.frequency },
 		desert: { ...TERRAIN_DEFAULTS.desert },
-		coast: { ...TERRAIN_DEFAULTS.coast },
+		coast: { ...TERRAIN_DEFAULTS.coast, mask: { ...TERRAIN_DEFAULTS.coast.mask } },
 	}
 }
 

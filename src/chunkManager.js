@@ -297,7 +297,7 @@ export default class ChunkManager {
 					lacunarity: this.params.lacunarity,
 					persistance: this.params.persistance,
 					desert: { ...this.params.desert },
-					coast: { ...this.params.coast },
+					coast: { ...this.params.coast, mask: { ...this.params.coast.mask } },
 				},
 			},
 		}

@@ -14,6 +14,7 @@ import {
 	SCENERY_CONFIG,
 	SCENERY_DEFAULT_SIZES,
 	SCENERY_TYPE_KEYS,
+	SEA_ROCK_DEFAULTS,
 	createScenerySettings,
 	generateSceneryInstances,
 	isCoastBand,
@@ -71,9 +72,9 @@ test('produces deterministic output independent of generation order', () => {
 // Farthest a sea rock satellite can stand from its candidate.
 const coast = SCENERY_CONFIG.coast
 const satelliteReach =
-	coast.satelliteDistance[1] *
+	SEA_ROCK_DEFAULTS.satellites.distance.max *
 	coast.footprint *
-	SCENERY_CONFIG.shape[IMPOSTOR_TYPE.SEA_ROCK][1] *
+	SEA_ROCK_DEFAULTS.scale.max *
 	SCENERY_DEFAULT_SIZES.seaRock
 
 test('keeps every instance inside its own chunk without duplicates', () => {
@@ -108,7 +109,7 @@ test('sea rocks stand on sand and the shallow sea, rising above the surface', ()
 		for (const instance of instances(data, i, j)) {
 			if (instance.type !== IMPOSTOR_TYPE.SEA_ROCK) continue
 			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
-			assert.ok(height >= coast.minHeight)
+			assert.ok(height >= -SEA_ROCK_DEFAULTS.maxDepth)
 			const base = Math.max(height, SEA_SURFACE_Y) - coast.sink * instance.scale
 			assert.ok(Math.abs(instance.y - base) < 1e-3)
 			count++
@@ -123,12 +124,69 @@ test('gathers sea rocks on rocky coast', () => {
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
 			if (instance.type !== IMPOSTOR_TYPE.SEA_ROCK) continue
-			const mask = getCoastRockMask(instance.x, instance.z, biomeOffset)
+			const mask = getCoastRockMask(instance.x, instance.z, biomeOffset, params.coast.mask)
 			if (mask > 0.5) rocky++
 			else plain++
 		}
 	}
 	assert.ok(rocky > plain, `${rocky} rocks on rocky coast, ${plain} elsewhere`)
+})
+
+function seaRocksOf(results) {
+	const rocks = []
+	results.forEach((data, index) => {
+		const [i, j] = chunks[index]
+		for (const instance of instances(data, i, j)) {
+			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK) rocks.push(instance)
+		}
+	})
+	return rocks
+}
+
+test('places sea rocks by their depth, scale, and satellite settings', () => {
+	const baseline = seaRocksOf(chunks.map(([, , data]) => data))
+	const seaRocks = (overrides) => ({
+		seaRocks: { ...createScenerySettings().seaRocks, ...overrides },
+	})
+	const size = SCENERY_DEFAULT_SIZES.seaRock
+
+	const shallow = seaRocksOf(generateAll(seaRocks({ maxDepth: 1.5 })))
+	assert.ok(shallow.length > 0 && shallow.length < baseline.length)
+	for (const rock of shallow) {
+		assert.ok(getHeight(rock.x, rock.z, noises, params, biomeOffset) >= -1.5)
+	}
+
+	const alone = seaRocksOf(
+		generateAll(seaRocks({ satellites: { ...SEA_ROCK_DEFAULTS.satellites, count: 0 } })),
+	)
+	assert.ok(alone.length > 0 && alone.length < baseline.length)
+
+	// Without satellites, every rock draws its scale from the range.
+	const scale = { min: 1, max: 1.5, bias: 1 }
+	const ranged = seaRocksOf(
+		generateAll(seaRocks({ scale, satellites: { ...SEA_ROCK_DEFAULTS.satellites, count: 0 } })),
+	)
+	assert.equal(ranged.length, alone.length)
+	for (const rock of ranged) {
+		assert.ok(rock.scale >= scale.min * size - 1e-5 && rock.scale <= scale.max * size + 1e-5)
+	}
+
+	// Sea rock settings leave the other scenery unchanged.
+	const others = (results) =>
+		results.reduce((count, data) => count + data.length, 0) / IMPOSTOR_INSTANCE_STRIDE -
+		seaRocksOf(results).length
+	assert.equal(
+		others(generateAll(seaRocks({ maxDepth: 1.5 }))),
+		others(chunks.map(([, , data]) => data)),
+	)
+})
+
+test('follows the rocky coast mask settings', () => {
+	const mask = { ...params.coast.mask, threshold: params.coast.mask.threshold + 0.5 }
+	const lessRocky = { ...params, coast: { ...params.coast, mask } }
+	const rocks = seaRocksOf(chunks.map(([i, j]) => generate(i, j, { params: lessRocky })))
+	const baseline = seaRocksOf(chunks.map(([, , data]) => data))
+	assert.ok(rocks.length < baseline.length, `${rocks.length} rocks, ${baseline.length} before`)
 })
 
 test('places only sea rocks in water or on beaches, and nothing on snow', () => {

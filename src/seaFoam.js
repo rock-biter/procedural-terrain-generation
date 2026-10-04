@@ -31,8 +31,8 @@ import {
 const BLACK = new Color(0x000000)
 // How far beyond its chunk a foam instance can reach into the window, in world
 // units: its footprint and ripples, plus satellites placed across the chunk
-// edge (src/sceneryPlacement.js).
-const CASTER_MARGIN = 40
+// edge (src/sceneryPlacement.js), with room for the larger GUI scales.
+const CASTER_MARGIN = 64
 
 // Receiver uniforms, shared with the terrain material through the shared
 // uniform object (sea-ripple-pars-fragment.glsl).

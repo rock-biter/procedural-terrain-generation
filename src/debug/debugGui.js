@@ -14,6 +14,7 @@ import { SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
 import { SCENERY_CATEGORIES, SCENERY_CELL_SIZES, SCENERY_TYPE_KEYS } from '../sceneryPlacement'
 import { TERRAIN_BANDS } from '../terrainBands'
 import { updateTerrainNormalUniforms } from '../terrainNormals'
+import { updateCoastMaskUniforms } from '../sharedUniforms'
 import { createRandomSeed, normalizeWorldSeed } from '../worldSeed'
 
 // The ?gui=1 tuning panel (lil-gui), loaded only behind that flag so the
@@ -126,6 +127,26 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.onChange((value) => {
 			uniforms.uCoastSandShade.value = value
 		})
+	// The mask places the relief, the darker sand, and the sea rocks: the
+	// shader reads it at once, and the release regenerates terrain and scenery.
+	const updateCoastMask = () => {
+		updateCoastMaskUniforms(uniforms, params.coast.mask)
+		regenerateTerrain()
+	}
+	const coastMaskFolder = coastFolder.addFolder('Rocky coast mask')
+	const coastMaskControls = [
+		['frequency', 'Patch frequency', 0.0005, 0.02, 0.0005],
+		['detailFrequency', 'Detail frequency', 0.001, 0.08, 0.001],
+		['detailWeight', 'Detail weight', 0, 1, 0.01],
+		['threshold', 'Threshold', -1, 1.2, 0.01],
+		['softness', 'Softness', 0.01, 1, 0.01],
+	]
+	for (const [key, label, min, max, step] of coastMaskControls) {
+		coastMaskFolder
+			.add(params.coast.mask, key, min, max, step)
+			.name(label)
+			.onFinishChange(updateCoastMask)
+	}
 	// Live; the reach and radius render the map again.
 	const updateSeaFoam = () => world.seaFoam?.applySettings()
 	const seaFoamFolder = coastFolder.addFolder('Sea foam')
@@ -369,6 +390,41 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.onChange(updateImpostorVariation)
 		}
 		if (params.sceneryPalette.noise[category]) addPalette(folder, category)
+		if (category === 'seaRocks') addSeaRockControls(folder)
+	}
+
+	// The sea rocks' depth, scale range, and satellites (settings.seaRocks);
+	// the release re-places the scenery.
+	function addSeaRockControls(folder) {
+		const { seaRocks } = params.scenery
+		folder.add(seaRocks, 'maxDepth', 0.5, 15, 0.1).name('Max depth').onFinishChange(updateScenery)
+		folder.add(seaRocks.scale, 'min', 0.05, 3, 0.01).name('Min scale').onFinishChange(updateScenery)
+		folder.add(seaRocks.scale, 'max', 0.1, 4, 0.01).name('Max scale').onFinishChange(updateScenery)
+		folder
+			.add(seaRocks.scale, 'bias', 0.2, 4, 0.05)
+			.name('Small rock bias')
+			.onFinishChange(updateScenery)
+		const satellites = folder.addFolder('Satellites')
+		satellites
+			.add(seaRocks.satellites, 'count', 0, 6, 1)
+			.name('Max count')
+			.onFinishChange(updateScenery)
+		satellites
+			.add(seaRocks.satellites.distance, 'min', 0.5, 3, 0.05)
+			.name('Min distance ×')
+			.onFinishChange(updateScenery)
+		satellites
+			.add(seaRocks.satellites.distance, 'max', 0.5, 3, 0.05)
+			.name('Max distance ×')
+			.onFinishChange(updateScenery)
+		satellites
+			.add(seaRocks.satellites.scale, 'min', 0.1, 1, 0.01)
+			.name('Min size ×')
+			.onFinishChange(updateScenery)
+		satellites
+			.add(seaRocks.satellites.scale, 'max', 0.1, 1, 0.01)
+			.name('Max size ×')
+			.onFinishChange(updateScenery)
 	}
 
 	// Live: a category's palettes (trunk colors, palette colors and weights)
