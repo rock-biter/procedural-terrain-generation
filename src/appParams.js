@@ -38,8 +38,8 @@ export function createAppParams({ urlParams, isMobile }) {
 		...createTerrainSettings(),
 		colors: {
 			uGrass: '#6d976d',
-			uLand: '#5e551d',
-			uRocks: '#521f00',
+			uLand: '#455f0c',
+			uRocks: '#b66635',
 		},
 		// Soft lighter patches on land from a world-space noise: frequency (per world
 		// unit), intensity (0.3 = up to 30% brighter), threshold (noise value in
