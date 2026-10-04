@@ -144,7 +144,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
   - temperate rocks band: conifers and boulders;
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
 
-  Scale, vertical stretch, yaw, and tint vary per instance. The tint is a brightness for every type; boulders are also grey in temperate areas and sandy in the desert. Trees take their hue from the crown palettes in the shaders, from world-space noise at the instance's base, not from placement (see [Rendering](RENDERING.md#tree-palettes)).
+  Scale, vertical stretch, yaw, and tint vary per instance. The tint is a brightness for every type; boulders are also grey in temperate areas and sandy in the desert. Trees and cacti take their hue from the scenery palettes in the shaders, from world-space noise at the instance's base, not from placement (see [Rendering](RENDERING.md#scenery-palettes)).
 - **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category.
 - **Size:** `settings.size[typeKey]` multiplies the instance scale drawn from the `SCENERY_CONFIG` range.
 - **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface.

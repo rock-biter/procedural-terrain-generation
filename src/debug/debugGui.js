@@ -10,7 +10,7 @@ import {
 } from 'three'
 import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
-import { SCENERY_PAINTED_TYPES } from '../sceneryPalettePolicy'
+import { SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
 import { SCENERY_CATEGORIES, SCENERY_CELL_SIZES, SCENERY_TYPE_KEYS } from '../sceneryPlacement'
 import { TERRAIN_BANDS } from '../terrainBands'
 import { updateTerrainNormalUniforms } from '../terrainNormals'
@@ -29,7 +29,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	const regenerateTerrain = () => world.regenerateTerrain()
 	const applySceneryWireframe = () => world.applySceneryWireframe()
 	const updateImpostorVariation = () => world.sceneryImpostors?.applyVariation()
-	const updateTreePalette = () => world.sceneryImpostors?.applyPalette()
+	const updatePalette = () => world.sceneryImpostors?.applyPalette()
 
 	const worldSettings = {
 		seed: world.seed,
@@ -330,31 +330,39 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.name(`${key} variation`)
 				.onChange(updateImpostorVariation)
 		}
-		if (category === 'trees') addTreePalette(folder)
+		if (params.sceneryPalette.noise[category]) addPalette(folder, category)
 	}
 
-	// Live: trunk colors, crown palettes, and their noise distribution.
-	function addTreePalette(parent) {
-		const palette = params.treePalette
+	// Live: a category's palettes (trunk colors, palette colors and weights)
+	// and the noise that distributes them.
+	function addPalette(parent, group) {
+		const { noise, palettes } = params.sceneryPalette
 		const folder = parent.addFolder('Palette')
 		folder
-			.add(palette, 'frequency', 0.0005, 0.05, 0.0005)
+			.add(noise[group], 'frequency', 0.0005, 0.1, 0.0005)
 			.name('Patch frequency')
-			.onChange(updateTreePalette)
-		folder.add(palette, 'mix', 0, 1, 0.01).name('Random mix').onChange(updateTreePalette)
-		for (const type of SCENERY_PAINTED_TYPES) {
-			const key = SCENERY_TYPE_KEYS[type]
-			const typePalette = palette[key]
-			if (!typePalette) continue
-			const typeFolder = folder.addFolder(key)
-			typeFolder.addColor(typePalette, 'trunk').name('Trunk').onChange(updateTreePalette)
-			typePalette.colors.forEach((entry, slot) => {
+			.onChange(updatePalette)
+		folder.add(noise[group], 'mix', 0, 1, 0.01).name('Random mix').onChange(updatePalette)
+		const keys = new Set(
+			Object.values(SCENERY_PALETTE_TYPES)
+				.filter((entry) => entry.group === group)
+				.map((entry) => entry.palette),
+		)
+		for (const key of keys) {
+			const palette = palettes[key]
+			if (!palette) continue
+			// A group with one palette (the cacti) shows it directly.
+			const paletteFolder = keys.size > 1 ? folder.addFolder(key) : folder
+			if (palette.trunk !== undefined) {
+				paletteFolder.addColor(palette, 'trunk').name('Trunk').onChange(updatePalette)
+			}
+			palette.colors.forEach((entry, slot) => {
 				const label = entry.label ?? `Color ${slot + 1}`
-				typeFolder.addColor(entry, 'color').name(label).onChange(updateTreePalette)
-				typeFolder
+				paletteFolder.addColor(entry, 'color').name(label).onChange(updatePalette)
+				paletteFolder
 					.add(entry, 'weight', 0, 1, 0.01)
 					.name(`${label} weight`)
-					.onChange(updateTreePalette)
+					.onChange(updatePalette)
 			})
 		}
 	}

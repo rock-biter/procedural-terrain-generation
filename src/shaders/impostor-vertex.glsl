@@ -82,13 +82,13 @@ vSphereNormal = normalize(viewRotation * sphereNormal);
 
 vec3 impostorTint = getSceneryTint(aInstanceB.z, impostorBase.xz, impostorType);
 #ifdef SCENERY_PALETTE
-// Trunk tint in vTint, crown tint in vPaintTint; the fragment mixes them by
-// the baked crown mask.
+// Trunk tint in vTint, painted tint in vPaintTint; the fragment mixes them by
+// the baked paint mask.
 vec3 impostorTrunkTint;
-vec3 impostorCrownTint;
-getSceneryPaletteTints(impostorTint, impostorBase.xz, impostorYaw, impostorType, impostorTrunkTint, impostorCrownTint);
+vec3 impostorPaintTint;
+getSceneryPaletteTints(impostorTint, impostorBase.xz, impostorYaw, impostorType, impostorTrunkTint, impostorPaintTint);
 vTint = impostorTrunkTint;
-vPaintTint = impostorCrownTint;
+vPaintTint = impostorPaintTint;
 #else
 vTint = impostorTint;
 #endif

@@ -27,7 +27,7 @@ void main() {
 	// shader decodes it.
 	gAlbedo = vec4(sRGBTransferOETF(vec4(color, 1.0)).rgb, 1.0);
 	gNormal = vec4(normal * 0.5 + 0.5, clamp(vDepth * 0.5 + 0.5, 0.0, 1.0));
-	// Crown mask in a single-channel target: the runtime tint mixes the trunk
+	// Paint mask in a single-channel target: the runtime tint mixes the trunk
 	// and palette colors by it.
 	gPaint = vec4(vPaint, 0.0, 0.0, 1.0);
 }

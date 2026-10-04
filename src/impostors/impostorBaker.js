@@ -69,8 +69,9 @@ function getResolvePass() {
 
 // Renders every type of an impostor `catalog` (impostorCatalogs.js) from the
 // grid directions of a view layout (`views`, octahedral.js) into one albedo,
-// one normal/depth, and one single-channel crown-mask atlas (the sources'
-// `paint` attribute with SCENERY_PALETTE, 0 otherwise). Without `views`, the
+// one normal/depth, and one single-channel paint-mask atlas (the sources'
+// `paint` attribute with SCENERY_PALETTE, 0 otherwise, premultiplied by
+// coverage). Without `views`, the
 // layout is a frames x frames hemi-octahedral grid of the catalog's
 // hemisphere. `detail` optionally multiplies the albedo by a tileable color
 // texture: { texture, types }, where types[type] is that type's { scale
@@ -110,7 +111,7 @@ export function bakeImpostorAtlas(
 		magFilter: LinearFilter,
 		generateMipmaps: true,
 	})
-	// The crown mask needs one channel; three sets every attachment up from
+	// The paint mask needs one channel; three sets every attachment up from
 	// its own texture's format.
 	bakeTarget.textures[2].format = RedFormat
 	atlasTarget.textures[2].format = RedFormat

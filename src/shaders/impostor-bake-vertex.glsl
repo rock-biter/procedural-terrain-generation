@@ -6,8 +6,8 @@ varying vec3 vColor;
 varying vec3 vNormal;
 varying vec3 vPosition;
 varying float vDepth;
-// Share of the instance's palette color (1 on tree crowns); 0 without
-// SCENERY_PALETTE.
+// Share of the instance's palette color (1 on tree crowns and cacti); 0
+// without SCENERY_PALETTE.
 varying float vPaint;
 
 #ifdef SCENERY_PALETTE

@@ -82,19 +82,21 @@ vec3 getSceneryTint(float packedTint, vec2 baseXZ, int type) {
 }
 
 #ifdef SCENERY_PALETTE
-// Crown palette per type, one color per instance picked from world-space noise
-// (src/sceneryPalettePolicy.js). Colors are linear and divided by
-// SCENERY_PAINT_BASE, the gray the painted types are baked in. Unpainted types
-// have zero weights and white colors, so both of their tints stay the plain
-// tint.
+// Palette per type (tree crowns, whole cacti), one color per instance picked
+// from world-space noise (src/sceneryPalettePolicy.js). Colors are linear and
+// divided by SCENERY_PAINT_BASE, the gray the painted types are baked in.
+// Unpainted types have zero weights and white colors, so both of their tints
+// stay the plain tint.
 uniform vec3 uSceneryPaletteColors[IMPOSTOR_TYPE_COUNT * SCENERY_PALETTE_SIZE];
 // Relative share of each palette slot; 0 disables the slot.
 uniform vec4 uSceneryPaletteWeights[IMPOSTOR_TYPE_COUNT];
 uniform vec3 uSceneryTrunkColors[IMPOSTOR_TYPE_COUNT];
-// x: patch frequency per world unit, y: random mix (0 noise patches only, 1 a
-// random color per instance).
-uniform vec2 uSceneryPaletteNoise;
-// Tint of the crown (paint 1); vTint holds the trunk's.
+// Per type, x: patch frequency per world unit, y: random mix (0 noise patches
+// only, 1 a random color per instance), z: palette index, which selects the
+// noise fields (types sharing a palette share its map).
+uniform vec3 uSceneryPaletteNoise[IMPOSTOR_TYPE_COUNT];
+// Tint of the painted parts (paint 1); vTint holds the unpainted parts' (the
+// trunk's).
 varying vec3 vPaintTint;
 
 // Uniform [0, 1) hash of the instance seed (its yaw bits) and a slot. Integer
@@ -109,7 +111,7 @@ float getSceneryPaletteHash(float seed, int slot) {
 	return float(h >> 8) * (1.0 / 16777216.0);
 }
 
-// Splits the instance tint into the trunk and crown tints. Every slot has its
+// Splits the instance tint into the trunk and painted tints. Every slot has its
 // own noise field; the slot with the largest log(value) / weight wins, a
 // weighted race in which each slot's share follows its weight.
 void getSceneryPaletteTints(
@@ -118,21 +120,23 @@ void getSceneryPaletteTints(
 	float seed,
 	int type,
 	out vec3 trunkTint,
-	out vec3 crownTint
+	out vec3 paintTint
 ) {
 	vec4 weights = uSceneryPaletteWeights[type];
+	vec3 paletteNoise = uSceneryPaletteNoise[type];
 	// Shifted by the seeded biome offset, so every world seed paints its own map.
-	vec2 palettePosition = (baseXZ + uBiomeOffset) * uSceneryPaletteNoise.x;
+	vec2 palettePosition = (baseXZ + uBiomeOffset) * paletteNoise.x;
 	int chosen = 0;
 	float bestKey = -1e30;
 	for (int slot = 0; slot < SCENERY_PALETTE_SIZE; slot++) {
 		float weight = weights[slot];
 		if (weight <= 0.0) continue;
-		// Offsets within snoise's 289-unit period keep every type's and slot's
+		// Offsets within snoise's 289-unit period keep every palette's and slot's
 		// field apart.
-		vec2 offset = fract(float(type * SCENERY_PALETTE_SIZE + slot) * vec2(0.618034, 0.414214)) * 289.0;
+		float fieldIndex = paletteNoise.z * float(SCENERY_PALETTE_SIZE) + float(slot);
+		vec2 offset = fract(fieldIndex * vec2(0.618034, 0.414214)) * 289.0;
 		float field = clamp(snoise(palettePosition + offset) * 0.8 + 0.5, 0.0, 1.0);
-		float value = mix(field, getSceneryPaletteHash(seed, slot), uSceneryPaletteNoise.y);
+		float value = mix(field, getSceneryPaletteHash(seed, slot), paletteNoise.y);
 		float key = log(max(value, 1e-6)) / weight;
 		if (key > bestKey) {
 			bestKey = key;
@@ -140,6 +144,6 @@ void getSceneryPaletteTints(
 		}
 	}
 	trunkTint = tint * uSceneryTrunkColors[type];
-	crownTint = tint * uSceneryPaletteColors[type * SCENERY_PALETTE_SIZE + chosen];
+	paintTint = tint * uSceneryPaletteColors[type * SCENERY_PALETTE_SIZE + chosen];
 }
 #endif

@@ -51,10 +51,10 @@ vSceneryDetail = uSceneryDetail[sceneryType];
 vec3 sceneryTint = getSceneryTint(aInstanceB.z, sceneryBase.xz, sceneryType);
 #ifdef SCENERY_PALETTE
 vec3 sceneryTrunkTint;
-vec3 sceneryCrownTint;
-getSceneryPaletteTints(sceneryTint, sceneryBase.xz, sceneryYaw, sceneryType, sceneryTrunkTint, sceneryCrownTint);
+vec3 sceneryPaintTint;
+getSceneryPaletteTints(sceneryTint, sceneryBase.xz, sceneryYaw, sceneryType, sceneryTrunkTint, sceneryPaintTint);
 vTint = sceneryTrunkTint;
-vPaintTint = sceneryCrownTint;
+vPaintTint = sceneryPaintTint;
 vSceneryPaint = paint;
 #else
 vTint = sceneryTint;

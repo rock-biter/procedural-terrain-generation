@@ -10,7 +10,7 @@ if (sceneryNoise < vSceneryLodFade || sceneryNoise >= vSceneryDither.x) discard;
 
 // The same albedo the bake stores: vertex color times the wood detail, then
 // the instance tint and variation like impostor-color-fragment.glsl, mixed
-// from the trunk to the crown palette tint by the crown mask.
+// from the trunk to the palette tint by the paint mask.
 vec3 sceneryTint = vTint;
 #ifdef SCENERY_PALETTE
 sceneryTint = mix(vTint, vPaintTint, vSceneryPaint);

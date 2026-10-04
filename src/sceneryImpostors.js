@@ -25,7 +25,7 @@ import { SCENERY_TYPE_KEYS } from './sceneryPlacement'
 // wireframe twin (every chunk draws its instances with them, src/chunk.js),
 // the near meshes (SceneryMeshes, a child), and the live variation, palette,
 // and detail uniforms. `params` is createAppParams(); impostorDetail,
-// impostorVariation, treePalette, sceneryMeshes, sceneryWireframe, and
+// impostorVariation, sceneryPalette, sceneryMeshes, sceneryWireframe, and
 // shadows.taps are read from it.
 export default class SceneryImpostors extends Group {
 	constructor({ renderer, uniforms, params, woodTexture, isMobile = false }) {
@@ -41,7 +41,8 @@ export default class SceneryImpostors extends Group {
 			frequency: { value: params.impostorVariation.frequency },
 		}
 		this.applyVariation()
-		// Shared with the near meshes: the trees' trunk colors and crown palettes.
+		// Shared with the near meshes: the trees' trunk colors and the tree and
+		// cactus palettes.
 		this.palette = createSceneryPaletteUniforms(IMPOSTOR_TYPE_COUNT)
 		this.applyPalette()
 		// The near meshes sample the same wood detail the bake applies, one
@@ -104,26 +105,27 @@ export default class SceneryImpostors extends Group {
 		})
 	}
 
-	// Writes the tree palettes into the shared uniforms, live: colors become
+	// Writes the scenery palettes into the shared uniforms, live: colors become
 	// linear (Color.set() converts the sRGB hex) and are divided by the gray
 	// the painted types are baked in; unused entries stay white.
 	applyPalette() {
-		const layout = getSceneryPaletteLayout(
-			this.params.treePalette,
-			SCENERY_TYPE_KEYS,
-			IMPOSTOR_TYPE_COUNT,
-		)
+		const layout = getSceneryPaletteLayout(this.params.sceneryPalette, IMPOSTOR_TYPE_COUNT)
 		const setPaint = (color, hex) => {
 			if (hex === null) color.setRGB(1, 1, 1)
 			else color.set(hex).multiplyScalar(1 / SCENERY_PAINT_BASE)
 		}
-		const { uSceneryPaletteColors, uSceneryPaletteWeights, uSceneryTrunkColors } = this.palette
+		const {
+			uSceneryPaletteColors,
+			uSceneryPaletteWeights,
+			uSceneryTrunkColors,
+			uSceneryPaletteNoise,
+		} = this.palette
 		uSceneryPaletteColors.value.forEach((color, index) => setPaint(color, layout.colors[index]))
 		uSceneryTrunkColors.value.forEach((color, type) => setPaint(color, layout.trunks[type]))
 		uSceneryPaletteWeights.value.forEach((weights, type) =>
 			weights.fromArray(layout.weights, type * SCENERY_PALETTE_SIZE),
 		)
-		this.palette.uSceneryPaletteNoise.value.set(layout.frequency, layout.mix)
+		uSceneryPaletteNoise.value.forEach((noise, type) => noise.fromArray(layout.noise[type]))
 	}
 
 	applyVariation() {

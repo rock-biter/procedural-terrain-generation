@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createScenerySources } from '../src/impostors/impostorArchetypes.js'
 import { IMPOSTOR_TYPE } from '../src/impostors/impostorTypes.js'
-import { SCENERY_PAINT_BASE, SCENERY_PAINTED_TYPES } from '../src/sceneryPalettePolicy.js'
+import {
+	SCENERY_PAINT_BASE,
+	SCENERY_PAINTED_TYPES,
+	SCENERY_PALETTE_TYPES,
+	createSceneryPaletteSettings,
+} from '../src/sceneryPalettePolicy.js'
 
 const types = Object.values(IMPOSTOR_TYPE)
 const sources = types.map((type) => createScenerySources(type, 2))
@@ -38,10 +43,13 @@ test('levels share one frame: base at y = 0, sphere centered on the y axis', () 
 	})
 })
 
-test('trees mark their crowns and bake a neutral gray; other types keep their colors', () => {
+test('painted types bake a neutral gray with a paint mask; other types keep their colors', () => {
+	const { palettes } = createSceneryPaletteSettings()
 	sources.forEach((levels, index) => {
 		const type = types[index]
 		const painted = SCENERY_PAINTED_TYPES.includes(type)
+		// Palettes with a trunk color paint only the crown; the others the whole source.
+		const hasTrunk = painted && palettes[SCENERY_PALETTE_TYPES[type].palette].trunk !== undefined
 		for (const geometry of levels) {
 			const paint = geometry.getAttribute('paint')
 			const color = geometry.getAttribute('color')
@@ -61,11 +69,13 @@ test('trees mark their crowns and bake a neutral gray; other types keep their co
 					assert.ok(r > 0 && r <= SCENERY_PAINT_BASE + 1e-6, 'gray at most the paint base')
 				}
 			}
-			if (painted) {
+			if (hasTrunk) {
 				assert.deepEqual([...values].sort(), [0, 1], `type ${type}: trunk and crown`)
 				// The unpainted part is the trunk, under the crown's top.
 				assert.ok(trunkTop < geometry.boundingSphere.center.y + geometry.boundingSphere.radius)
 				assert.ok(crownBottom < trunkTop, 'the crown sits on the trunk')
+			} else if (painted) {
+				assert.deepEqual([...values], [1], `type ${type}: painted whole`)
 			} else {
 				assert.deepEqual([...values], [0], `type ${type}: unpainted`)
 			}

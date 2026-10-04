@@ -19,8 +19,8 @@ sampleImpostorFrame(vFrame1, vFrameWeights.y, impostorAlbedo, impostorNormalSum,
 sampleImpostorFrame(vFrame2, vFrameWeights.z, impostorAlbedo, impostorNormalSum, impostorDepthSum, impostorPaintSum);
 #endif
 float impostorCoverage = max(impostorAlbedo.a, 1e-4);
-// The instance tint, mixed from the trunk to the crown palette tint by the
-// baked crown mask like scenery-mesh-color-fragment.glsl.
+// The instance tint, mixed from the trunk to the palette tint by the baked
+// paint mask like scenery-mesh-color-fragment.glsl.
 vec3 impostorTint = vTint;
 #ifdef SCENERY_PALETTE
 impostorTint = mix(vTint, vPaintTint, impostorPaintSum / impostorCoverage);

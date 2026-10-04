@@ -8,7 +8,7 @@ import {
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
 } from './sceneryMeshPolicy'
-import { createTreePaletteSettings } from './sceneryPalettePolicy'
+import { createSceneryPaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
@@ -96,9 +96,10 @@ export function createAppParams({ urlParams, isMobile }) {
 			boulder: { scale: 0.01, color: 0.1, normalized: false },
 			layeredRock: { scale: 0.01, color: 0.1, normalized: false },
 		},
-		// Shader-side, applied live: the trees' trunk colors and crown palettes,
-		// picked per tree from world-space noise; see createTreePaletteSettings().
-		treePalette: createTreePaletteSettings(),
+		// Shader-side, applied live: the trees' trunk colors and crown palettes and
+		// the cacti's palette, picked per instance from world-space noise; see
+		// createSceneryPaletteSettings().
+		sceneryPalette: createSceneryPaletteSettings(),
 		// Near scenery meshes, in units from the eye: full-detail meshes below
 		// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
 		// beyond `end`, with dithered cross-fades inside each band.
@@ -111,13 +112,15 @@ export function createAppParams({ urlParams, isMobile }) {
 		shadows: createSceneryShadowSettings({ isMobile }),
 		// Shader-side, applied live: brightness change per type in stops (1 = half
 		// to double brightness) and the world frequency of the noise that drives it.
-		// The trees vary less, so their palette colors stay recognizable.
+		// The trees and cacti vary less, so their palette colors stay recognizable.
 		impostorVariation: {
 			frequency: 0.01,
 			amount: {
 				...Object.fromEntries(Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8])),
 				roundTree: 0.35,
 				conifer: 0.35,
+				cactusOneArm: 0.35,
+				cactusTwoArms: 0.35,
 			},
 		},
 		// World-level cloud field (src/clouds.js): deterministic placement (see

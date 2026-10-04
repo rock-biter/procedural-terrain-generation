@@ -139,12 +139,17 @@ test('packs tint channels as bytes', () => {
 	assert.ok(Number.isInteger(Math.fround(packTint(2, 2, 2))))
 })
 
-test('trees vary in brightness only: their hue comes from the crown palette', () => {
-	const trees = new Set([IMPOSTOR_TYPE.ROUND_TREE, IMPOSTOR_TYPE.CONIFER])
+test('painted types vary in brightness only: their hue comes from the palettes', () => {
+	const painted = new Set([
+		IMPOSTOR_TYPE.ROUND_TREE,
+		IMPOSTOR_TYPE.CONIFER,
+		IMPOSTOR_TYPE.CACTUS_ONE_ARM,
+		IMPOSTOR_TYPE.CACTUS_TWO_ARMS,
+	])
 	let count = 0
 	for (const [, , data] of chunks) {
 		for (let k = 0; k < data.length; k += IMPOSTOR_INSTANCE_STRIDE) {
-			if (!trees.has(data[k + 5])) continue
+			if (!painted.has(data[k + 5])) continue
 			const tint = data[k + 6]
 			const r = tint % 256
 			const g = Math.floor(tint / 256) % 256

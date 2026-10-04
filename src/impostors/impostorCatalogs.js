@@ -23,8 +23,8 @@ import {
 // source is the same).
 
 // Trees, cacti, and rocks, placed per chunk by the workers. SCENERY_PALETTE
-// paints the trees' crowns per instance from their baked crown mask
-// (src/sceneryPalettePolicy.js).
+// paints the trees' crowns and the cacti per instance from their baked paint
+// mask (src/sceneryPalettePolicy.js).
 export const SCENERY_IMPOSTORS = Object.freeze({
 	name: 'scenery',
 	typeCount: IMPOSTOR_TYPE_COUNT,

@@ -137,7 +137,7 @@ export default class SceneryMeshes extends Group {
 				const level = this.levels[lod]
 				const geometry = new InstancedBufferGeometry()
 				geometry.setIndex(source.index)
-				// Cloud sources carry no crown mask (`paint`).
+				// Cloud sources carry no paint mask (`paint`).
 				for (const name of ['position', 'normal', 'color', 'paint']) {
 					const attribute = source.getAttribute(name)
 					if (attribute) geometry.setAttribute(name, attribute)

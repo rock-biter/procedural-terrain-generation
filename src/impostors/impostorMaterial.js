@@ -32,7 +32,7 @@ import { SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy'
 // eye distances, before the scenery LOD limit removes their chunk.
 export const SCENERY_IMPOSTOR_FAR_FADE = Object.freeze([800, 950])
 
-// Crown palette uniforms read by SCENERY_PALETTE shaders
+// Palette uniforms read by SCENERY_PALETTE shaders
 // (getSceneryPaletteTints() in scenery-instance-pars-vertex.glsl), keyed by
 // uniform name. The defaults (white colors, zero weights) leave every type
 // with its plain tint; src/sceneryImpostors.js writes the GUI palette into
@@ -44,7 +44,7 @@ export function createSceneryPaletteUniforms(typeCount) {
 		},
 		uSceneryPaletteWeights: { value: Array.from({ length: typeCount }, () => new Vector4()) },
 		uSceneryTrunkColors: { value: Array.from({ length: typeCount }, () => new Color(1, 1, 1)) },
-		uSceneryPaletteNoise: { value: new Vector2() },
+		uSceneryPaletteNoise: { value: Array.from({ length: typeCount }, () => new Vector3()) },
 	}
 }
 
@@ -55,7 +55,7 @@ export function createSceneryPaletteUniforms(typeCount) {
 // (sceneryMeshes.js). `variation` holds { amount, frequency } uniforms owned
 // by the caller so the GUI can tune them live: `amount.value` is one float per
 // type index. `farFade` is a Vector2 uniform (start, end) of the shrink into
-// the fog. `palette` (createSceneryPaletteUniforms()) holds the crown palette
+// the fog. `palette` (createSceneryPaletteUniforms()) holds the palette
 // uniforms of a SCENERY_PALETTE catalog, owned by the caller; without it the
 // material makes neutral ones.
 //

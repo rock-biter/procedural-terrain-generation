@@ -35,16 +35,17 @@ void main() {
 	if (colorSum.a > 0.0) {
 		gAlbedo = vec4(colorSum.rgb / colorSum.a, colorSum.a / float(SUPERSAMPLE * SUPERSAMPLE));
 		gNormal = vec4(normalize(normalSum) * 0.5 + 0.5, depthSum / colorSum.a);
-		gPaint = vec4(paintSum / colorSum.a, 0.0, 0.0, 1.0);
+		// The paint mask is premultiplied by coverage, so filtering and every
+		// mip average it correctly against the coverage the impostor divides by.
+		gPaint = vec4(paintSum / float(SUPERSAMPLE * SUPERSAMPLE), 0.0, 0.0, 1.0);
 		return;
 	}
 
-	// Empty texel: copy the nearest covered color, normal, and crown mask inside
-	// the same frame so bilinear filtering and mipmaps do not pull in black
-	// halos, or trunk-colored rims around crowns.
+	// Empty texel: copy the nearest covered color and normal inside the same
+	// frame so bilinear filtering and mipmaps do not pull in black halos. The
+	// premultiplied paint mask stays 0.
 	vec4 albedo = vec4(0.0);
 	vec4 normal = vec4(0.5, 1.0, 0.5, 0.5);
-	float paint = 0.0;
 	ivec2 cellMin = (texel / uFrameSize) * uFrameSize;
 	ivec2 cellMax = cellMin + ivec2(uFrameSize - 1);
 	int best = 1 << 20;
@@ -59,12 +60,11 @@ void main() {
 				best = distanceSquared;
 				albedo.rgb = candidate.rgb;
 				normal = texelFetch(tNormal, neighbourSource, 0);
-				paint = texelFetch(tPaint, neighbourSource, 0).r;
 			}
 		}
 	}
 
 	gAlbedo = albedo;
 	gNormal = normal;
-	gPaint = vec4(paint, 0.0, 0.0, 1.0);
+	gPaint = vec4(0.0, 0.0, 0.0, 1.0);
 }

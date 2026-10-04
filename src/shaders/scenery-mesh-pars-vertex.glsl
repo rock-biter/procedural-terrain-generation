@@ -15,8 +15,9 @@ varying vec3 vSceneryLocalNormal;
 uniform vec3 uSceneryDetail[IMPOSTOR_TYPE_COUNT];
 varying vec3 vSceneryDetail;
 #ifdef SCENERY_PALETTE
-// Crown mask of the source vertex (1 on crowns, src/impostors/impostorArchetypes.js),
-// the share of the palette tint over the trunk tint.
+// Paint mask of the source vertex (1 on tree crowns and cacti,
+// src/impostors/impostorArchetypes.js), the share of the palette tint over the
+// trunk tint.
 attribute float paint;
 varying float vSceneryPaint;
 #endif
