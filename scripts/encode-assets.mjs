@@ -12,9 +12,9 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { NodeIO } from '@gltf-transform/core'
+import { Document, NodeIO } from '@gltf-transform/core'
 import { ALL_EXTENSIONS, KHRTextureBasisu } from '@gltf-transform/extensions'
-import { MeshoptDecoder, MeshoptEncoder } from 'meshoptimizer'
+import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 
@@ -53,6 +53,49 @@ const MODEL_SLOTS = {
 }
 const MODELS = ['plane-toy/plane-toy.glb', 'plane-toy/plane-toy-2.glb']
 
+// Shadow casters: each airplane simplified to about this many triangles,
+// positions only, written next to the model as `<name>-shadow.glb`. The error
+// bound is a share of the model's extent; the penumbra (0.6 world units, about
+// 8% of the wingspan) hides far more than that.
+const SHADOW_CASTER_TRIANGLES = 4000
+const SHADOW_CASTER_ERROR = 0.02
+
+// Simplified copy of the first primitive of `document` for the shadow pass,
+// in the same geometry space as the model. Vertices split only by uv or normal
+// seams are welded first, so the simplifier sees one connected surface. The
+// fused parts leave non-manifold vertices, which the simplifier locks by
+// default (both airplanes stalled near 24k and 36k triangles); `Permissive`
+// lets it collapse them, and only positions matter for a shadow.
+function createShadowCaster(document) {
+	const primitive = document.getRoot().listMeshes()[0].listPrimitives()[0]
+	const positions = Float32Array.from(primitive.getAttribute('POSITION').getArray())
+	const remap = MeshoptSimplifier.generatePositionRemap(positions, 3)
+	const indices = Uint32Array.from(primitive.getIndices().getArray(), (index) => remap[index])
+	const [simplified, error] = MeshoptSimplifier.simplify(
+		indices,
+		positions,
+		3,
+		SHADOW_CASTER_TRIANGLES * 3,
+		SHADOW_CASTER_ERROR,
+		['Permissive'],
+	)
+	const [vertexRemap, vertexCount] = MeshoptSimplifier.compactMesh(simplified)
+	const compact = new Float32Array(vertexCount * 3)
+	vertexRemap.forEach((target, source) => {
+		if (target < vertexCount) compact.set(positions.subarray(source * 3, source * 3 + 3), target * 3)
+	})
+
+	const caster = new Document()
+	const buffer = caster.createBuffer()
+	const casterPrimitive = caster
+		.createPrimitive()
+		.setAttribute('POSITION', caster.createAccessor().setType('VEC3').setArray(compact).setBuffer(buffer))
+		.setIndices(caster.createAccessor().setType('SCALAR').setArray(Uint16Array.from(simplified)).setBuffer(buffer))
+	const mesh = caster.createMesh('shadow-caster').addPrimitive(casterPrimitive)
+	caster.createScene().addChild(caster.createNode('shadow-caster').setMesh(mesh))
+	return { caster, triangles: simplified.length / 3, vertices: vertexCount, error }
+}
+
 function encode(source, target, args) {
 	mkdirSync(dirname(target), { recursive: true })
 	execFileSync(
@@ -70,6 +113,7 @@ for (const [path, args] of TEXTURES) {
 
 await MeshoptDecoder.ready
 await MeshoptEncoder.ready
+await MeshoptSimplifier.ready
 const io = new NodeIO().registerExtensions(ALL_EXTENSIONS).registerDependencies({
 	'meshopt.decoder': MeshoptDecoder,
 	'meshopt.encoder': MeshoptEncoder,
@@ -110,6 +154,13 @@ try {
 			})
 		if (!unchanged) throw new Error(`${path}: geometry changed while re-encoding`)
 		console.log(`${path} -> public/${path}`)
+
+		const shadowPath = path.replace(/\.glb$/, '-shadow.glb')
+		const { caster, triangles, vertices, error } = createShadowCaster(await io.read(source))
+		await io.write(join(root, 'public', shadowPath), caster)
+		console.log(
+			`${path} -> public/${shadowPath} (${triangles} triangles, ${vertices} vertices, error ${error.toFixed(4)})`,
+		)
 	}
 } finally {
 	rmSync(work, { recursive: true, force: true })

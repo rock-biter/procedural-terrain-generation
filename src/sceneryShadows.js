@@ -185,10 +185,12 @@ export default class SceneryShadows {
 		this.forceRender = true
 	}
 
-	// Casts the airplane's shadow; `model` is the plane's mesh.
-	setAirplane(model) {
+	// Casts the airplane's shadow; `model` is the plane's mesh, and `geometry`
+	// the simplified caster in the model's geometry space (the model's own
+	// geometry when missing).
+	setAirplane(model, geometry = model?.geometry) {
 		if (!model) return
-		this.airplane = new Mesh(model.geometry, this.airplaneCaster)
+		this.airplane = new Mesh(geometry ?? model.geometry, this.airplaneCaster)
 		this.airplane.name = 'airplane-shadow-caster'
 		this.airplane.matrixAutoUpdate = false
 		this.airplane.userData.model = model
@@ -382,6 +384,7 @@ export default class SceneryShadows {
 			strength: this.uniforms.uSceneryShadowStrength.value,
 			casters: this.proxyCount,
 			airplane: Boolean(this.airplane),
+			airplaneTriangles: this.airplane ? getTriangleCount(this.airplane.geometry) : 0,
 			drawCalls: this.lastDrawCalls,
 			updateMs: this.lastRenderMs,
 			cascades: this.cascades.map((cascade, index) => ({
@@ -404,4 +407,8 @@ export default class SceneryShadows {
 		this.airplaneCaster.dispose()
 		this.scene.clear()
 	}
+}
+
+function getTriangleCount(geometry) {
+	return (geometry.index ?? geometry.attributes.position).count / 3
 }

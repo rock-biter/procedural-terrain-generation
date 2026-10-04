@@ -36,13 +36,14 @@ pnpm test
 pnpm build
 pnpm preview
 pnpm assets:encode
+pnpm bench
 ```
 
 Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. Do not introduce another lockfile or edit generated `dist/` output.
 
 ## Source Map
 
-- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume; [`src/frameStats.js`](src/frameStats.js) owns the frame telemetry behind `window.__INFINITE_WORLD__.getRenderStats()` (frame and stage times, whole-frame draw counters, GPU time).
+- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume; [`src/frameStats.js`](src/frameStats.js) owns the frame telemetry behind `window.__INFINITE_WORLD__.getRenderStats()` (frame and stage times, whole-frame draw counters, GPU time); [`src/adaptivePixelRatio.js`](src/adaptivePixelRatio.js) owns the pure pixel-ratio rules (cap, `?dpr=` override, the adaptive ratio that keeps 60 fps). [`scripts/bench.mjs`](scripts/bench.mjs) (`pnpm bench`) compares builds with a deterministic headless-Chrome flight.
 - [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
 - [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, the heading-biased desired set and per-frame commit budget (`CHUNK_STREAMING`), the worker count, heading sectors, forward-shifted LOD, and the radial scenery range.
 - [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and the three-free terrain buffers shared by tests and workers; [`src/chunkTopology.js`](src/chunkTopology.js) owns the per-LOD shared index and uv attributes and the chunk `BufferGeometry` wrapping and disposal.
@@ -61,7 +62,7 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 - [`src/clouds.js`](src/clouds.js) owns the world-level cloud field (impostor mesh, cloud atlas, near cloud meshes); [`src/cloudPlacement.js`](src/cloudPlacement.js) owns its pure deterministic placement; [`src/cloudShadows.js`](src/cloudShadows.js) owns the blurred cloud shadow coverage map and its receiver uniforms, with pure rules in `shadowPolicy.js`.
 - [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
 - [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
-- [`public/`](public/), [`src/textures/`](src/textures/), and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets. Textures and the airplane GLBs are encoded (KTX2) from the masters in [`assets-src/`](assets-src/) by [`scripts/encode-assets.mjs`](scripts/encode-assets.mjs) (`pnpm assets:encode`); [`src/ktx2Textures.js`](src/ktx2Textures.js) owns the shared `KTX2Loader`. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
+- [`public/`](public/), [`src/textures/`](src/textures/), and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets. Textures and the airplane GLBs are encoded (KTX2), and the airplanes' simplified shadow casters generated, from the masters in [`assets-src/`](assets-src/) by [`scripts/encode-assets.mjs`](scripts/encode-assets.mjs) (`pnpm assets:encode`); [`src/ktx2Textures.js`](src/ktx2Textures.js) owns the shared `KTX2Loader`. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
 
 ## Project Rules
 
@@ -79,7 +80,7 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, terrain-buffer, encoded-asset, and frame-telemetry coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, terrain-buffer, encoded-asset, frame-telemetry, and adaptive-pixel-ratio coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
 
 1. Run `pnpm test`.
 2. Run `pnpm build`.

@@ -56,6 +56,12 @@ import { AIRPLANE_MODELS, getAirplaneModelKey } from './src/airplaneModels'
 import Plane from './src/plane'
 import PostProcessing from './src/postProcessing'
 import FrameStats from './src/frameStats'
+import {
+	AdaptivePixelRatio,
+	createAdaptivePixelRatioSettings,
+	getMaxPixelRatio,
+	parsePixelRatio,
+} from './src/adaptivePixelRatio'
 import Soundtrack from './src/soundtrack'
 import TerrainSampleDebug from './src/terrainSampleDebug'
 import {
@@ -109,6 +115,10 @@ const soundtrack = new Soundtrack(audioSrc, { volume: 0.1, preload: !gui })
 
 const assets = {
 	planeModel: null,
+	// The model's bounding-box center before centering, and the simplified
+	// shadow caster geometry (null if it failed to load).
+	planeCenter: null,
+	planeShadowGeometry: null,
 	boatModel: null,
 	impostorMaterial: null,
 	impostorWireframeMaterial: null,
@@ -227,8 +237,9 @@ const airplaneModel = AIRPLANE_MODELS[getAirplaneModelKey(urlParams)]
 gltfLoader.load(airplaneModel.path, (gltf) => {
 	gltf.scene.traverse((el) => {
 		if (el instanceof THREE.Mesh) {
-			el.geometry.center()
-			if (airplaneModel.rotationY) el.geometry.rotateY(airplaneModel.rotationY)
+			el.geometry.computeBoundingBox()
+			assets.planeCenter = el.geometry.boundingBox.getCenter(new THREE.Vector3())
+			placeAirplaneGeometry(el.geometry, assets.planeCenter)
 			el.geometry.computeBoundingBox()
 			const { min, max } = el.geometry.boundingBox
 			el.scale.setScalar(airplaneModel.wingspan / (max.x - min.x))
@@ -237,6 +248,25 @@ gltfLoader.load(airplaneModel.path, (gltf) => {
 		}
 	})
 })
+// The simplified shadow caster shares the model's geometry space; init()
+// places it like the model. Without it the shadow pass draws the full mesh.
+gltfLoader.load(
+	airplaneModel.shadowPath,
+	(gltf) => {
+		gltf.scene.traverse((el) => {
+			if (el instanceof THREE.Mesh) assets.planeShadowGeometry = el.geometry
+		})
+	},
+	undefined,
+	(error) => console.warn(`Airplane shadow caster not loaded (${airplaneModel.shadowPath})`, error),
+)
+
+// Centers an airplane geometry on the model's bounding-box `center` and turns
+// its nose to +Z.
+function placeAirplaneGeometry(geometry, center) {
+	geometry.translate(-center.x, -center.y, -center.z)
+	if (airplaneModel.rotationY) geometry.rotateY(airplaneModel.rotationY)
+}
 
 /**
  * Debug
@@ -291,6 +321,12 @@ const params = {
 	// Renderer tone mapping operator (a THREE.*ToneMapping constant) and exposure.
 	// A tone-mapped mode switches the composer to half-float buffers.
 	toneMapping: { mode: THREE.ACESFilmicToneMapping, exposure: 1 },
+	// Adaptive resolution (src/adaptivePixelRatio.js): the pixel ratio drops
+	// toward `min` while the frame rate is below 60 fps. `?dpr=` pins the ratio
+	// and turns adaptation off.
+	pixelRatio: createAdaptivePixelRatioSettings({
+		enabled: parsePixelRatio(urlParams) === null,
+	}),
 	postProcessing: {
 		// Minimum effect intensity; lets the GUI hold the effect on while tuning.
 		preview: 0,
@@ -922,6 +958,15 @@ if (gui) {
 			.onChange(updateShadows)
 	})
 
+	// Live: the adaptive ratio reads these every frame.
+	const performanceFolder = gui.addFolder('Performance')
+	performanceFolder
+		.add(params.pixelRatio, 'enabled')
+		.name('Adaptive resolution')
+	performanceFolder
+		.add(params.pixelRatio, 'min', 0.5, 2, 0.05)
+		.name('Minimum pixel ratio')
+
 	const airplaneFolder = gui.addFolder('Airplane')
 	airplaneFolder
 		.add(params.propeller, 'speed', 0, 20, 0.1)
@@ -997,6 +1042,12 @@ const postProcessing = new PostProcessing(
 )
 // Frame time, stage time, draw counters, and GPU time for getRenderStats().
 const frameStats = new FrameStats(renderer)
+// `?dpr=` replaces the display's (capped) ratio as the maximum.
+const pinnedPixelRatio = parsePixelRatio(urlParams)
+const adaptivePixelRatio = new AdaptivePixelRatio(
+	params.pixelRatio,
+	pinnedPixelRatio ?? getMaxPixelRatio(window.devicePixelRatio),
+)
 handleResize()
 
 const chunkSize = 256
@@ -1014,7 +1065,10 @@ window.__INFINITE_WORLD__ = Object.freeze({
 	getShadowStats: () => sceneryShadows?.getStats() ?? null,
 	getCloudStats: () => clouds?.getStats() ?? null,
 	getCloudShadowStats: () => cloudShadows?.getStats() ?? null,
-	getRenderStats: () => frameStats.getStats(),
+	getRenderStats: () => ({
+		...frameStats.getStats(),
+		adaptivePixelRatio: adaptivePixelRatio.getStats(),
+	}),
 })
 
 // Height above the terrain (or the sea) the airplane starts at, and the floor
@@ -1122,7 +1176,10 @@ function init(assets) {
 		settings: params.shadows,
 		impostorMaterial: assets.impostorMaterial,
 	})
-	sceneryShadows.setAirplane(plane.model)
+	if (assets.planeShadowGeometry) {
+		placeAirplaneGeometry(assets.planeShadowGeometry, assets.planeCenter)
+	}
+	sceneryShadows.setAirplane(plane.model, assets.planeShadowGeometry)
 
 	if (worldFeatures.clouds) {
 		clouds = new Clouds({
@@ -1197,6 +1254,11 @@ scene.add(ambientLight, sunLight, moonLight)
  */
 const timer = new THREE.Timer()
 timer.connect(document)
+// Seconds of loop time (uTime). The timer exists since import, so its first
+// delta spans the whole loading time; the clock starts on the loop's first
+// frame instead, which keeps ?time= exact and runs reproducible.
+let elapsedTime = 0
+let isFirstFrame = true
 
 // Fog and background colors follow the day/night horizon color; radialFog.js
 // measures fog distance from the eye.
@@ -1223,11 +1285,13 @@ function tic(timestamp) {
 	/**
 	 * tempo trascorso dal frame precedente
 	 */
-	const deltaTime = timer.getDelta()
+	const deltaTime = isFirstFrame ? 0 : timer.getDelta()
+	isFirstFrame = false
 	/**
 	 * tempo totale trascorso dall'inizio
 	 */
-	const time = timer.getElapsed()
+	elapsedTime += deltaTime
+	const time = elapsedTime
 
 	// The debug pause freezes only the flight; global time keeps advancing.
 	const isFlightPaused = flightPause?.paused ?? false
@@ -1269,6 +1333,8 @@ function tic(timestamp) {
 	postProcessing.render(deltaTime)
 	frameStats.mark('render')
 	frameStats.endFrame()
+	// Resizes the buffers only when the adaptive ratio steps.
+	if (adaptivePixelRatio.update(deltaTime * 1000) !== null) applyPixelRatio()
 
 	requestAnimationFrame(tic)
 }
@@ -1282,8 +1348,15 @@ function handleResize() {
 	camera.aspect = sizes.width / sizes.height
 	camera.updateProjectionMatrix()
 
-	const pixelRatio = Math.min(window.devicePixelRatio, 2)
-	renderer.setPixelRatio(pixelRatio)
+	// The window may have moved to a display with another ratio.
+	adaptivePixelRatio.setMax(
+		pinnedPixelRatio ?? getMaxPixelRatio(window.devicePixelRatio),
+	)
+	applyPixelRatio()
+}
+
+function applyPixelRatio() {
+	renderer.setPixelRatio(adaptivePixelRatio.ratio)
 	// Also resizes the renderer; buffers follow the drawing-buffer size, so pixel ratio must be set first.
 	postProcessing.setSize(sizes.width, sizes.height)
 }

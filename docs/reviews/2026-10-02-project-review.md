@@ -59,6 +59,7 @@ The largest margins were in five places:
 | B12 | A worker `error` restarts the worker with no retry cap, so a module that fails to load loops forever. | `chunkWorkerPool.js` | Open: cap and back off. |
 | B13 | No favicon, so every page load logged a `favicon.ico` 404. | `index.html` | Done: empty data-URI icon. |
 | B14 | A zero frame delta (`THREE.Timer` reports `0` while the page is hidden) made the vertical speed `0 / 0`, and the pitch `lerp()` kept the NaN, so the airplane disappeared until the page was reloaded. A negative first delta after the tab is shown again also reached `plane.update()`. Found in Phase 3, when a controlled benchmark clock produced such deltas. | `plane.js` `updateAltitude()`, `main.js` `tic()` | Done (2026-10-03): the vertical speed is `0` for a zero delta, and `tic()` clamps the delta to `0`–`0.016`. |
+| B15 | `THREE.Timer` is created at import, so the loop's first delta spanned the whole loading time: `uTime` started at several seconds and the time of day jumped by the loading time (about 2% of the cycle for 5 s), so `?time=` was not exact and captures of one build differed between runs. Found in Phase 3 while making the benchmark captures reproducible. | `main.js` `tic()` | Done (2026-10-04): the first frame's delta is `0` and `uTime` is the loop's own elapsed time; two runs of one build now capture bit-identical frames. |
 
 ## 2. GPU Cost Per Frame
 
@@ -68,7 +69,7 @@ The largest margins were in five places:
 | G2 | With `idleSpeedEffect = 0.4` the composer never bypasses, yet the canvas had 4x MSAA and depth (about 130 MB at 2560×1600), and the grain was a separate blended full-screen pass. | `main.js`, `postProcessing.js` | Done: canvas `antialias: false, depth: false`; grain is the last effect of the `EffectPass`; the bypass path is removed. |
 | G3 | Sea pixels evaluated 7–13 land-only `snoise()` calls whose results were masked. | `color-fragment.glsl` | Partial: land block inside `if (wPosition.y >= 0.1)`, identical output. `getBiomeValue()` (3 samples) stays outside for `fwidth()`; an analytic derivative would remove it too. |
 | G4 | PCF computes `cos`/`sin` per tap and per cascade (16–24 transcendentals per terrain pixel near the airplane). | `scenery-shadow-pars-fragment.glsl` | Done (2026-10-03): a constant 16-tap spiral table, one rotation `mat2` per pixel for both cascades, and tap counts as material defines (`getSceneryShadowTapDefines()`); `-0.5` ms per frame, identical shadows. |
-| G5 | The airplane has 183k triangles and is drawn in the main pass and the near cascade every frame. | `plane-toy-2.glb`, `sceneryShadows.js` | Decision: a 2–5k-triangle shadow caster is invisible; simplifying the drawn GLB (keeping the propeller UV charts) changes the look and needs approval. |
+| G5 | The airplane has 183k triangles and is drawn in the main pass and the near cascade every frame. | `plane-toy-2.glb`, `sceneryShadows.js` | Done (2026-10-04), shadow caster only by owner decision: `pnpm assets:encode` writes a `3,992`-triangle position-only caster (meshoptimizer, `Permissive`), and the shadow matches the full mesh within `8` levels of `255`. The frame's triangles fall from `0.99` M to `0.81` M with no measurable frame-time change on an Apple M1 (fill-bound); the drawn model stays unchanged. |
 | G6 | The trail ran 5 `snoise()` calls before its discard, over the full ribbon, even at cruise when nothing shows. | `plane.js` | Done: the draw range covers only segments with a stripe (none at cruise), and a conservative bound discards before the noise. |
 | G7 | The sky is shaded on every pixel before the scene (`depthTest: false`, `renderOrder = -1`). | `dayNight.js` | Done (2026-10-03): drawn after the opaque meshes just inside the far plane with the depth test on, and the dip uploaded in radians; `-0.3` ms per frame. |
 | G8 | Shadow cascades used 32-bit depth plus an RGBA8 color attachment nobody writes (64 MB on desktop). | `sceneryShadows.js` | Done: `DEPTH_COMPONENT16` and `RedFormat` (24 MB). A 1024² far cascade (about 15 MB) is Open and needs a visual check. |
@@ -95,7 +96,7 @@ The largest margins were in five places:
 | ID | Finding | Status |
 | --- | --- | --- |
 | M1 | The soundtrack was decoded to about 76 MB of PCM. | Done: streamed through a media element. |
-| M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Partial (Phase 2): the textures stay 2048² but are ETC1S, so they take about an eighth of their RGBA8 memory (about 8 MB instead of 67 MB, est.). The 183k triangles wait for the G5 decision. |
+| M2 | Airplane textures are three 2048² maps, about 67 MB of VRAM with mipmaps. | Partial (Phase 2): the textures stay 2048² but are ETC1S, so they take about an eighth of their RGBA8 memory (about 8 MB instead of 67 MB, est.). The drawn model keeps its 183k triangles; the shadow pass draws a 4k caster (G5). |
 | M3 | Shadow targets: 64 MB on desktop, 16 MB on mobile. | Done: 24 MB and 6 MB (G8). |
 | M4 | Terrain index and UV depend only on LOD but are generated, transferred, uploaded, and kept per chunk: 7.16 of 17.35 MB on desktop. The CPU copies stay on the heap after upload. | Partial (Phase 2): index and uv shared per LOD (`src/chunkTopology.js`), per-chunk CPU arrays freed after upload, bounding sphere from the worker. Int16 normals and a shared XZ grid are Open. |
 | M5 | Mobile uses the same 38 MB scenery atlas as desktop. | Open: 48 px frames (about 21 MB) after an art check. |
@@ -175,7 +176,7 @@ Done on 2026-10-02: C1, C4, C6, M4 (partial), A6, then C5, C2, and A5 (partial).
 
 `OBS-001` telemetry first (`renderer.info.autoReset = false` with a reset at the start of `tic`, frame-time percentiles), then G1, G4, G5 with M2, G7, adaptive device pixel ratio, and `powerPreference: 'high-performance'`.
 
-Done on 2026-10-03: the telemetry (`src/frameStats.js`, `getRenderStats()`), G1, G4, G7, `powerPreference: 'high-performance'`, and B14, found while measuring. Waiting for a decision: G5 with M2 (a simplified drawn airplane changes its look) and the adaptive device pixel ratio (a product choice: minimum ratio and target frame rate).
+Done on 2026-10-03: the telemetry (`src/frameStats.js`, `getRenderStats()`), G1, G4, G7, `powerPreference: 'high-performance'`, and B14, found while measuring. Done on 2026-10-04, after the owner's decisions: G5 as a shadow caster only, the adaptive pixel ratio (minimum `1.25`, target never below 60 fps on desktop and mobile), `pnpm bench`, and B15. Phase 3 is complete.
 
 Measurements, using the deterministic method in [Quality](../QUALITY.md#comparing-builds): headless Chrome, ANGLE Metal, Apple M1, `3840 × 2160` canvas, `?seed=s762&time=0.35`, mean of frames `300`–`900` after Play, two runs per build, alternated:
 
@@ -196,6 +197,14 @@ Verification:
 - Not checked: real phones and Windows or Linux GPUs, and `powerPreference` on a dual-GPU laptop.
 
 Also on 2026-10-03, by owner decision: ACES Filmic became the default tone mapping. Its half-float composer buffers cost about `23%` more frame time than `NoToneMapping` at `3840 × 2160` (`39.9` against `32.6` ms, alternated runs while another Chrome tab loaded the GPU, so the absolute values are higher than in the table above). Captures at `?time=0.35`, `0.72`, and `0.9` show no artifact; the palettes, tuned without tone mapping, look slightly less saturated by day, more saturated at dusk, and darker at night.
+
+Second batch, 2026-10-04:
+
+- **Adaptive pixel ratio** (`src/adaptivePixelRatio.js`): steps of `0.25` down to `1.25` while a `60`-frame window averages above `17.5` ms; a step up after `3` windows below `16.9` ms must stay clean for `2` windows, otherwise it is undone and the wait doubles (up to `120` windows). The first version oscillated between `1.5` and `1.75` every few seconds because a try that averaged exactly `17.5` ms counted as a success; the stricter test for tries fixed it. On a `3840 × 2160` headless-Chrome canvas with vsync and ACES (about `25` ms per frame at `2`), it settled at `1.5` within two seconds, the tries thinned out to one per 48 windows, and the minute averaged `16.8` ms. `?dpr=` pins the ratio for screenshots and benchmarks.
+- **G5:** see the row above.
+- **`pnpm bench`** (`scripts/bench.mjs`): the measurement harness, with `--compare <ref>` (temporary worktree), alternated rounds, and held captures with PSNR. Fixing B15 and the fractional `Date.now` step made held captures of one build bit-identical (`122` dB).
+- Verification: `pnpm test` (165 of 165) and `pnpm build` pass; `pnpm assets:encode` reproduces every existing output bit for bit and adds the two casters.
+- Not checked: real phones, where the adaptive ratio and the lighter caster matter most.
 
 ### Phase 4: Refactor
 

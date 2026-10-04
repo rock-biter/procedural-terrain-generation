@@ -3,6 +3,7 @@ import test from 'node:test'
 import { readdirSync, readFileSync, existsSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { AIRPLANE_MODELS } from '../src/airplaneModels.js'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 // «KTX 20»\r\n\x1A\n
@@ -26,6 +27,19 @@ test('every texture master has its KTX2 runtime file', () => {
 		const target = join(root, 'src', path)
 		assert.ok(existsSync(target), `missing ${path}`)
 		assert.ok(readFileSync(target).subarray(0, 12).equals(KTX2_IDENTIFIER_FULL), path)
+	}
+})
+
+test('every airplane has a small position-only shadow caster', () => {
+	for (const model of Object.values(AIRPLANE_MODELS)) {
+		const glb = readFileSync(join(root, 'public', model.shadowPath))
+		const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString())
+		assert.equal(json.meshes.length, 1, model.shadowPath)
+		const [primitive] = json.meshes[0].primitives
+		assert.deepEqual(Object.keys(primitive.attributes), ['POSITION'], model.shadowPath)
+		const triangles = json.accessors[primitive.indices].count / 3
+		assert.ok(triangles > 1000 && triangles <= 5000, `${model.shadowPath}: ${triangles} triangles`)
+		assert.equal(json.images, undefined, model.shadowPath)
 	}
 })
 

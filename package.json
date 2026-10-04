@@ -12,7 +12,8 @@
     "test": "node --test",
     "build": "vite build",
     "preview": "vite preview",
-    "assets:encode": "node scripts/encode-assets.mjs"
+    "assets:encode": "node scripts/encode-assets.mjs",
+    "bench": "node scripts/bench.mjs"
   },
   "devDependencies": {
     "@gltf-transform/core": "4.5.1",

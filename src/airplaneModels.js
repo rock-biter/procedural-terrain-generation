@@ -4,6 +4,9 @@
 // +Z, the wings run along X, and +Y is up. Measurements: docs/ASSETS.md.
 //
 // - `path`: public URL of the GLB (gltfpack, EXT_meshopt_compression).
+// - `shadowPath`: public URL of the simplified shadow caster (about 4,000
+//   triangles, positions only, in the model's geometry space), made by
+//   scripts/encode-assets.mjs.
 // - `rotationY`: turn about Y (radians) that brings the nose to +Z.
 // - `wingspan`: world-unit width of the scaled model along X; 7.6 puts the wing
 //   tips at the default trail stripes (about ±3.8).
@@ -19,6 +22,7 @@ export const AIRPLANE_MODELS = Object.freeze({
 	// Monoplane; the lower-right blade root is fused into the cowl face.
 	toy: Object.freeze({
 		path: '/plane-toy/plane-toy.glb',
+		shadowPath: '/plane-toy/plane-toy-shadow.glb',
 		rotationY: 0,
 		wingspan: 7.6,
 		trailAnchor: Object.freeze([0, 0.014, 0.05]),
@@ -40,6 +44,7 @@ export const AIRPLANE_MODELS = Object.freeze({
 	// Biplane authored nose toward +X; the trails leave the upper wing tips.
 	biplane: Object.freeze({
 		path: '/plane-toy/plane-toy-2.glb',
+		shadowPath: '/plane-toy/plane-toy-2-shadow.glb',
 		rotationY: -Math.PI / 2,
 		wingspan: 7.6,
 		trailAnchor: Object.freeze([0, 0.166, 0.15]),
