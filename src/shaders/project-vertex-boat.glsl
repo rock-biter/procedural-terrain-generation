@@ -24,7 +24,7 @@ distanceFromCamera = dist;
 // mvPosition.y += wave * (1. - smoothstep(0.,1500., dist )) * 2.;
 // mvPosition.y += wave * pctWave * 0.5;
 mvPosition = modelMatrix * mvPosition;
-mvPosition.y += -uCurvature * (1. - cos(dist / uCurvature));
+mvPosition.y -= getCurvatureDrop(dist);
 
 mvPosition = viewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;

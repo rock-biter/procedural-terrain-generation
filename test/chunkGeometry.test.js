@@ -4,6 +4,7 @@ import { createBiomeOffset, getBiomeValue } from '../src/biome.js'
 import { PlaneGeometry } from 'three'
 import {
 	DESERT_TERRAIN_DEFAULTS,
+	TERRAIN_DEFAULTS,
 	createChunkIndex,
 	createChunkUv,
 	createTerrainNoises,
@@ -19,14 +20,8 @@ import {
 	getChunkTopology,
 } from '../src/chunkTopology.js'
 
-const params = {
-	amplitude: 23,
-	frequency: { x: 0.5, z: 0.5 },
-	octaves: 3,
-	lacunarity: 2,
-	persistance: 0.5,
-	desert: DESERT_TERRAIN_DEFAULTS,
-}
+// The production terrain.
+const params = TERRAIN_DEFAULTS
 const biomeOffset = createBiomeOffset('geometry-test')
 
 function generate(overrides = {}) {
@@ -214,7 +209,11 @@ test('samples a single octave with the same landmass noises', () => {
 	const single = createTerrainNoises('geometry-test', 1)
 	const triple = createTerrainNoises('geometry-test', 3)
 	assert.equal(single.length, 2)
-	for (const [x, z] of [[0, 0], [513.5, -270.25], [-4096, 1024]]) {
+	for (const [x, z] of [
+		[0, 0],
+		[513.5, -270.25],
+		[-4096, 1024],
+	]) {
 		assert.equal(single[0](x, z), triple[0](x, z))
 		assert.equal(single[1](x, z), triple[1](x, z))
 	}

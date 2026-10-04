@@ -1,5 +1,5 @@
-// Soft lighter patches over the land colors; params.terrainColorNoise in
-// main.js drives these uniforms.
+// Soft lighter patches over the land colors; params.terrainColorNoise
+// (src/appParams.js) drives these uniforms.
 // World frequency of the noise (cycles per world unit, roughly).
 uniform float uColorNoiseFrequency;
 // Brightening inside the patches: 0 = none, 1 = twice as bright.

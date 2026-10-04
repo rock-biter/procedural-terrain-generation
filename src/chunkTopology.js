@@ -31,18 +31,9 @@ export function createChunkGeometry(data) {
 	const { index, uv } = getChunkTopology(data.segments)
 	geometry.setIndex(index)
 	geometry.setAttribute('uv', uv)
-	geometry.setAttribute(
-		'position',
-		new BufferAttribute(data.position, 3).onUpload(releaseArray),
-	)
-	geometry.setAttribute(
-		'normal',
-		new BufferAttribute(data.normal, 3).onUpload(releaseArray),
-	)
-	geometry.setAttribute(
-		'height',
-		new BufferAttribute(data.height, 1).onUpload(releaseArray),
-	)
+	geometry.setAttribute('position', new BufferAttribute(data.position, 3).onUpload(releaseArray))
+	geometry.setAttribute('normal', new BufferAttribute(data.normal, 3).onUpload(releaseArray))
+	geometry.setAttribute('height', new BufferAttribute(data.height, 1).onUpload(releaseArray))
 	const { centerY, radius } = data.boundingSphere
 	geometry.boundingSphere = new Sphere(new Vector3(0, centerY, 0), radius)
 	return geometry

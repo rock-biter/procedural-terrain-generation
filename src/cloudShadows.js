@@ -1,7 +1,6 @@
 import {
 	Color,
 	CustomBlending,
-	DoubleSide,
 	LinearFilter,
 	Matrix4,
 	MaxEquation,
@@ -17,17 +16,16 @@ import {
 	Vector3,
 	WebGLRenderTarget,
 } from 'three'
-import casterVertexShader from './shaders/scenery-shadow-caster-vertex.glsl'
-import casterFragmentShader from './shaders/scenery-shadow-caster-fragment.glsl'
 import fullscreenVertexShader from './shaders/fullscreen-vertex.glsl'
 import blurFragmentShader from './shaders/cloud-shadow-blur-fragment.glsl'
 import { bakeImpostorAtlas } from './impostors/impostorBaker'
-import { CLOUD_IMPOSTORS, getCatalogDefines } from './impostors/impostorCatalogs'
+import { CLOUD_IMPOSTORS } from './impostors/impostorCatalogs'
 import {
 	CLOUD_SHADOW_IMPOSTOR_FRAMES,
 	CLOUD_SHADOW_IMPOSTOR_FRAME_SIZE,
 } from './impostors/impostorTypes'
-import { createHemiOctViews, getViewDefines } from './impostors/octahedral'
+import { createHemiOctViews } from './impostors/octahedral'
+import { LightBasis, createImpostorCasterMaterial, writeShadowMatrix } from './lightSpace'
 import {
 	CLOUD_SHADOW_DEFAULTS,
 	getCloudShadowBlurTexels,
@@ -35,18 +33,8 @@ import {
 	getShadowStrength,
 	hasLightDirectionChanged,
 	shouldRenderCloudShadow,
-	snapToTexel,
 } from './shadowPolicy'
 
-// Maps clip space [-1, 1] to map UV [0, 1].
-const CLIP_TO_TEXTURE = new Matrix4().set(
-	0.5, 0, 0, 0.5,
-	0, 0.5, 0, 0.5,
-	0, 0, 0.5, 0.5,
-	0, 0, 0, 1,
-)
-const WORLD_UP = new Vector3(0, 1, 0)
-const WORLD_FORWARD = new Vector3(0, 0, 1)
 // Half the depth of the light camera. The map has no depth test, so it only
 // has to contain every cloud along the light rays through the covered disk,
 // even with a low light.
@@ -54,7 +42,7 @@ const DEPTH_REACH = 8000
 const BLACK = new Color(0x000000)
 
 // Receiver uniforms, shared with the terrain, impostor, and near-mesh
-// materials through main.js's uniform object (cloud-shadow-pars-fragment.glsl).
+// materials through the shared uniform object (cloud-shadow-pars-fragment.glsl).
 export function createCloudShadowUniforms() {
 	return {
 		uCloudShadowMap: { value: null },
@@ -78,8 +66,8 @@ export function createCloudShadowUniforms() {
 //
 // Ownership: this object owns both render targets, the shadow atlas, the light
 // camera, and the caster and blur materials. The caster proxy borrows the
-// cloud field's impostor geometry and never disposes it. `uniforms` is main.js's shared
-// uniform object, which must hold createCloudShadowUniforms(); this object
+// cloud field's impostor geometry and never disposes it. `uniforms` is the shared
+// uniform object (src/sharedUniforms.js), which must hold createCloudShadowUniforms(); this object
 // writes them. `settings` is params.clouds.shadows
 // (createCloudShadowSettings()), `shadowSettings` the scenery shadow settings
 // (its `lightThreshold`), and `clouds` the Clouds field.
@@ -92,15 +80,20 @@ export default class CloudShadows {
 		this.clouds = clouds
 		this.center = null
 		this.revision = -1
-		this.lightDirection = null
 		this.forceRender = true
+		// shouldRenderCloudShadow() options, filled every frame.
+		this.renderCheck = {
+			center: null,
+			x: 0,
+			z: 0,
+			recenterDistance: 0,
+			lightChanged: false,
+			revisionChanged: false,
+			forced: false,
+		}
 		this.renders = 0
 		this.lastRenderMs = 0
-		this.lightVector = new Vector3()
-		this.basisCamera = new OrthographicCamera()
-		this.right = new Vector3()
-		this.up = new Vector3()
-		this.forward = new Vector3()
+		this.basis = new LightBasis()
 		this.mapCenter = new Vector3()
 		this.sphere = {}
 		this.previousClearColor = new Color()
@@ -110,32 +103,22 @@ export default class CloudShadows {
 			views: createHemiOctViews(CLOUD_SHADOW_IMPOSTOR_FRAMES, CLOUD_IMPOSTORS.hemisphere),
 			frameSize: CLOUD_SHADOW_IMPOSTOR_FRAME_SIZE,
 		})
-		const defines = {
-			...getViewDefines(this.atlas.views),
-			...getCatalogDefines(CLOUD_IMPOSTORS),
-			SHADOW_CASTER_COVERAGE: '',
-		}
-		if ('IMPOSTOR_SINGLE_FRAME' in clouds.material.defines) {
-			defines.IMPOSTOR_SINGLE_FRAME = ''
-		}
-		this.casterMaterial = new ShaderMaterial({
-			vertexShader: casterVertexShader,
-			fragmentShader: casterFragmentShader,
-			uniforms: {
-				// Coverage does not depend on the wood detail, so a cloud re-bake
-				// leaves this atlas unchanged.
-				uImpostorAlbedo: { value: this.atlas.albedo },
-				uImpostorTypes: {
-					value: this.atlas.types.map(
-						({ frameRadius, centerY }) => new Vector2(frameRadius, centerY),
-					),
-				},
-				uShadowCasterLight: { value: this.lightVector },
-				// The clouds turn toward the airplane as they are drawn.
-				uShadowCasterFacing: { value: new Vector2() },
+		this.casterMaterial = createImpostorCasterMaterial({
+			catalog: CLOUD_IMPOSTORS,
+			views: this.atlas.views,
+			// Coverage does not depend on the wood detail, so a cloud re-bake leaves
+			// this atlas unchanged.
+			albedo: { value: this.atlas.albedo },
+			types: {
+				value: this.atlas.types.map(
+					({ frameRadius, centerY }) => new Vector2(frameRadius, centerY),
+				),
 			},
-			defines,
-			side: DoubleSide,
+			light: this.basis.vector,
+			singleFrame: 'IMPOSTOR_SINGLE_FRAME' in clouds.material.defines,
+			// The clouds turn toward the airplane as they are drawn.
+			uniforms: { uShadowCasterFacing: { value: new Vector2() } },
+			defines: { SHADOW_CASTER_COVERAGE: '' },
 			depthTest: false,
 			depthWrite: false,
 			// Overlapping clouds keep the larger coverage.
@@ -195,7 +178,7 @@ export default class CloudShadows {
 	}
 
 	// Compiles the caster and blur programs before their first render, which
-	// waits for daylight (main.js precompileShaders()).
+	// waits for daylight (World.precompileShaders()).
 	compileAsync() {
 		return Promise.all([
 			this.renderer.compileAsync(this.scene, this.camera),
@@ -221,40 +204,28 @@ export default class CloudShadows {
 		if (strength <= 0) return
 
 		const lightChanged = hasLightDirectionChanged(
-			this.lightDirection,
+			this.basis.direction,
 			light.direction,
 			this.shadowSettings.lightThreshold,
 		)
 		const { x, z } = plane.position
-		const render = shouldRenderCloudShadow({
-			center: this.center,
-			x,
-			z,
-			recenterDistance: settings.radius * settings.recenterShare,
-			lightChanged,
-			revisionChanged: this.revision !== this.clouds.revision,
-			forced: this.forceRender,
-		})
-		if (!render) return
+		const check = this.renderCheck
+		check.center = this.center
+		check.x = x
+		check.z = z
+		check.recenterDistance = settings.radius * settings.recenterShare
+		check.lightChanged = lightChanged
+		check.revisionChanged = this.revision !== this.clouds.revision
+		check.forced = this.forceRender
+		if (!shouldRenderCloudShadow(check)) return
 
-		if (lightChanged) this.setLightBasis(light.direction)
+		if (lightChanged) this.basis.setDirection(light.direction)
 		this.forceRender = false
 		this.revision = this.clouds.revision
 		this.render(x, z)
 		uniforms.uCloudShadowStrength.value = strength
 		this.renders++
 		this.lastRenderMs = performance.now() - startTime
-	}
-
-	// Orients the map toward `direction` (unit, toward the light).
-	setLightBasis(direction) {
-		this.lightDirection = [...direction]
-		this.lightVector.fromArray(direction).normalize()
-		this.basisCamera.position.copy(this.lightVector)
-		this.basisCamera.up.copy(Math.abs(this.lightVector.y) > 0.999 ? WORLD_FORWARD : WORLD_UP)
-		this.basisCamera.lookAt(0, 0, 0)
-		this.basisCamera.updateMatrixWorld()
-		this.basisCamera.matrixWorld.extractBasis(this.right, this.up, this.forward)
 	}
 
 	// Renders the coverage around (x, z), snapped to whole texels in light
@@ -265,26 +236,7 @@ export default class CloudShadows {
 		const radius = sphere.sphereRadius
 		const texel = (radius * 2) / this.mapSize
 		this.mapCenter.set(sphere.x, sphere.y, sphere.z)
-		const right = snapToTexel(this.mapCenter.dot(this.right), texel)
-		const up = snapToTexel(this.mapCenter.dot(this.up), texel)
-		const depth = this.mapCenter.dot(this.forward)
-		this.mapCenter
-			.copy(this.right)
-			.multiplyScalar(right)
-			.addScaledVector(this.up, up)
-			.addScaledVector(this.forward, depth)
-
-		camera.left = -radius
-		camera.right = radius
-		camera.top = radius
-		camera.bottom = -radius
-		camera.near = -DEPTH_REACH
-		camera.far = DEPTH_REACH
-		camera.updateProjectionMatrix()
-		camera.position.copy(this.mapCenter)
-		camera.quaternion.copy(this.basisCamera.quaternion)
-		camera.updateMatrixWorld()
-		camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
+		this.basis.fit(camera, this.mapCenter, radius, texel, -DEPTH_REACH, DEPTH_REACH)
 
 		this.casterMaterial.uniforms.uShadowCasterFacing.value.set(x, z)
 		this.proxy.geometry = this.clouds.impostors?.geometry ?? this.placeholderGeometry
@@ -320,10 +272,7 @@ export default class CloudShadows {
 		renderer.setClearColor(this.previousClearColor, previousClearAlpha)
 		renderer.autoClear = previousAutoClear
 
-		uniforms.uCloudShadowMatrix.value
-			.copy(CLIP_TO_TEXTURE)
-			.multiply(camera.projectionMatrix)
-			.multiply(camera.matrixWorldInverse)
+		writeShadowMatrix(uniforms.uCloudShadowMatrix.value, camera)
 		uniforms.uCloudShadowWindow.value.set(sphere.x, sphere.z, sphere.diskRadius)
 		this.center = [x, z]
 	}

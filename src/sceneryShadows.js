@@ -16,14 +16,7 @@ import {
 	Vector4,
 	WebGLRenderTarget,
 } from 'three'
-import casterVertexShader from './shaders/scenery-shadow-caster-vertex.glsl'
-import casterFragmentShader from './shaders/scenery-shadow-caster-fragment.glsl'
-import {
-	IMPOSTOR_ATLAS_COLUMNS,
-	IMPOSTOR_ATLAS_ROWS,
-	IMPOSTOR_TYPE_COUNT,
-} from './impostors/impostorTypes'
-import { getViewDefines } from './impostors/octahedral'
+import { LightBasis, createImpostorCasterMaterial, writeShadowMatrix } from './lightSpace'
 import { chunkIntersectsSelection } from './sceneryMeshPolicy'
 import {
 	SCENERY_SHADOW_CASCADE_COUNT,
@@ -33,21 +26,10 @@ import {
 	hasLightDirectionChanged,
 	selectShadowLight,
 	shouldRenderCascade,
-	snapToTexel,
 } from './shadowPolicy'
 
-// Maps clip space [-1, 1] to shadow-map UV and depth [0, 1].
-const CLIP_TO_TEXTURE = new Matrix4().set(
-	0.5, 0, 0, 0.5,
-	0, 0.5, 0, 0.5,
-	0, 0, 0.5, 0.5,
-	0, 0, 0, 1,
-)
-const WORLD_UP = new Vector3(0, 1, 0)
-const WORLD_FORWARD = new Vector3(0, 0, 1)
-
 // Receiver uniforms, shared with the terrain, impostor, and near-mesh
-// materials through main.js's uniform object (scenery-shadow-pars-fragment.glsl).
+// materials through the shared uniform object (scenery-shadow-pars-fragment.glsl).
 export function createSceneryShadowUniforms(settings) {
 	return {
 		uSceneryShadowMaps: { value: new Array(SCENERY_SHADOW_CASCADE_COUNT).fill(null) },
@@ -76,8 +58,8 @@ export function createSceneryShadowUniforms(settings) {
 //
 // Ownership: this object owns the cascade render targets, cameras, caster
 // materials, and proxies. Proxies borrow the chunks' scenery geometries and
-// the airplane geometry, and never dispose them. `uniforms` is main.js's
-// shared uniform object, which must hold createSceneryShadowUniforms(); this
+// the airplane geometry, and never dispose them. `uniforms` is the
+// shared uniform object (src/sharedUniforms.js), which must hold createSceneryShadowUniforms(); this
 // object writes them. `impostorMaterial` (optional) provides the atlas
 // uniforms and frame count, so a re-bake reaches the casters.
 export default class SceneryShadows {
@@ -90,13 +72,7 @@ export default class SceneryShadows {
 		this.lastRenderMs = 0
 		this.lastDrawCalls = 0
 		this.light = null
-		this.lightDirection = null
-		this.lightVector = new Vector3()
-		this.lightUp = new Vector3()
-		this.basisCamera = new OrthographicCamera()
-		this.right = new Vector3()
-		this.up = new Vector3()
-		this.forward = new Vector3()
+		this.basis = new LightBasis()
 		this.center = new Vector3()
 		this.heading = new Vector3()
 		this.sphere = {}
@@ -105,9 +81,7 @@ export default class SceneryShadows {
 		this.scene.name = 'scenery-shadow-casters'
 		this.proxies = []
 		this.proxyCount = 0
-		this.impostorCaster = impostorMaterial
-			? this.createImpostorCaster(impostorMaterial)
-			: null
+		this.impostorCaster = impostorMaterial ? this.createImpostorCaster(impostorMaterial) : null
 		this.airplaneCaster = new ShaderMaterial({
 			vertexShader:
 				'void main() { gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
@@ -146,29 +120,17 @@ export default class SceneryShadows {
 	}
 
 	createImpostorCaster(impostorMaterial) {
-		const { impostorUniforms } = impostorMaterial.userData
-		const material = new ShaderMaterial({
-			vertexShader: casterVertexShader,
-			fragmentShader: casterFragmentShader,
-			uniforms: {
-				// Shared objects: setImpostorAtlas() updates them in place.
-				uImpostorAlbedo: impostorUniforms.uImpostorAlbedo,
-				uImpostorTypes: impostorUniforms.uImpostorTypes,
-				uShadowCasterLight: { value: this.lightVector },
-			},
-			defines: {
-				...getViewDefines(impostorMaterial.userData.atlas.views),
-				IMPOSTOR_ATLAS_COLUMNS,
-				IMPOSTOR_ATLAS_ROWS,
-				IMPOSTOR_TYPE_COUNT,
-			},
-			side: DoubleSide,
+		const { atlas, impostorUniforms } = impostorMaterial.userData
+		return createImpostorCasterMaterial({
+			catalog: atlas.catalog,
+			views: atlas.views,
+			// Shared objects: setImpostorAtlas() updates them in place.
+			albedo: impostorUniforms.uImpostorAlbedo,
+			types: impostorUniforms.uImpostorTypes,
+			light: this.basis.vector,
+			singleFrame: 'IMPOSTOR_SINGLE_FRAME' in impostorMaterial.defines,
 			colorWrite: false,
 		})
-		if ('IMPOSTOR_SINGLE_FRAME' in impostorMaterial.defines) {
-			material.defines.IMPOSTOR_SINGLE_FRAME = ''
-		}
-		return material
 	}
 
 	// Re-reads the live settings (strength is applied every update). Cascade
@@ -205,10 +167,12 @@ export default class SceneryShadows {
 		this.frame++
 		const { settings, uniforms } = this
 
+		// Filled in place after the first frame.
 		const light = selectShadowLight(
 			dayNightState.sunDirection,
 			dayNightState.moonDirection,
 			settings,
+			this.light ?? undefined,
 		)
 		this.light = light
 		// Receivers dim only this light, for the cloud shadows too
@@ -224,8 +188,8 @@ export default class SceneryShadows {
 		}
 
 		let forced = this.forceRender
-		if (hasLightDirectionChanged(this.lightDirection, light.direction, settings.lightThreshold)) {
-			this.setLightBasis(light.direction)
+		if (hasLightDirectionChanged(this.basis.direction, light.direction, settings.lightThreshold)) {
+			this.basis.setDirection(light.direction)
 			forced = true
 		}
 		this.forceRender = false
@@ -261,19 +225,6 @@ export default class SceneryShadows {
 		renderer.setRenderTarget(previousTarget)
 		this.lastDrawCalls = drawCalls
 		this.lastRenderMs = performance.now() - startTime
-	}
-
-	// Orients the cascade basis toward `direction` (unit, toward the light).
-	setLightBasis(direction) {
-		this.lightDirection = [...direction]
-		this.lightVector.fromArray(direction).normalize()
-		// Steep light would make world up degenerate as the camera's up.
-		this.lightUp.copy(Math.abs(this.lightVector.y) > 0.999 ? WORLD_FORWARD : WORLD_UP)
-		this.basisCamera.position.copy(this.lightVector)
-		this.basisCamera.up.copy(this.lightUp)
-		this.basisCamera.lookAt(0, 0, 0)
-		this.basisCamera.updateMatrixWorld()
-		this.basisCamera.matrixWorld.extractBasis(this.right, this.up, this.forward)
 	}
 
 	// Pools one proxy per scenery chunk that can reach the far cascade, and
@@ -340,33 +291,18 @@ export default class SceneryShadows {
 		const radius = sphere.sphereRadius
 		const texel = (radius * 2) / config.mapSize
 		this.center.set(sphere.x, sphere.y, sphere.z)
-		const x = snapToTexel(this.center.dot(this.right), texel)
-		const y = snapToTexel(this.center.dot(this.up), texel)
-		const z = this.center.dot(this.forward)
-		this.center
-			.copy(this.right)
-			.multiplyScalar(x)
-			.addScaledVector(this.up, y)
-			.addScaledVector(this.forward, z)
-
 		const { near, far } = getCascadeDepthRange(radius, settings.casterMargin)
-		const { camera } = cascade
-		camera.left = -radius
-		camera.right = radius
-		camera.top = radius
-		camera.bottom = -radius
-		camera.near = near
-		camera.far = far
-		camera.updateProjectionMatrix()
-		camera.position.copy(this.center).addScaledVector(this.lightVector, radius + settings.casterMargin)
-		camera.quaternion.copy(this.basisCamera.quaternion)
-		camera.updateMatrixWorld()
-		camera.matrixWorldInverse.copy(camera.matrixWorld).invert()
-
-		uniforms.uSceneryShadowMatrices.value[index]
-			.copy(CLIP_TO_TEXTURE)
-			.multiply(camera.projectionMatrix)
-			.multiply(camera.matrixWorldInverse)
+		// The camera sits beyond the sphere toward the light.
+		this.basis.fit(
+			cascade.camera,
+			this.center,
+			radius,
+			texel,
+			near,
+			far,
+			radius + settings.casterMargin,
+		)
+		writeShadowMatrix(uniforms.uSceneryShadowMatrices.value[index], cascade.camera)
 		uniforms.uSceneryShadowCascades.value[index].set(
 			this.center.x,
 			this.center.z,

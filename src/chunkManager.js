@@ -11,19 +11,14 @@ import {
 	getSectorDirection,
 	needsSceneryPlacement,
 } from './chunkPolicy'
-import { createChunkGeometry, disposeChunkGeometry } from './chunkTopology'
+import { createChunkGeometry } from './chunkTopology'
 import ChunkWorkerPool from './chunkWorkerPool'
-
-const isMobile = window.innerWidth < 768
 
 // New buffers a worker result adds, uploaded on the next render.
 function getResponseBytes({ geometry, scenery }) {
 	let bytes = scenery?.byteLength ?? 0
 	if (geometry) {
-		bytes +=
-			geometry.position.byteLength +
-			geometry.normal.byteLength +
-			geometry.height.byteLength
+		bytes += geometry.position.byteLength + geometry.normal.byteLength + geometry.height.byteLength
 	}
 	return bytes
 }
@@ -34,10 +29,7 @@ function canAdoptJob(job, target, chunk) {
 	if (job.scenery !== target.scenery || job.LOD !== target.LOD) return false
 	if (!chunk) return job.type === 'create'
 	if (job.type === 'updateLOD') return true
-	return (
-		(job.type === 'regenerate' || job.type === 'scenery') &&
-		chunk.LOD === target.LOD
-	)
+	return (job.type === 'regenerate' || job.type === 'scenery') && chunk.LOD === target.LOD
 }
 
 export default class ChunkManager {
@@ -57,11 +49,10 @@ export default class ChunkManager {
 	generated = 0
 	stale = 0
 	failed = 0
-	streaming = isMobile ? CHUNK_STREAMING.mobile : CHUNK_STREAMING.desktop
-	maxDistance = this.streaming.maxDistance
-	density = isMobile ? 4 : 2
 	lastCommit = { results: 0, bytes: 0, ms: 0 }
 
+	// `isMobile` picks the mobile streaming budget, grid density, and worker
+	// count; `createWorker` replaces the bundled module worker (tests).
 	constructor(
 		chunkSize,
 		camera,
@@ -71,7 +62,11 @@ export default class ChunkManager {
 		assets,
 		features,
 		seed,
+		{ isMobile = false, createWorker } = {},
 	) {
+		this.streaming = isMobile ? CHUNK_STREAMING.mobile : CHUNK_STREAMING.desktop
+		this.maxDistance = this.streaming.maxDistance
+		this.density = isMobile ? 4 : 2
 		this.params = params
 		this.camera = camera
 		this.chunkSize = chunkSize
@@ -85,8 +80,9 @@ export default class ChunkManager {
 		this.workerPool = new ChunkWorkerPool(
 			getChunkWorkerCount({
 				isMobile,
-				hardwareConcurrency: navigator.hardwareConcurrency ?? 2,
+				hardwareConcurrency: globalThis.navigator?.hardwareConcurrency ?? 2,
 			}),
+			{ createWorker },
 		)
 
 		this.init()
@@ -138,9 +134,7 @@ export default class ChunkManager {
 				(job) => job?.type === 'scenery' || job?.refreshScenery,
 			)
 			const refreshScenery = Boolean(sceneryWork)
-			const regenerate = [pending, inFlight].some(
-				(job) => job?.type === 'regenerate',
-			)
+			const regenerate = [pending, inFlight].some((job) => job?.type === 'regenerate')
 
 			if (!chunk) {
 				this.pending.set(target.key, {
@@ -162,11 +156,7 @@ export default class ChunkManager {
 					revision: this.revision,
 					refreshScenery,
 				})
-			} else if (
-				this.features.scenery &&
-				target.scenery &&
-				(refreshScenery || !chunk.hasScenery)
-			) {
+			} else if (this.features.scenery && target.scenery && (refreshScenery || !chunk.hasScenery)) {
 				this.pending.set(target.key, {
 					...target,
 					type: 'scenery',
@@ -206,9 +196,7 @@ export default class ChunkManager {
 	// and whenever a worker finishes, so no worker waits for the next frame.
 	dispatchJobs() {
 		if (this.pending.size === 0) return
-		const jobs = [...this.pending.values()].sort(
-			(a, b) => a.priority - b.priority,
-		)
+		const jobs = [...this.pending.values()].sort((a, b) => a.priority - b.priority)
 
 		for (const job of jobs) {
 			if (this.pending.get(job.key) !== job) continue
@@ -253,11 +241,7 @@ export default class ChunkManager {
 		while (this.ready.length > 0) {
 			const job = this.ready[0]
 			const jobBytes = getResponseBytes(job.response)
-			if (
-				results > 0 &&
-				(bytes + jobBytes > commitBytes ||
-					performance.now() - start > commitMs)
-			) {
+			if (results > 0 && (bytes + jobBytes > commitBytes || performance.now() - start > commitMs)) {
 				break
 			}
 			this.ready.shift()
@@ -394,10 +378,7 @@ export default class ChunkManager {
 		const currentChunkKey = getChunkKey(i, j)
 		const headingSector = this.getHeadingSector()
 
-		if (
-			currentChunkKey !== this.lastChunkVisited ||
-			headingSector !== this.headingSector
-		) {
+		if (currentChunkKey !== this.lastChunkVisited || headingSector !== this.headingSector) {
 			this.lastChunkVisited = currentChunkKey
 			this.headingSector = headingSector
 			this.reconcileChunks(i, j)
@@ -405,6 +386,14 @@ export default class ChunkManager {
 
 		this.dispatchJobs()
 		this.commitReadyResults()
+
+		// After the commits, so new chunks are culled where they are drawn.
+		const curvature = this.uniforms.uCurvature?.value
+		if (curvature) {
+			for (const chunk of this.chunks.values()) {
+				chunk.updateCurvedBounds(this.camera.position, curvature)
+			}
+		}
 	}
 
 	disposeChunk(key) {
@@ -514,6 +503,7 @@ export default class ChunkManager {
 			stale: this.stale,
 			failed: this.failed,
 			workers: this.workerPool.size,
+			failedWorkers: this.workerPool.failedCount,
 			revision: this.revision,
 			headingSector: this.headingSector,
 			seed: this.seed,

@@ -1,19 +1,7 @@
 import alea from 'alea'
 import { createNoise2D } from 'simplex-noise'
 import { getBiomeValue } from './biome.js'
-
-// Same formulas as three's MathUtils, so heights stay bit-identical; this
-// module runs in the chunk workers, which do not load three.
-function lerp(x, y, t) {
-	return (1 - t) * x + t * y
-}
-
-function smoothstep(x, min, max) {
-	if (x <= min) return 0
-	if (x >= max) return 1
-	x = (x - min) / (max - min)
-	return x * x * (3 - 2 * x)
-}
+import { lerp, smoothstep } from './math.js'
 
 // getLandmass() always reads noises 0 and 1, so at least two are created even
 // for a single octave; the extra one does not change any other octave.
@@ -36,6 +24,29 @@ export const DESERT_TERRAIN_DEFAULTS = Object.freeze({
 	depth: 0.4,
 })
 
+// Production terrain parameters (createAppParams() in src/appParams.js, edited by the ?gui=1
+// Terrain folder) and the tests' terrain, so both describe the same world:
+// height amplitude, base noise frequency per axis, octave count, lacunarity
+// (frequency gain per octave), persistance (amplitude gain per octave), and
+// the desert topography above.
+export const TERRAIN_DEFAULTS = Object.freeze({
+	amplitude: 32,
+	frequency: Object.freeze({ x: 0.5, z: 0.5 }),
+	octaves: 3,
+	lacunarity: 2,
+	persistance: 0.5,
+	desert: DESERT_TERRAIN_DEFAULTS,
+})
+
+// A mutable copy of TERRAIN_DEFAULTS.
+export function createTerrainSettings() {
+	return {
+		...TERRAIN_DEFAULTS,
+		frequency: { ...TERRAIN_DEFAULTS.frequency },
+		desert: { ...TERRAIN_DEFAULTS.desert },
+	}
+}
+
 // Sum of octaves [firstOctave, lastOctave) with their frequency and amplitude
 // scaled; the scales stay 1 for the unmodified terrain.
 function getOctaves(
@@ -53,8 +64,7 @@ function getOctaves(
 	const frequencyZ = params.frequency.z * frequencyScale
 
 	for (let octave = firstOctave; octave < lastOctave; octave++) {
-		const amplitude =
-			params.amplitude * params.persistance ** octave * amplitudeScale
+		const amplitude = params.amplitude * params.persistance ** octave * amplitudeScale
 		const lacunarity = params.lacunarity ** octave
 		let increment = noises[octave](
 			x * 0.01 * frequencyX * lacunarity,
@@ -75,8 +85,8 @@ function getLandmass(x, z, noises, params) {
 	const blend = noises[1](x * 0.0005, z * 0.0005) - 0.5
 	return lerp(
 		landmass,
-		(smoothstep(blend, 0.5, 1) - 0.5) * params.amplitude * 2,
-		1 - smoothstep(landmassNoise, -1, -0.3),
+		(smoothstep(0.5, 1, blend) - 0.5) * params.amplitude * 2,
+		1 - smoothstep(-1, -0.3, landmassNoise),
 	)
 }
 
@@ -84,14 +94,14 @@ function getLandmass(x, z, noises, params) {
 // biome, mixed over +-blend around the border.
 export function getDesertWeight(biomeValue, params) {
 	const blend = Math.max(params.desert.blend, 1e-6)
-	return 1 - smoothstep(biomeValue, -blend, blend)
+	return 1 - smoothstep(-blend, blend, biomeValue)
 }
 
 // Share of land height removed by the desert: 0 at the border, growing
 // smoothly to flatten once the biome value is depth below it.
 export function getDesertFlattening(biomeValue, params) {
 	const depth = Math.max(params.desert.depth, 1e-6)
-	return params.desert.flatten * smoothstep(-biomeValue, 0, depth)
+	return params.desert.flatten * smoothstep(0, depth, -biomeValue)
 }
 
 // biomeOffset comes from createBiomeOffset(seed); the desert reshapes the
@@ -136,14 +146,7 @@ function getSurfaceHeight(x, z, noises, params, biomeOffset) {
 	return Math.max(getHeight(x, z, noises, params, biomeOffset), -1)
 }
 
-export function getSurfaceNormal(
-	x,
-	z,
-	noises,
-	params,
-	biomeOffset,
-	target = [0, 0, 0],
-) {
+export function getSurfaceNormal(x, z, noises, params, biomeOffset, target = [0, 0, 0]) {
 	const left = getSurfaceHeight(x - NORMAL_EPSILON, z, noises, params, biomeOffset)
 	const right = getSurfaceHeight(x + NORMAL_EPSILON, z, noises, params, biomeOffset)
 	const back = getSurfaceHeight(x, z - NORMAL_EPSILON, noises, params, biomeOffset)
@@ -245,13 +248,9 @@ export function generateChunkGeometryData({
 			if (y < minY) minY = y
 			if (y > maxY) maxY = y
 
-			const left = sharesX[column]
-				? previousRight
-				: sample(x - NORMAL_EPSILON, z)
+			const left = sharesX[column] ? previousRight : sample(x - NORMAL_EPSILON, z)
 			const right = sample(x + NORMAL_EPSILON, z)
-			const back = sharesZ[row]
-				? previousFront[column]
-				: sample(x, z - NORMAL_EPSILON)
+			const back = sharesZ[row] ? previousFront[column] : sample(x, z - NORMAL_EPSILON)
 			const front = sample(x, z + NORMAL_EPSILON)
 			writeNormal(normal, index * 3, left, right, back, front)
 			previousRight = right

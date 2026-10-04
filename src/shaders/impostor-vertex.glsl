@@ -63,27 +63,15 @@ vec3 localScale = vec3(1.0, impostorStretch, 1.0) * max(impostorScale, 1e-4);
 vec3 cameraLocal = rotateYaw(rotateAroundAxis(cameraPosition - impostorCenter, bendAxis, bendCos, -bendSin), yawCos, -yawSin) / localScale;
 vec3 vertexLocal = rotateYaw(rotateAroundAxis(impostorVertex - impostorCenter, bendAxis, bendCos, -bendSin), yawCos, -yawSin) / localScale;
 
-vec2 frameGrid = encodeImpostorView(normalize(cameraLocal)) * IMPOSTOR_LAST_FRAME;
-vec2 baseFrame = min(floor(frameGrid), IMPOSTOR_LAST_FRAME - 1.0);
-vec2 frameFraction = frameGrid - baseFrame;
-vec2 middleFrame;
-if (frameFraction.x > frameFraction.y) {
-	middleFrame = baseFrame + vec2(1.0, 0.0);
-	vFrameWeights = vec3(1.0 - frameFraction.x, frameFraction.x - frameFraction.y, frameFraction.y);
-} else {
-	middleFrame = baseFrame + vec2(0.0, 1.0);
-	vFrameWeights = vec3(1.0 - frameFraction.y, frameFraction.y - frameFraction.x, frameFraction.x);
-}
-vec2 farFrame = baseFrame + 1.0;
-
-float typeIndex = float(impostorType);
-vec2 typeCell = vec2(
-	mod(typeIndex, float(IMPOSTOR_ATLAS_COLUMNS)),
-	floor(typeIndex / float(IMPOSTOR_ATLAS_COLUMNS))
-) * vec2(float(IMPOSTOR_FRAMES_X), float(IMPOSTOR_FRAMES_Y));
-vFrame0 = vec4(typeCell + baseFrame, getFrameUv(cameraLocal, vertexLocal, baseFrame, frameRadius));
-vFrame1 = vec4(typeCell + middleFrame, getFrameUv(cameraLocal, vertexLocal, middleFrame, frameRadius));
-vFrame2 = vec4(typeCell + farFrame, getFrameUv(cameraLocal, vertexLocal, farFrame, frameRadius));
+vec4 frame0;
+vec4 frame1;
+vec4 frame2;
+vec3 frameWeights;
+selectImpostorFrames(normalize(cameraLocal), cameraLocal, vertexLocal, impostorType, frameRadius, frame0, frame1, frame2, frameWeights);
+vFrame0 = frame0;
+vFrame1 = frame1;
+vFrame2 = frame2;
+vFrameWeights = frameWeights;
 
 // Normals transform with the inverse transpose of the stretch.
 mat3 viewRotation = mat3(viewMatrix);

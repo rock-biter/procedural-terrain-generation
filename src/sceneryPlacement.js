@@ -1,32 +1,25 @@
-import {
-	BIOME,
-	BIOME_BORDER_MARGIN,
-	getBiome,
-	getBiomeValue,
-	snoise,
-} from './biome.js'
+import { BIOME, BIOME_BORDER_MARGIN, getBiome, getBiomeValue } from './biome.js'
+import { snoise } from './noise.js'
+import { cellRandom, hashSeed, pickWeighted } from './random.js'
 import { getHeight, getSurfaceNormal } from './chunkGeometry.js'
-import {
-	IMPOSTOR_INSTANCE_STRIDE,
-	IMPOSTOR_TYPE,
-} from './impostors/impostorTypes.js'
+import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from './terrainBands.js'
+import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 
 // Deterministic scenery placement, run in the chunk worker. Candidates come
 // from a jittered world-space grid aligned to chunk borders: every cell lies in
 // exactly one chunk, so neighbours never duplicate or miss instances. The
 // output uses the IMPOSTOR_INSTANCE_STRIDE layout from impostorTypes.js.
 
+// Scenery grows from the grass band up to the rocks band (src/terrainBands.js,
+// the borders the terrain shader colors): never on sand, the sea, or snow.
 export const SCENERY_CONFIG = Object.freeze({
-	// Terrain color bands from src/shaders/color-fragment.glsl.
-	grassLevel: 1.8,
-	landLevel: 14,
-	rockLevel: 22,
 	// Vertical offset into the ground, in units of instance scale, so bases do
 	// not float where coarse terrain LODs cut below the exact height.
 	sink: 0.35,
 	temperate: {
 		maxDensity: 0.55,
 		minSlopeNormalY: 0.8,
+		// Type weights per terrain band.
 		bands: {
 			grass: [
 				[IMPOSTOR_TYPE.ROUND_TREE, 0.62],
@@ -117,58 +110,21 @@ export function createScenerySettings({ isMobile = false } = {}) {
 // Offsets that decorrelate the cluster noise from the biome field.
 const CLUSTER_OFFSET = [7123.4, -3311.9]
 
-export function hashSeed(seed) {
-	// FNV-1a over the seed string.
-	let hash = 0x811c9dc5
-	const text = String(seed)
-	for (let i = 0; i < text.length; i++) {
-		hash ^= text.charCodeAt(i)
-		hash = Math.imul(hash, 0x01000193)
-	}
-	return hash >>> 0
-}
-
-// Stateless per-cell random number in [0, 1). Cloud placement
-// (src/cloudPlacement.js) uses it too.
-export function cellRandom(seedHash, cellX, cellZ, salt) {
-	let h = seedHash ^ Math.imul(cellX | 0, 0x27d4eb2d)
-	h = Math.imul(h ^ (h >>> 15), 0x85ebca6b)
-	h ^= Math.imul(cellZ | 0, 0x165667b1)
-	h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35)
-	h ^= Math.imul(salt + 1, 0x9e3779b9)
-	h = Math.imul(h ^ (h >>> 16), 0x7feb352d)
-	h ^= h >>> 15
-	return (h >>> 0) / 4294967296
-}
-
 // Tint channels in [0, 2) stored as bytes; decoded in impostor-vertex.glsl.
 export function packTint(r, g, b) {
-	const byte = (value) =>
-		Math.min(255, Math.max(0, Math.round((value / 2) * 255)))
+	const byte = (value) => Math.min(255, Math.max(0, Math.round((value / 2) * 255)))
 	return byte(r) + byte(g) * 256 + byte(b) * 65536
 }
 
-// Mirrors the snow line in color-fragment.glsl.
-export function isSnow(x, y, z) {
-	return y + Math.sin(x * 0.15) * 5 + Math.cos(z * 0.15) * 5 > 40.2
-}
-
-function pickWeighted(table, value) {
-	let total = 0
-	for (const [, weight] of table) total += weight
-	let threshold = value * total
-	for (const [type, weight] of table) {
-		threshold -= weight
-		if (threshold < 0) return type
-	}
-	return table[table.length - 1][0]
+// Whether scenery may stand on terrain band `band` (a TERRAIN_BAND index).
+export function isSceneryBand(band) {
+	return band >= TERRAIN_BAND.grass && band < TERRAIN_BAND.snow
 }
 
 function getClusterDensity(x, z, biomeOffset) {
 	const cx = x + biomeOffset[0] + CLUSTER_OFFSET[0]
 	const cz = z + biomeOffset[1] + CLUSTER_OFFSET[1]
-	const forest =
-		snoise(cx * 0.004, cz * 0.004) * 0.7 + snoise(cx * 0.02, cz * 0.02) * 0.3
+	const forest = snoise(cx * 0.004, cz * 0.004) * 0.7 + snoise(cx * 0.02, cz * 0.02) * 0.3
 	return Math.min(Math.max((forest + 0.2) / 0.7, 0), 1)
 }
 
@@ -182,11 +138,7 @@ function getTint(type, biome, random) {
 	if (type === IMPOSTOR_TYPE.ROUND_TREE) {
 		// Warmer tones on brighter trees.
 		const warm = random * 0.18
-		return packTint(
-			brightness * (1 + warm),
-			brightness,
-			brightness * (1 - warm),
-		)
+		return packTint(brightness * (1 + warm), brightness, brightness * (1 - warm))
 	}
 	return packTint(brightness, brightness, brightness)
 }
@@ -204,9 +156,7 @@ export function generateSceneryInstances({
 }) {
 	const { cellSize } = settings
 	if (size % cellSize !== 0) {
-		throw new Error(
-			`Scenery cell size ${cellSize} must divide chunk size ${size}`,
-		)
+		throw new Error(`Scenery cell size ${cellSize} must divide chunk size ${size}`)
 	}
 
 	const cellsPerSide = size / cellSize
@@ -226,7 +176,8 @@ export function generateSceneryInstances({
 			const z = (cellZ + cellRandom(seedHash, cellX, cellZ, 1)) * cellSize
 
 			const height = getHeight(x, z, noises, params, biomeOffset)
-			if (height < config.grassLevel || isSnow(x, height, z)) continue
+			const band = getTerrainBand(x, height, z)
+			if (!isSceneryBand(band)) continue
 
 			const biomeValue = getBiomeValue(x, z, biomeOffset)
 			if (Math.abs(biomeValue) < BIOME_BORDER_MARGIN) continue
@@ -235,12 +186,7 @@ export function generateSceneryInstances({
 
 			// The type is drawn before acceptance, from an independent random
 			// value, so a category's density only adds or removes that category.
-			let table = rules.types
-			if (biome === BIOME.TEMPERATE) {
-				if (height < config.landLevel) table = rules.bands.grass
-				else if (height < config.rockLevel) table = rules.bands.land
-				else table = rules.bands.rocks
-			}
+			const table = biome === BIOME.DESERT ? rules.types : rules.bands[TERRAIN_BANDS[band]]
 			const type = pickWeighted(table, cellRandom(seedHash, cellX, cellZ, 3))
 
 			const baseDensity =
@@ -255,13 +201,10 @@ export function generateSceneryInstances({
 
 			const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
 			const scale =
-				(minScale +
-					(maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)) *
+				(minScale + (maxScale - minScale) * cellRandom(seedHash, cellX, cellZ, 4)) *
 				settings.size[SCENERY_TYPE_KEYS[type]]
 			if (scale <= 0) continue
-			const stretch =
-				minStretch +
-				(maxStretch - minStretch) * cellRandom(seedHash, cellX, cellZ, 5)
+			const stretch = minStretch + (maxStretch - minStretch) * cellRandom(seedHash, cellX, cellZ, 5)
 
 			instances.push({
 				priority: cellRandom(seedHash, cellX, cellZ, 8),
@@ -289,8 +232,6 @@ export function generateSceneryInstances({
 	}
 
 	const output = new Float32Array(kept.length * IMPOSTOR_INSTANCE_STRIDE)
-	kept.forEach(({ values }, index) =>
-		output.set(values, index * IMPOSTOR_INSTANCE_STRIDE),
-	)
+	kept.forEach(({ values }, index) => output.set(values, index * IMPOSTOR_INSTANCE_STRIDE))
 	return output
 }

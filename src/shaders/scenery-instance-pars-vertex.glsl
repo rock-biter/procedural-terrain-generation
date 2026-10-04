@@ -23,10 +23,7 @@ varying vec2 vSceneryDither;
 varying vec3 vShadowPosition;
 varying float vShadowSelfBias;
 
-vec3 rotateYaw(vec3 v, float c, float s) {
-	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
-}
-
+#include ./rotate-yaw.glsl
 #include ./scenery-facing.glsl
 
 // Mirrors getSceneryMeshFade() in src/sceneryMeshPolicy.js.
@@ -61,7 +58,7 @@ void getSceneryBend(
 		sphereNormal = vec3(0.0, bendCos, 0.0) + awayDirection * bendSin;
 	}
 	curvedBase = base;
-	curvedBase.y -= uCurvature * (1.0 - cos(baseDistance / uCurvature));
+	curvedBase.y -= getCurvatureDrop(baseDistance);
 }
 
 // Unpacks the placement tint (bytes, 255 maps to 2.0) and applies the

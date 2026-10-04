@@ -4,6 +4,8 @@ import {
 	CHUNK_STREAMING,
 	getChunkKey,
 	getChunkWorkerCount,
+	getCurvatureDrop,
+	getCurvedBoxSphere,
 	getDesiredChunks,
 	getHeadingSector,
 	getSectorDirection,
@@ -127,10 +129,7 @@ test('shifts LOD rings forward and keeps the rear radial', () => {
 	assert.equal(north.get(getChunkKey(2, 0)).LOD, 1)
 
 	// Chunks ahead are scheduled before chunks equally far behind.
-	assert.ok(
-		north.get(getChunkKey(0, 2)).priority <
-			north.get(getChunkKey(0, -2)).priority,
-	)
+	assert.ok(north.get(getChunkKey(0, 2)).priority < north.get(getChunkKey(0, -2)).priority)
 })
 
 test('keeps scenery range radial when LOD is shifted forward', () => {
@@ -182,5 +181,37 @@ test('commit budgets allow at least a few full-detail chunks per frame', () => {
 		const bytes = (segments + 1) ** 2 * 7 * 4
 		assert.ok(streaming.commitBytes >= bytes * 3)
 		assert.ok(streaming.commitMs > 0)
+	}
+})
+
+test('the curved sphere encloses every point of the box after its drop', () => {
+	const curvature = 3000
+	assert.equal(getCurvatureDrop(0, curvature), 0)
+	assert.ok(getCurvatureDrop(2000, curvature) > getCurvatureDrop(1000, curvature))
+	// A 256-unit chunk with 40 units of relief, from near the eye to beyond the fog.
+	const half = 128
+	const halfHeight = 20
+	for (const centerDistance of [0, 100, 600, 1500, 3000]) {
+		const { drop, radius } = getCurvedBoxSphere(
+			centerDistance,
+			half * Math.SQRT2,
+			halfHeight,
+			curvature,
+		)
+		for (let sample = 0; sample < 500; sample++) {
+			// Points of the box, the eye on its +X side at the center's height.
+			const x = ((sample % 10) / 9 - 0.5) * 2 * half
+			const z = ((Math.floor(sample / 10) % 10) / 9 - 0.5) * 2 * half
+			const y = ((Math.floor(sample / 100) % 5) / 4 - 0.5) * 2 * halfHeight
+			const pointDrop = getCurvatureDrop(Math.hypot(centerDistance + x, y, z), curvature)
+			const offset = Math.hypot(x, y - pointDrop + drop, z)
+			assert.ok(offset <= radius + 1e-6, `${centerDistance}: ${offset} > ${radius}`)
+		}
+		// Much tighter than growing the box's sphere in every direction.
+		const reach = Math.hypot(half * Math.SQRT2, halfHeight)
+		const range =
+			getCurvatureDrop(centerDistance + reach, curvature) -
+			getCurvatureDrop(Math.max(centerDistance - reach, 0), curvature)
+		assert.ok(radius <= reach + range / 2 + 1e-9)
 	}
 })

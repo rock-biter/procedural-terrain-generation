@@ -2,11 +2,11 @@
 
 ## Purpose
 
-This document describes procedural height generation, terrain geometry, chunk streaming, LOD, and per-chunk scenery. The primary sources are [`src/chunk.js`](../src/chunk.js) and [`src/chunkManager.js`](../src/chunkManager.js).
+This document describes procedural height generation, terrain geometry, chunk streaming, LOD, terrain bands, and per-chunk scenery. The primary sources are [`src/chunk.js`](../src/chunk.js), [`src/chunkManager.js`](../src/chunkManager.js), and [`src/terrainBands.js`](../src/terrainBands.js).
 
 ## Coordinate Model
 
-- A chunk is a `256` by `256` unit plane by default; `main.js` passes this size to `ChunkManager`.
+- A chunk is a `256` by `256` unit plane (`CHUNK_SIZE` in [`src/worldConstants.js`](../src/worldConstants.js)); `World` passes this size to `ChunkManager`.
 - Chunk keys use the string form `i|j`.
 - The current chunk coordinate is `floor(position.x / chunkSize), floor(position.z / chunkSize)`.
 - `ChunkManager` currently receives the moving `Plane` as its tracked object even though the field and helper names refer to a camera.
@@ -18,6 +18,8 @@ Keep CPU sampling, chunk placement, instance placement, and shader world coordin
 ## Height Generation
 
 `getHeight(x, z, noises, params, biomeOffset)` in [`src/chunkGeometry.js`](../src/chunkGeometry.js) is the shared CPU height function. `biomeOffset` is the seeded offset from `createBiomeOffset(seed)`; every caller must pass the same one the shader uses as `uBiomeOffset`.
+
+The production parameters are `TERRAIN_DEFAULTS` in the same module (amplitude `32`, frequency `0.5` on both axes, `3` octaves, lacunarity `2`, persistance `0.5`, and `DESERT_TERRAIN_DEFAULTS`); `createAppParams()` spreads a mutable copy (`createTerrainSettings()`) into `params`, and the terrain and scenery tests use the same values.
 
 1. For every configured octave, sample simplex noise using `frequency`, `lacunarity`, and world coordinates.
 2. Square each sample and scale it by `amplitude * persistance ** octave`.
@@ -32,7 +34,7 @@ The desert is lower and softer than the temperate biome, while the large-scale s
 - **Height reduction:** `getDesertFlattening()` removes a share of the land height that grows with the distance into the desert, measured in biome-noise value: `flatten * smoothstep(-biomeValue, 0, depth)`. It is `0` at the border and reaches `params.desert.flatten` (`0.5`, half the height) once the value is `params.desert.depth` (`0.4`) below it. Only positive heights are scaled, so coastlines and sea depth do not change; the slope bends slightly at the shoreline.
 - Heights are mixed rather than frequencies: interpolating the frequency would compress the noise into artificial ripples across the transition. Each detail sum is only evaluated where its weight is non-zero, so away from the border one set of detail octaves is computed.
 - Temperate terrain away from the border is unchanged. Desert height bands, and so their colors, become broader because they follow the height.
-- Defaults live in `DESERT_TERRAIN_DEFAULTS`; `main.js` copies them into `params.desert`, and `ChunkManager` snapshots them into every worker request. The **Terrain > Desert topography** GUI edits them and regenerates the chunks when a control is released.
+- Defaults live in `DESERT_TERRAIN_DEFAULTS`; `createAppParams()` copies them into `params.desert`, and `ChunkManager` snapshots them into every worker request. The **Terrain > Desert topography** GUI edits them and regenerates the chunks when a control is released.
 - **Cost:** each height sample also evaluates the biome field (three `snoise` calls). In Node, a LOD `0` chunk at density `1` went from about `86` to `130`–`140` ms. The work runs in the workers.
 
 `ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed, and never fewer than two, because the landmass always reads noises `0` and `1` (`createTerrainNoises()`); a single octave therefore keeps the same landmass. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random eight-character base-36 seed (`createRandomSeed()` in [`src/worldSeed.js`](../src/worldSeed.js)). One seed drives topology (`seed:octave` noises), biomes (`seed:biome` offset), scenery placement, and the cloud field. Each worker caches its noise functions until the seed or octave count changes.
@@ -42,9 +44,9 @@ With `?gui=1`, the **World** folder shows the current seed and changes it at run
 - writes `uBiomeOffset` in place;
 - regenerates every desired chunk, terrain and scenery, through the same revisioned path as a parameter change, so in-flight results for the old seed are discarded.
 
-`main.js` also calls `Clouds.setSeed()`, which re-places the cloud field on the next frame. It then lifts the airplane to the spawn floor (`max(height, 0) + 60`) if the new ground is above it and resets its smoothed terrain corridor. While chunks regenerate, the new biome colors briefly shade the old geometry, because `uBiomeOffset` is global. Entering the original seed again reproduces the original world.
+`World.applyWorldSeed()` also calls `Clouds.setSeed()`, which re-places the cloud field on the next frame. It then lifts the airplane to the spawn floor (`max(height, 0) + 60`) if the new ground is above it and resets its smoothed terrain corridor. While chunks regenerate, the new biome colors briefly shade the old geometry, because `uBiomeOffset` is global. Entering the original seed again reproduces the original world.
 
-`main.js` also gives `Plane` a sampler backed by this same seeded `getHeight()` path, with `chunkManager.biomeOffset`. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
+`World` also gives `Plane` a sampler backed by this same seeded `getHeight()` path, with `chunkManager.biomeOffset`. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
 
 For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. Shaders use the raw attribute for effects and coloring, so do not remove it.
 
@@ -74,10 +76,11 @@ Normals come from the height function, not from mesh triangles. `getSurfaceNorma
 - A `regenerate` job, queued or in flight, is queued again after a reconcile, so a parameter change is not lost when the plane crosses a chunk or turns.
 - `dispatchJobs()` sends the most urgent pending jobs to every idle worker, every frame and again whenever a worker finishes, so workers never wait for the next frame. Pending jobs are sorted by `priority`, the LOD distance described below, so chunks ahead run before chunks equally far behind.
 - A finished result waits in a `ready` queue and stays in the in-flight `Map`, so a reconcile can still adopt it. `commitReadyResults()` commits the queue nearest first, at least one result per frame, until `CHUNK_STREAMING.commitBytes` of new terrain and scenery buffers (`1.5` MB on desktop, `0.4` MB on mobile, about three LOD 0 chunks; uploaded on the next render) or `commitMs` (`4` or `3` ms) of main-thread time. Stale results are dropped without counting.
-- Generation runs on a pool of `getChunkWorkerCount()` workers: one on mobile, and half the logical cores from one to four on desktop. Only one request per chunk key may be in flight.
+- Generation runs on a pool of `getChunkWorkerCount()` workers: one on mobile, and half the logical cores from one to four on desktop. Only one request per chunk key may be in flight. Each worker runs `runChunkJob()` ([`src/chunkWorkerJob.js`](../src/chunkWorkerJob.js)), which returns a failed job as an `{ id, error }` message; the manager retries such a job once. A worker that crashes (an `error` event, for example a module that fails to load) restarts after `250` ms, doubling the wait each time, and gives up after `3` consecutive crashes (`CHUNK_WORKER_RESTARTS`); any message resets the count. `ChunkManager` takes `isMobile` and an optional `createWorker` factory (the tests' fake workers) as its last argument.
 - A new `Chunk` is added directly to the scene and registered in the live `Map`.
+- After the commits, every frame, `Chunk.updateCurvedBounds()` moves the mesh-level culling spheres (`mesh.boundingSphere`, which three.js prefers to the geometry's) of each terrain mesh and its scenery mesh down to where the curvature draws them; without it, a camera pitched down culled distant chunks it could see. The geometry keeps the worker's flat sphere, which the flat-world shadow casters use. The flat sphere encloses the box of the chunk's footprint and height range, and every point of that box drops by the curvature at its own distance, between the drops at the box's nearest and farthest reach; `getCurvedBoxSphere()` lowers the center by the mean of those two drops and encloses the box made taller by their range (plus `0.5` for the sea waves, and `40` units of margin for the scenery). A first version grew the flat sphere in every direction instead: in the flight view it kept `63` chunks instead of `55`, plus more scenery and shadow casters, which cost frame rate. The tight sphere culls exactly as the flat one in normal flight (same draw counts and image as before).
 
-`ChunkManager.getStats()` additionally reports queued, in-flight, and `ready` work, the last frame's commit (`lastCommit`: results, bytes, ms), generated/stale/failed results, worker count, the current `headingSector`, and seed. The browser exposes it through `window.__INFINITE_WORLD__.getChunkStats()`.
+`ChunkManager.getStats()` additionally reports queued, in-flight, and `ready` work, the last frame's commit (`lastCommit`: results, bytes, ms), generated/stale/failed results, worker count and `failedWorkers` (workers that gave up), the current `headingSector`, and seed. The browser exposes it through `window.__INFINITE_WORLD__.getChunkStats()`.
 
 The worker pool removes height sampling and normal computation from the rendering thread. Scenery placement also runs in the worker. Main-thread geometry wrapping, scene insertion, and disposal stay synchronous but bounded by the commit budget, and the GPU upload of the committed buffers happens on the next render. Measured in headless Chrome on an Apple M1 with `?seed=review`: the desktop set is complete `0.46` s after the manager starts (`1.55` s with the former one-job-per-worker-per-frame scheduler), and a 12-second boosted, turning flight keeps no backlog (the former scheduler ended it with `48` pending jobs) with no frame above `16.8` ms in either case.
 
@@ -100,16 +103,25 @@ The density divisor is `2` on desktop and `4` on mobile. An LOD job generates a 
 
 The manager does not enqueue an LOD job when the target matches the live chunk. Any new LOD rule must preserve this guard and keep neighboring chunk edges compatible enough to avoid obvious cracks.
 
+## Terrain Bands
+
+[`src/terrainBands.js`](../src/terrainBands.js) is the single source of the terrain's elevation bands; the terrain shader receives every constant as a material define (`TERRAIN_SHADER_DEFINES`), and scenery placement calls `getTerrainBand()`.
+
+- The layers are `TERRAIN_BANDS`: `sea`, `sand`, `grass`, `land`, `rocks`, `snow`. Their indices are `terrainBand` in `color-fragment.glsl` and the per-layer normal maps ([Rendering](RENDERING.md#terrain)).
+- The sea fills everything up to `SAND_LEVEL` (`0.1`); sand begins above it.
+- Each higher band begins where the height plus a wave, `sin(x · frequency) · amplitude + cos(z · frequency) · amplitude`, exceeds its `level`, with a black ink line from `line` to `level` below it: grass `0.3`/`0.6`, level `1.7`; land `0.1`/`1.6`, level `14.1`; rocks `0.15`/`2.5`, level `22.2`; snow `0.15`/`5`, level `40.2` (frequency/amplitude). A higher band wins wherever its border is passed, as in the shader.
+- `getTerrainBand(x, y, z)` returns the band the shader colors at a world point. Placement evaluates it at the exact `getHeight()`; the shader evaluates it on the interpolated mesh, so on a coarse LOD the two can disagree within a fraction of a unit near a border.
+
 ## Per-Chunk Scenery
 
-`main.js` passes `worldFeatures` with `scenery` and `clouds` set to `true` and `boats` set to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)). Boats keep their dormant implementation behind their flag.
+`WORLD_FEATURES` ([`src/worldConstants.js`](../src/worldConstants.js)) sets `scenery` and `clouds` to `true` and `boats` to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)). Boats keep their dormant implementation behind their flag.
 
 ### Biome Field
 
-[`src/biome.js`](../src/biome.js) is the CPU twin of the GLSL `getBiomeValue()` in `common.glsl`, which `color-fragment.glsl` uses to select biomes.
+[`src/biome.js`](../src/biome.js) is the CPU twin of the GLSL `getBiomeValue()` in [`terrain-bands-pars.glsl`](../src/shaders/terrain-bands-pars.glsl), which `color-fragment.glsl` uses to select biomes.
 
-- It ports the GLSL Ashima `snoise` exactly, using a floor-based `mod`, and applies the same three-frequency formula.
-- `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `main.js` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers in both the terrain and the scenery part of each request, so the seed moves biomes and their topography.
+- Both sum the same simplex layers, `BIOME_NOISE_LAYERS` in [`src/terrainBands.js`](../src/terrainBands.js) (frequency and weight: `0.000175` × `1`, `0.0035` × `0.22`, `0.012` × `0.06`), in the same order; the shader receives them as defines. [`src/noise.js`](../src/noise.js) ports the GLSL Ashima `snoise` exactly, using a floor-based `mod`.
+- `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `createSharedUniforms()` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers in both the terrain and the scenery part of each request, so the seed moves biomes and their topography.
 - A negative value is desert and a non-negative value is temperate.
 - In a headless SwiftShader comparison over 16,384 points, JS and GLSL differed by at most `8e-6`, with no sign mismatch.
 - Placement skips candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border.
@@ -119,18 +131,17 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 [`src/sceneryPlacement.js`](../src/sceneryPlacement.js) runs in the chunk worker.
 
 - **Settings:** each placement request carries a snapshot of `params.scenery`, created by `createScenerySettings()`. The **Scenery** debug folder edits it (see [Scenery Settings](#scenery-settings)). Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
-- **Grid:** a jittered world-space grid whose cell size is `settings.cellSize`: `4` units on desktop and `8` on mobile by default, and it must divide the chunk size. Cells align to chunk borders, so every candidate belongs to exactly one chunk: neighbours never duplicate or miss instances.
-- **Randomness:** each cell draws its values from a stateless integer hash of the seed and the cell coordinates. The result does not depend on generation order or LOD, and revisiting a coordinate reproduces the same instances.
+- **Grid:** a jittered world-space grid whose cell size is `settings.cellSize`: `8` units on desktop and `16` on mobile by default, and it must divide the chunk size.
+- **Randomness:** each cell draws its values from a stateless integer hash of the seed and the cell coordinates (`cellRandom()` in [`src/random.js`](../src/random.js)). The result does not depend on generation order or LOD, and revisiting a coordinate reproduces the same instances.
 - **Rejected candidates:** a candidate is skipped when any of these hold:
-  - it is on water or beach (height `< 1.8`);
-  - it is on snow (the same wobble formula as the shader snow line);
+  - its terrain band at the exact height (`getTerrainBand()`, see [Terrain Bands](#terrain-bands)) is not grass, land, or rocks: the sea, the sand band, and snow carry no scenery, wherever the shader draws their wavy borders;
   - it is within the biome-border margin;
   - it fails the density test;
   - the surface normal's Y is below `0.8` (temperate) or `0.75` (desert).
 - **Types:** each candidate first draws its type from a weighted table in `SCENERY_CONFIG`:
   - temperate grass band: round trees, some conifers and boulders;
-  - temperate land band (`≥ 14`): mostly conifers;
-  - temperate rock band (`≥ 22`): conifers and boulders;
+  - temperate land band: mostly conifers;
+  - temperate rocks band: conifers and boulders;
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
 
   Scale, vertical stretch, yaw, and tint vary per instance. Boulders are grey in temperate areas and sandy in the desert.
@@ -144,7 +155,7 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 ### Scenery LOD And Jobs
 
-- Scenery range is radial and does not follow the forward LOD shift: `hasSceneryAtDistance()` keeps scenery on chunks whose radial LOD, `floor(distance * 0.7)`, is at most `SCENERY_MAX_LOD` (`2`). Impostors shrink into the fog by `950` units whatever the heading, so scenery farther ahead would never be visible. Each desired target carries this result as `scenery`.
+- Scenery range is radial and does not follow the forward LOD shift: `hasSceneryAtDistance()` keeps scenery on chunks whose radial LOD, `floor(distance * 0.7)`, is at most `SCENERY_MAX_LOD` (`2`). Impostors shrink to nothing by `950` units whatever the heading (`SCENERY_IMPOSTOR_FAR_FADE`), so scenery farther ahead would never be visible. Each desired target carries this result as `scenery`.
 - `needsSceneryPlacement()` in `chunkPolicy.js` asks the worker for placement on every `create`, `regenerate`, and `scenery` job within range, and on any job flagged `refreshScenery`. An ordinary `updateLOD` job requests it only when the chunk has none.
 - When a live chunk enters the range without a LOD change, the reconcile queues a `scenery` job for it. When it leaves the range without a LOD change, the reconcile clears its scenery directly on the main thread.
 - A `scenery` job sends `terrain: false`: the worker skips terrain generation and returns only instances, and the manager replaces the chunk's scenery without touching its geometry. Scenery jobs do not count toward the one-near-job-per-frame limit.
@@ -157,14 +168,14 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 - `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `8` on desktop and `16` on mobile;
 - `maxPerChunk`, default `1000`;
-- density multipliers, with defaults `density.trees = 0.39`, `density.cacti = 0.2`, and `density.rocks = 0.65`;
+- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, and `density.rocks = 0.65`;
 - size multipliers, copied from the `SCENERY_DEFAULT_SIZES` configuration object:
   - `roundTree`: `1.35`;
   - `conifer`: `1.7`;
   - `cactusOneArm`: `1.29`;
   - `cactusTwoArms`: `1.68`;
   - `boulder`: `0.6`;
-  - `layeredRock`: `0.48`.
+  - `layeredRock`: `0.85`.
 
 Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.
 
@@ -193,7 +204,7 @@ Boat placement still uses `Math.random()`, so re-enabling boats would not be rep
 Clouds are a world-level field around the airplane, independent of terrain chunks, LOD, and workers. [`src/clouds.js`](../src/clouds.js) owns it; [`src/cloudPlacement.js`](../src/cloudPlacement.js) holds the pure, deterministic placement. The rendering side (impostors, near meshes, shadows) is in [Rendering](RENDERING.md#clouds).
 
 - **Grid:** a jittered world-space grid of `CLOUD_CONFIG.cellSize` (`160`) units. Each cell holds at most one cloud, whose base stays at least `12%` of a cell from the cell edges. The grid is the same on every device, so desktop and mobile see the same sky.
-- **Randomness:** every value comes from `cellRandom()` (exported by `sceneryPlacement.js`) over the seed hash and the cell. A cell's cloud never depends on the field center, so the field can be rebuilt anywhere and every cloud stays where it was.
+- **Randomness:** every value comes from `cellRandom()` ([`src/random.js`](../src/random.js)) over the seed hash and the cell. A cell's cloud never depends on the field center, so the field can be rebuilt anywhere and every cloud stays where it was.
 - **Coverage:** a low-frequency `snoise()` field (wavelength `coverageScale`, `1400` units) splits the sky into cloudy and clear patches with a soft edge. The local coverage is the share of cloudy sky: `0` is clear everywhere, `1` cloudy everywhere. A cell holds a cloud with probability `local density × cloudiness`.
 - **Regional variation:** `getCloudRegion()` modulates density, coverage, and size at each candidate's position with three independent low-frequency noise fields (two `snoise()` octaves each, wavelength `settings.regional.scale`, `4000` units by default). Regions therefore hold packed or scattered, large or small clouds, and the sky changes character gradually over a few thousand units of flight. The local density is `density × (1 ± regional.density)` (`0.6`), the local coverage `coverage ± regional.coverage` (`0.3`), both clamped to `[0, 1]`, and the size multiplier `2^(± regional.size)` (`0.5` stops). The fields are continuous, so neighbouring clouds stay alike, and they are sampled at the world position, so the field center never changes them. At amplitude `0` a setting is uniform. Altitude and field radius never vary. Over many `800`-unit windows, the cloud count spans about `3`–`52` (instead of `17`–`40` without the fields) and the mean scale about `0.87`–`1.53` (instead of `1.02`–`1.21`), with the same averages.
 - **Seed offsets:** `getCloudFieldOffsets(seed)` gives the coverage field and each regional field its own seeded offset, so every seed has its own sky.
@@ -201,10 +212,10 @@ Clouds are a world-level field around the airplane, independent of terrain chunk
 - **Altitude:** the base (the cloud's flat bottom) lies in `settings.altitude`, Y `197` to `257` by default. The highest eye is about Y `102`: the `95` flight ceiling plus the follow camera's `7`. Terrain peaks measured over several seeds stay below about `95`.
 - **Orientation:** placement stores no heading. The shaders turn every cloud about its vertical axis so its front face looks at the airplane (`getFacingYaw()`, see [Rendering](RENDERING.md#clouds)). The yaw slot of the instance layout holds only a dither seed.
 - **Neighbours:** `CLOUD_CONFIG.extent` bounds each source model. Because clouds turn, each one's footprint is the circle of radius `hypot(halfWidth, halfDepth) × scale` around its base. A cloud whose footprint and height range overlap those of a raw neighbouring candidate with a lower priority value is dropped. `getCloudNeighbourRing(settings)` sets how many cells to check in each direction: bases `k` cells apart are at least `(k - span) × cellSize` apart, so the ring reaches as far as two of the largest possible footprints (largest type scale × its size setting × the largest regional size factor), and at least one cell. With the default sizes it is `2` cells. The ring depends only on the settings, so the test stays independent of the field center.
-- **Output:** `generateCloudInstances()` returns a `Float32Array` in the `IMPOSTOR_INSTANCE_STRIDE` layout with world-space bases, for clouds whose base lies within `settings.radius` (horizontal) of the center.
+- **Output:** `generateCloudInstances()` returns a `Float32Array` in the `IMPOSTOR_INSTANCE_STRIDE` layout with world-space bases, for clouds whose base lies within `getCloudFieldReach(settings.radius)` (horizontal) of the center: the radius plus half a cell diagonal (`113` units). The airplane can be that far from the field center, so every cloud nearer to it than the far fade's end exists wherever it is in its cell, and none pops in or out at a visible size when the field moves; the extra clouds sit beyond the fade at zero size.
 - **Field:** `Clouds.update(planePosition, camera)` regenerates when the airplane enters a new cloud cell, after `setSeed()`, or after `applySettings()`. It centers the field on the cell center and replaces the single impostor geometry, then selects the near meshes. The radius is `1850` units on desktop and `1100` on mobile (`CLOUD_FIELD_RADIUS`); impostors shrink into the fog over `getCloudFarFade(radius)`, inside it, so clouds never pop at the field edge.
-- **Seed:** `applyWorldSeed()` in `main.js` calls `Clouds.setSeed()`, so a GUI seed change also changes the sky.
-- **Cost:** about `0.5` ms per rebuild on desktop (about 130 clouds on average) and `0.19` ms on mobile (about 46) in Node after warm-up, once per `160` units of travel.
+- **Seed:** `World.applyWorldSeed()` calls `Clouds.setSeed()`, so a GUI seed change also changes the sky.
+- **Cost:** about `0.45` ms per rebuild on desktop (about 140 clouds on average) and `0.17` ms on mobile (about 63) in Node after warm-up, once per `160` units of travel.
 
 ### Cloud Settings
 
@@ -214,8 +225,8 @@ Clouds are a world-level field around the airplane, independent of terrain chunk
 
 `Chunk.dispose()` removes the chunk from its parent, disposes the terrain geometry, clears the scenery, and removes boat clones. Review all owned GPU resources when adding new per-chunk content.
 
-- `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it. The scenery mesh has one child, the debug wireframe overlay, which shares that geometry and the shared `assets.impostorWireframeMaterial`.
-- The impostor material and its atlas textures are shared through `assets.impostorMaterial` and are never disposed by chunks.
+- `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it. The scenery mesh has one child, the debug wireframe overlay, which shares that geometry and the impostor wireframe material.
+- The impostor material, its wireframe twin, and the atlas textures belong to `SceneryImpostors`, which hands them to `ChunkManager`; chunks never dispose them.
 - `SceneryMeshes` reads each live chunk's instance array (`chunk.scenery.geometry.attributes.aInstanceA.data.array`) every frame and copies the near instances into its own buffers. It never keeps a reference to a chunk or its arrays across frames, so `clearScenery()` and `dispose()` need no coordination with it.
 - `SceneryShadows` points pooled caster proxies at live chunks' scenery geometries. It re-syncs them in every update before rendering any cascade, so proxies of removed chunks are hidden before they could draw. A hidden proxy may still hold a disposed geometry, but it is never rendered and never disposes it.
 - `Chunk.dispose()` does not dispose shared materials or cloned boat resources.
@@ -231,8 +242,7 @@ Record and test ownership before changing disposal; shared resources must not be
 - Keep expensive creation and LOD work bounded per frame.
 - Test negative world coordinates because chunk indexing uses `Math.floor()`.
 - Validate desktop and narrow/mobile paths because density and streaming radius differ.
-- Check terrain, scenery, clouds, and boats after changing height bands. Scenery thresholds in `SCENERY_CONFIG` and `isSnow()` mirror `color-fragment.glsl`.
-- Keep `getBiomeValue()` in `src/biome.js` identical to `getBiomeValue()` in `common.glsl`, including `uBiomeOffset`. If the formula can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
+- Change band and biome constants only in `src/terrainBands.js`: placement and the terrain shader both read them. Check terrain, scenery, clouds, and boats after changing them. Keep the `snoise` port in `src/noise.js` identical to the GLSL, and the summation order of `getBiomeValue()` the same on both sides. If the biome field can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
 - Treat changes to `params.octaves` as changes to both the height loop and the number of available noise functions; `createTerrainNoises()` keeps at least the two the landmass needs.
 
 ## Open Questions

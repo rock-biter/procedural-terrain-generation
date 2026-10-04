@@ -13,9 +13,7 @@ const KTX2_IDENTIFIER_FULL = Buffer.from([
 
 function listFiles(directory) {
 	return readdirSync(directory, { withFileTypes: true }).flatMap((entry) =>
-		entry.isDirectory()
-			? listFiles(join(directory, entry.name))
-			: [join(directory, entry.name)],
+		entry.isDirectory() ? listFiles(join(directory, entry.name)) : [join(directory, entry.name)],
 	)
 }
 
@@ -48,6 +46,9 @@ test('the airplane models use KTX2 textures', () => {
 		const glb = readFileSync(join(root, 'public/plane-toy', file))
 		const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString())
 		assert.ok(json.extensionsRequired.includes('KHR_texture_basisu'), file)
-		assert.ok(json.images.every((image) => image.mimeType === 'image/ktx2'), file)
+		assert.ok(
+			json.images.every((image) => image.mimeType === 'image/ktx2'),
+			file,
+		)
 	}
 })

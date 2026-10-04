@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-	createRandomSeed,
-	normalizeWorldSeed,
-	parseWorldSeed,
-} from '../src/worldSeed.js'
+import { createRandomSeed, normalizeWorldSeed, parseWorldSeed } from '../src/worldSeed.js'
 
 test('parses the seed query parameter', () => {
 	assert.equal(parseWorldSeed(new URLSearchParams('?seed=s762')), 's762')
@@ -26,8 +22,14 @@ test('normalizes GUI seed values', () => {
 
 test('creates short base-36 random seeds', () => {
 	assert.match(createRandomSeed(), /^[0-9a-z]{8}$/)
-	assert.equal(createRandomSeed(() => 0), '00000000')
-	assert.equal(createRandomSeed(() => 0.999999), 'zzzzzzzz')
+	assert.equal(
+		createRandomSeed(() => 0),
+		'00000000',
+	)
+	assert.equal(
+		createRandomSeed(() => 0.999999),
+		'zzzzzzzz',
+	)
 
 	const values = [0.1, 0.5, 0.9]
 	let call = 0

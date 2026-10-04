@@ -3,8 +3,10 @@ import test from 'node:test'
 import {
 	constrainDescentToMinimum,
 	FLIGHT_LIMITS,
+	createFlightCorridor,
 	getFlightCorridor,
 	getSafetyClimbSpeed,
+	getNextSpeedEffect,
 	getSpeedForEffect,
 	getTerrainBrakeImpulse,
 	getTerrainAdjustedSpeed,
@@ -71,10 +73,7 @@ test('accentuates boosted-flight slowdown when high terrain requires a climb', (
 	)
 	assert.equal(safeAltitudeSlowdown, 0)
 	assert.equal(climbingSlowdown, FLIGHT_LIMITS.maximumClimbTerrainSlowdown)
-	assert.equal(
-		severeClimbingSlowdown,
-		FLIGHT_LIMITS.maximumSevereClimbTerrainSlowdown,
-	)
+	assert.equal(severeClimbingSlowdown, FLIGHT_LIMITS.maximumSevereClimbTerrainSlowdown)
 	assert.equal(
 		getTerrainAdjustedSpeed({
 			speed: 165,
@@ -231,6 +230,21 @@ test('bases safety climb speed only on topographic relief', () => {
 	assert.equal(ridge, FLIGHT_LIMITS.maximumSafetyClimbSpeed)
 })
 
+test('the corridor is filled in place when an object is passed in', () => {
+	const options = { x: 0, z: 0, forwardX: 0, forwardZ: 1, speed: 55, sampleHeight: () => 3 }
+	const out = createFlightCorridor()
+	const { samples } = out
+	const first = samples[0]
+	assert.equal(getFlightCorridor(options, out), out)
+	assert.equal(out.samples, samples)
+	assert.equal(out.samples[0], first)
+	assert.deepEqual(
+		getFlightCorridor({ ...options, x: 5 }, out),
+		getFlightCorridor({ ...options, x: 5 }),
+	)
+	assert.equal(out.samples[0].x, 5)
+})
+
 test('samples four points at half range at cruise speed', () => {
 	const sampledPositions = []
 	const sampledHeights = [2, 12, 4, 18]
@@ -339,4 +353,17 @@ test('keeps the terrain corridor below the cloud-layer cap', () => {
 	assert.equal(corridor.minimumAltitude, FLIGHT_LIMITS.maximumAltitude)
 	assert.equal(corridor.collisionAltitude, FLIGHT_LIMITS.maximumAltitude)
 	assert.equal(corridor.maximumAltitude, FLIGHT_LIMITS.maximumAltitude)
+})
+
+test('the wheel eases the speed effect toward its request, then it decays', () => {
+	const dt = 1 / 60
+	let effect = 0
+	for (let frame = 0; frame < 12; frame++) effect = getNextSpeedEffect(effect, 1, dt)
+	// About 95% of a boost after 0.2 s, like the former tween.
+	assert.ok(effect > 0.93 && effect < 1)
+	const held = effect
+	effect = getNextSpeedEffect(effect, 0, dt)
+	assert.equal(effect, held * (1 - dt * FLIGHT_LIMITS.speedEffectDecay))
+	for (let frame = 0; frame < 12; frame++) effect = getNextSpeedEffect(effect, -1, dt)
+	assert.ok(effect < -0.85)
 })

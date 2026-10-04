@@ -27,12 +27,14 @@ Every task that modifies workspace files must use the [`documentation-sync` skil
 
 ## Essential Commands
 
-Use Node.js `^20.19.0` or `>=22.12.0` and pnpm `9.15.9`.
+Use Node.js `^20.19.0` or `>=22.13.0` (ESLint 10's minimum) and pnpm `9.15.9`.
 
 ```bash
 pnpm install
 pnpm dev
 pnpm test
+pnpm lint
+pnpm format
 pnpm build
 pnpm preview
 pnpm assets:encode
@@ -43,35 +45,21 @@ Use pnpm for dependency changes and keep `package.json` with `pnpm-lock.yaml`. D
 
 ## Source Map
 
-- [`main.js`](main.js) owns loading, shared parameters and uniforms, scene setup, shader precompilation, the render loop, and resize behavior; [`src/soundtrack.js`](src/soundtrack.js) owns the streamed background music and its volume; [`src/frameStats.js`](src/frameStats.js) owns the frame telemetry behind `window.__INFINITE_WORLD__.getRenderStats()` (frame and stage times, whole-frame draw counters, GPU time); [`src/adaptivePixelRatio.js`](src/adaptivePixelRatio.js) owns the pure pixel-ratio rules (cap, `?dpr=` override, the adaptive ratio that keeps 60 fps). [`scripts/bench.mjs`](scripts/bench.mjs) (`pnpm bench`) compares builds with a deterministic headless-Chrome flight.
-- [`src/chunkManager.js`](src/chunkManager.js) owns chunk discovery, worker dispatch, stale-result rejection, LOD selection, and scene membership.
-- [`src/chunkPolicy.js`](src/chunkPolicy.js) owns pure chunk keys, the heading-biased desired set and per-frame commit budget (`CHUNK_STREAMING`), the worker count, heading sectors, forward-shifted LOD, and the radial scenery range.
-- [`src/chunkGeometry.js`](src/chunkGeometry.js) owns deterministic height sampling (including the per-biome desert topography blend) and the three-free terrain buffers shared by tests and workers; [`src/chunkTopology.js`](src/chunkTopology.js) owns the per-LOD shared index and uv attributes and the chunk `BufferGeometry` wrapping and disposal.
-- [`src/chunkGeometry.worker.js`](src/chunkGeometry.worker.js) and [`src/chunkWorkerPool.js`](src/chunkWorkerPool.js) own off-main-thread terrain generation and bounded worker reuse.
-- [`src/chunk.js`](src/chunk.js) owns the rendered terrain mesh, geometry replacement, shader injection, and its per-chunk scenery mesh.
-- [`src/terrainNormals.js`](src/terrainNormals.js) owns the terrain normal-map textures, their assignment to the sea and the five elevation bands (`TERRAIN_NORMAL_LAYERS`), and the matching uniforms.
-- [`src/worldSeed.js`](src/worldSeed.js) owns the pure `?seed=` parsing, GUI seed normalization, and the random fallback seed; `ChunkManager.setSeed()` applies a runtime seed change from the `?gui=1` **World** folder.
-- [`src/biome.js`](src/biome.js) owns the seeded CPU twin of the shader biome field; [`src/sceneryPlacement.js`](src/sceneryPlacement.js) owns deterministic scenery placement, run in the chunk worker.
-- [`src/impostors/`](src/impostors/) owns scenery and cloud source meshes (`impostorArchetypes.js`, `cloudArchetypes.js`), the impostor catalogs that adapt the shared pipeline to each family and cache their source geometries (`impostorCatalogs.js`), the octahedral atlas bake, the impostor materials, quad meshes, the two-level near meshes (`sceneryMeshes.js`, with pure fade and selection rules in [`src/sceneryMeshPolicy.js`](src/sceneryMeshPolicy.js)), and the per-LOD debug wireframe overlay (`sceneryWireframe.js`); [`src/curvedLights.js`](src/curvedLights.js) owns the curved-world light terminator chunk, its shadowed variant, and the unshadowed cloud variant with a scaled ambient light.
-- [`src/sceneryShadows.js`](src/sceneryShadows.js) owns the soft scenery and airplane shadows: two light-aligned depth cascades, impostor and airplane casters, and the receiver uniforms; [`src/shadowPolicy.js`](src/shadowPolicy.js) owns the pure light selection, cascade bounds, snapping, scheduling, and defaults.
-- [`src/plane.js`](src/plane.js) owns movement, input, camera follow, acceleration effects, trails, and the shader-driven propeller rotation; [`src/propellerMask.js`](src/propellerMask.js) owns the pure selection of the propeller's UV charts in the fused airplane mesh; [`src/airplaneModels.js`](src/airplaneModels.js) owns the per-model data (path, load transform, trail anchor, propeller axis, threshold, plugs) and the `?plane=` choice.
-- [`src/flightPauseDebug.js`](src/flightPauseDebug.js) owns the `?debug=1` flight pause (P key) and its orbit camera; [`src/debugPolicy.js`](src/debugPolicy.js) owns the pure debug-flag and shortcut rules.
-- [`src/flightPolicy.js`](src/flightPolicy.js) owns pure speed, vertical-input, terrain-clearance, and altitude-limit rules.
-- [`src/dayNight.js`](src/dayNight.js) owns the sky dome and applies time of day to lights, fog, and `uAtmosphere`; [`src/dayNightPolicy.js`](src/dayNightPolicy.js) owns the pure keyframes and their editable copies, celestial directions, curved-horizon dip and palette time (and its inverse), and `?time=` parsing; [`src/radialFog.js`](src/radialFog.js) makes Three.js fog radial.
-- [`src/postProcessing.js`](src/postProcessing.js) owns the `postprocessing` composer that renders every frame (the only antialiasing), the idle edge-effect level, and the film grain; [`src/speedEffect.js`](src/speedEffect.js) owns the acceleration blur pyramid and chromatic aberration.
-- [`src/clouds.js`](src/clouds.js) owns the world-level cloud field (impostor mesh, cloud atlas, near cloud meshes); [`src/cloudPlacement.js`](src/cloudPlacement.js) owns its pure deterministic placement; [`src/cloudShadows.js`](src/cloudShadows.js) owns the blurred cloud shadow coverage map and its receiver uniforms, with pure rules in `shadowPolicy.js`.
-- [`src/shaders/`](src/shaders/) contains GLSL inserted into Three.js built-in materials through `onBeforeCompile`.
-- [`index.html`](index.html) and [`style.css`](style.css) own the small Tailwind-based interface shell.
-- [`public/`](public/), [`src/textures/`](src/textures/), and [`src/audio/`](src/audio/) contain runtime assets, including the toy airplane (`public/plane-toy/`); model license files must remain with their assets. Textures and the airplane GLBs are encoded (KTX2), and the airplanes' simplified shadow casters generated, from the masters in [`assets-src/`](assets-src/) by [`scripts/encode-assets.mjs`](scripts/encode-assets.mjs) (`pnpm assets:encode`); [`src/ktx2Textures.js`](src/ktx2Textures.js) owns the shared `KTX2Loader`. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
+The full module map, grouped by area with each owner's responsibility, is in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md#runtime-map). In short:
+
+- [`main.js`](main.js) is a thin bootstrap; [`src/world.js`](src/world.js) owns the frame loop and builds the world systems; [`src/renderSetup.js`](src/renderSetup.js), [`src/assetLoader.js`](src/assetLoader.js), and [`src/intro.js`](src/intro.js) own the renderer, the startup assets, and the DOM flow; [`src/appParams.js`](src/appParams.js) and [`src/sharedUniforms.js`](src/sharedUniforms.js) create the shared state; the `?gui=1` panel is [`src/debug/debugGui.js`](src/debug/debugGui.js).
+- Terrain streaming, generation, biomes, bands, and placement live in `src/chunk*.js`, [`src/terrainBands.js`](src/terrainBands.js), [`src/biome.js`](src/biome.js), [`src/sceneryPlacement.js`](src/sceneryPlacement.js), and [`src/cloudPlacement.js`](src/cloudPlacement.js); the airplane in [`src/plane.js`](src/plane.js) and the parts it composes; rendering systems in [`src/impostors/`](src/impostors/), the shadow, cloud, day/night, and post-processing modules, and [`src/shaders/`](src/shaders/), always patched through `replaceChunks()` ([`src/shaderChunks.js`](src/shaderChunks.js)).
+- _Pure_ modules (policies, placement, terrain buffers, [`src/math.js`](src/math.js), [`src/random.js`](src/random.js), [`src/noise.js`](src/noise.js)) import no three.js objects or browser state; the Node tests and the chunk workers import them.
+- [`public/`](public/), [`src/textures/`](src/textures/), and [`src/audio/`](src/audio/) contain runtime assets; model license files must remain with their assets. Textures and the airplane GLBs are encoded (KTX2, meshopt), and the airplanes' simplified shadow casters generated, from the masters in [`assets-src/`](assets-src/) by [`scripts/encode-assets.mjs`](scripts/encode-assets.mjs) (`pnpm assets:encode`). [`scripts/bench.mjs`](scripts/bench.mjs) (`pnpm bench`) compares builds with a deterministic headless-Chrome flight. Art-direction references live in [`docs/style-references/`](docs/style-references/) and are not shipped.
 
 ## Project Rules
 
 - Preserve the existing ES-module and class-based ownership boundaries unless the task explicitly changes the architecture.
 - Keep terrain calculations in world coordinates so neighboring chunks agree at their edges.
-- Treat CPU geometry and GLSL as one contract. The custom `height` attribute, shared uniforms, Three.js include names, and update order must stay synchronized.
+- Treat CPU geometry and GLSL as one contract. The custom `height` attribute, shared uniforms, Three.js include names, and update order must stay synchronized; terrain band and biome constants come from `src/terrainBands.js` alone.
 - Remember that `ChunkManager` currently tracks the `Plane` even though its constructor field and coordinate helper use camera terminology.
 - Reuse values in frame-sensitive code and avoid adding synchronous bulk work to the animation loop without profiling.
-- Keep DOM IDs synchronized between `index.html` and `main.js`, and keep audio playback behind a user interaction.
+- Keep DOM IDs synchronized between `index.html`, `main.js`, and `src/intro.js`, and keep audio playback behind a user interaction.
 - Preserve the CC BY 4.0 attribution files for the former airplane and the boat. The player models are now `public/plane-toy/plane-toy-2.glb` (default biplane) and `plane-toy.glb` (`?plane=toy`), whose provenance is not yet recorded. Do not assume the project MIT license covers third-party assets.
 - Do not silently resolve unrelated known gaps while completing a focused task. Document intentional architectural changes in the same change.
 - Follow the documentation-sync workflow when commands, ownership, runtime behavior, shader contracts, assets, validation requirements, or any other documented contract change.
@@ -80,9 +68,9 @@ If documentation disagrees with current source or package metadata, treat the im
 
 ## Validation Baseline
 
-The repository uses Node's built-in test runner for pure chunk-policy, flight-policy, debug-policy, day/night-policy, shadow-policy, propeller-mask, airplane-model, world-seed, biome, octahedral-mapping, scenery-placement, cloud-placement, cloud-source, impostor-catalog, near-scenery-mesh, terrain-buffer, encoded-asset, frame-telemetry, and adaptive-pixel-ratio coverage. It has no linting, type checking, formatter, browser automation, or CI. For every source, shader, configuration, dependency, or asset change:
+The repository uses Node's built-in test runner (`test/*.test.js`; the list of suites is in [`docs/QUALITY.md`](docs/QUALITY.md)), with a hook in `test/support/` that lets tests import Vite-style modules. ESLint (`pnpm lint`) and Prettier (`pnpm format`, `pnpm format:check`) check the code, and GitHub Actions runs lint, formatting, tests, and the build on every push and pull request; there is no type checking or browser automation. For every source, shader, configuration, dependency, or asset change:
 
-1. Run `pnpm test`.
+1. Run `pnpm lint`, `pnpm format:check`, and `pnpm test`.
 2. Run `pnpm build`.
 3. Load the app and check browser console and network failures.
 4. Perform the change-specific desktop and mobile checks in [`docs/QUALITY.md`](docs/QUALITY.md).

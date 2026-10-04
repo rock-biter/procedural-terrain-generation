@@ -82,7 +82,8 @@ test('does not grow history while stationary and preserves only the requested tr
 	assert.equal(history.count, 1)
 	assert.equal(history.availableDistance, 0)
 
-	for (let x = 1; x <= 100; x++) history.push(center(x), forward, levelWing, x < 50 ? 1 : 0, 0, 0, 60)
+	for (let x = 1; x <= 100; x++)
+		history.push(center(x), forward, levelWing, x < 50 ? 1 : 0, 0, 0, 60)
 	assert.ok(history.count <= 63)
 	assert.ok(history.availableDistance >= 60)
 	assert.ok(history.availableDistance < 62)

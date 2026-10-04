@@ -1,5 +1,7 @@
-import { snoise } from './biome.js'
-import { cellRandom, hashSeed, packTint } from './sceneryPlacement.js'
+import { clamp01, smoothstep } from './math.js'
+import { snoise } from './noise.js'
+import { cellRandom, hashSeed, pickWeighted } from './random.js'
+import { packTint } from './sceneryPlacement.js'
 import { CLOUD_TYPE } from './impostors/impostorTypes.js'
 
 // Deterministic cloud placement for the world-level cloud field
@@ -106,26 +108,11 @@ export function getCloudCell(x, z, cellSize = CLOUD_CONFIG.cellSize) {
 	return [Math.floor(x / cellSize), Math.floor(z / cellSize)]
 }
 
-function smoothstep(edge0, edge1, x) {
-	const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1)
-	return t * t * (3 - 2 * t)
-}
-
-function pickWeighted(table, value) {
-	let total = 0
-	for (const [, weight] of table) total += weight
-	let threshold = value * total
-	for (const [type, weight] of table) {
-		threshold -= weight
-		if (threshold < 0) return type
-	}
-	return table[table.length - 1][0]
-}
-
 // 0 in clear sky, 1 in cloudy sky, for a local `coverage` share.
 function getCloudiness(x, z, offset, coverage, config) {
 	const noise =
-		snoise((x + offset[0]) / config.coverageScale, (z + offset[1]) / config.coverageScale) * 0.5 + 0.5
+		snoise((x + offset[0]) / config.coverageScale, (z + offset[1]) / config.coverageScale) * 0.5 +
+		0.5
 	// Coverage 0 puts the whole soft edge above the noise range (clear sky),
 	// coverage 1 below it (cloudy everywhere).
 	const softness = config.coverageSoftness
@@ -158,10 +145,6 @@ function getRegionNoise(x, z, offset, scale) {
 	return Math.min(Math.max(noise * 1.5, -1), 1)
 }
 
-function clamp01(value) {
-	return Math.min(Math.max(value, 0), 1)
-}
-
 // Local density, coverage, and size multiplier at (x, z): settings modulated
 // by three independent low-frequency fields (settings.regional), so some
 // regions hold packed, scattered, large, or small clouds. Continuous in x and
@@ -182,8 +165,10 @@ export function getCloudRegion(x, z, offsets, settings, target = {}) {
 // The cell's cloud before the neighbour test, or null.
 function getCandidate(seedHash, cellX, cellZ, offsets, settings, config, region) {
 	const span = 1 - config.jitterMargin * 2
-	const x = (cellX + config.jitterMargin + span * cellRandom(seedHash, cellX, cellZ, 0)) * config.cellSize
-	const z = (cellZ + config.jitterMargin + span * cellRandom(seedHash, cellX, cellZ, 1)) * config.cellSize
+	const x =
+		(cellX + config.jitterMargin + span * cellRandom(seedHash, cellX, cellZ, 0)) * config.cellSize
+	const z =
+		(cellZ + config.jitterMargin + span * cellRandom(seedHash, cellX, cellZ, 1)) * config.cellSize
 	getCloudRegion(x, z, offsets, settings, region)
 	const density = region.density * getCloudiness(x, z, offsets.coverage, region.coverage, config)
 	if (cellRandom(seedHash, cellX, cellZ, 2) >= density) return null
@@ -225,10 +210,7 @@ export function getCloudNeighbourRing(settings, config = CLOUD_CONFIG) {
 	for (const [type, [, maxScale]] of Object.entries(config.shape)) {
 		const [halfWidth, , halfDepth] = config.extent[type]
 		const size = Math.max(settings.size[CLOUD_TYPE_KEYS[type]], 0)
-		largest = Math.max(
-			largest,
-			Math.hypot(halfWidth, halfDepth) * maxScale * size * regionalSize,
-		)
+		largest = Math.max(largest, Math.hypot(halfWidth, halfDepth) * maxScale * size * regionalSize)
 	}
 	return Math.max(1, Math.ceil((2 * largest) / config.cellSize + span) - 1)
 }
@@ -241,9 +223,18 @@ function overlaps(a, b) {
 	)
 }
 
-// Clouds whose base lies within `radius` (horizontal) of (centerX, centerZ).
-// A candidate that would cut through a neighbour with a lower priority value
-// is dropped; the test reads only the raw candidates of the cells within
+// Distance from the field center (a cell center) up to which clouds are
+// generated: the field radius plus half a cell diagonal. The airplane can be
+// that far from the center, so every cloud nearer to it than the far fade's
+// end exists, and none pops in or out at a visible size when the field moves
+// to the next cell.
+export function getCloudFieldReach(radius, cellSize = CLOUD_CONFIG.cellSize) {
+	return radius + cellSize * Math.SQRT1_2
+}
+
+// Clouds whose base lies within getCloudFieldReach() (horizontal) of
+// (centerX, centerZ). A candidate that would cut through a neighbour with a
+// lower priority value is dropped; the test reads only the raw candidates of the cells within
 // getCloudNeighbourRing(), so the result never depends on the center.
 export function generateCloudInstances({
 	seed,
@@ -253,7 +244,7 @@ export function generateCloudInstances({
 	config = CLOUD_CONFIG,
 }) {
 	const { cellSize } = config
-	const radius = settings.radius
+	const radius = getCloudFieldReach(settings.radius, cellSize)
 	const seedHash = hashSeed(seed)
 	const offsets = getCloudFieldOffsets(seed)
 	const region = {}

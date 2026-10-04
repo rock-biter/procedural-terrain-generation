@@ -18,6 +18,7 @@ import bakeFragmentShader from '../shaders/impostor-bake-fragment.glsl'
 import fullscreenVertexShader from '../shaders/fullscreen-vertex.glsl'
 import resolveFragmentShader from '../shaders/impostor-resolve-fragment.glsl'
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
+import { replaceChunks } from '../shaderChunks'
 import { SCENERY_IMPOSTORS, getCatalogSources } from './impostorCatalogs'
 import {
 	createHemiOctViews,
@@ -128,10 +129,9 @@ export function bakeImpostorAtlas(
 		},
 		vertexShader: bakeVertexShader,
 		// The near meshes sample the same detail function (sceneryMeshes.js).
-		fragmentShader: bakeFragmentShader.replace(
-			'#include <scenery_detail_pars_fragment>',
-			sceneryDetailParsFragment,
-		),
+		fragmentShader: replaceChunks(bakeFragmentShader, {
+			scenery_detail_pars_fragment: sceneryDetailParsFragment,
+		}),
 	})
 	const { material: resolveMaterial, scene: resolveScene } = getResolvePass()
 	resolveMaterial.uniforms.tAlbedo.value = bakeTarget.textures[0]

@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-	isDebugEnabled,
-	isEditableTarget,
-	isFlightPauseShortcut,
-} from '../src/debugPolicy.js'
+import { isDebugEnabled, isEditableTarget, isFlightPauseShortcut } from '../src/debugPolicy.js'
 
 const keyP = (overrides = {}) => ({
 	code: 'KeyP',

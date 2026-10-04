@@ -7,7 +7,7 @@ import {
 	SRGBColorSpace,
 	Vector3,
 } from 'three'
-import { CURVATURE } from './chunk'
+import { CURVATURE } from './worldConstants'
 import {
 	advanceTimeOfDay,
 	createDayNightState,
@@ -33,15 +33,7 @@ export default class DayNight {
 	state = createDayNightState()
 	cameraPosition = new Vector3()
 
-	constructor({
-		scene,
-		camera,
-		ambientLight,
-		sunLight,
-		moonLight,
-		uniforms,
-		params,
-	}) {
+	constructor({ scene, camera, ambientLight, sunLight, moonLight, uniforms, params }) {
 		this.scene = scene
 		this.camera = camera
 		this.ambientLight = ambientLight
@@ -106,12 +98,7 @@ export default class DayNight {
 		this.camera.getWorldPosition(this.cameraPosition)
 		const dip = getHorizonDip(this.cameraPosition.y, CURVATURE)
 
-		const state = getDayNightState(
-			settings.timeOfDay,
-			this.options,
-			this.state,
-			dip,
-		)
+		const state = getDayNightState(settings.timeOfDay, this.options, this.state, dip)
 
 		setSRGB(this.scene.fog.color, state.horizon)
 		this.scene.fog.near = this.params.fog.near
@@ -127,11 +114,9 @@ export default class DayNight {
 		this.sunLight.intensity = this.params.directionalLight * state.sunIntensity
 		this.moonLight.position.fromArray(state.moonDirection)
 		setSRGB(this.moonLight.color, state.moonColor)
-		this.moonLight.intensity =
-			this.params.moonLight * state.moonIntensity
+		this.moonLight.intensity = this.params.moonLight * state.moonIntensity
 		setSRGB(this.ambientLight.color, state.ambientColor)
-		this.ambientLight.intensity =
-			this.params.ambientLight * state.ambientIntensity
+		this.ambientLight.intensity = this.params.ambientLight * state.ambientIntensity
 
 		setSRGB(this.skyUniforms.uZenith.value, state.zenith)
 		setSRGB(this.skyUniforms.uHorizon.value, state.horizon)
@@ -141,10 +126,7 @@ export default class DayNight {
 		this.skyUniforms.uStarVisibility.value = state.stars
 		this.skyUniforms.uHorizonDip.value = Math.sin(dip)
 		this.skyUniforms.uHorizonDipAngle.value = dip
-		this.skyUniforms.uGradientHeight.value = Math.max(
-			settings.skyGradientHeight,
-			0.001,
-		)
+		this.skyUniforms.uGradientHeight.value = Math.max(settings.skyGradientHeight, 0.001)
 
 		this.sky.position.copy(this.cameraPosition)
 

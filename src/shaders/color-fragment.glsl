@@ -10,16 +10,17 @@ diffuseColor.rgb = mix(vec3(0.0, 0., 0.5), vec3(0.0, 0., 0.02), pctDeep);
 float pctSea = smoothstep(- 6., - 16., wPosition.y);
 diffuseColor.rgb = mix(vec3(0., 0.2, .6), diffuseColor.rgb, pctSea);
 diffuseColor.rgb = mix(vec3(0., 0., 0.), diffuseColor.rgb, step(wPosition.y, 0.));
-float pctSand = step(wPosition.y, 0.1);
+float pctSand = step(wPosition.y, TERRAIN_SAND_LEVEL);
 
-// Height bands: 1.0 keeps the color below the band. Below 0.1 no band, biome
-// color, separator, or color noise reaches the output, so the sea (most of
-// the world) skips their noise evaluations.
+// Height bands (src/terrainBands.js): 1.0 keeps the color below the band.
+// Below the sand level no band, biome color, separator, or color noise
+// reaches the output, so the sea (most of the world) skips their noise
+// evaluations.
 float pct = 1.0;
 float pct2 = 1.0;
 float pctRock = 1.0;
 float pct3 = 1.0;
-if (wPosition.y >= 0.1) {
+if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	float biomeBlend = step(0.0, biomeValue);
 
 	// Biome separator with a constant world-space width. The distance to the
@@ -57,27 +58,31 @@ if (wPosition.y >= 0.1) {
 
 	diffuseColor.rgb = mix(sandBiomes, diffuseColor.rgb, pctSand);
 
-	// green
-	float pctLine = step(wPosition.y + sin(wPosition.x * 0.3) * 0.6 + cos(wPosition.z * 0.3) * 0.6, 1.6);
-	pct = step(wPosition.y + sin(wPosition.x * 0.3) * 0.6 + cos(wPosition.z * 0.3) * 0.6, 1.7);
+	// grass
+	float bandHeight = getTerrainBandHeight(wPosition, TERRAIN_GRASS_WAVE);
+	float pctLine = step(bandHeight, TERRAIN_GRASS_LINE);
+	pct = step(bandHeight, TERRAIN_GRASS_LEVEL);
 	diffuseColor.rgb = mix(vec3(0., 0., 0.), diffuseColor.rgb, pctLine);
 	diffuseColor.rgb = mix(grassBiomes, diffuseColor.rgb, pct);
 
-	// orange
-	pctLine = step(wPosition.y + sin(wPosition.x * 0.1) * 1.6 + cos(wPosition.z * 0.1) * 1.6, 14.);
-	pct2 = step(wPosition.y + sin(wPosition.x * 0.1) * 1.6 + cos(wPosition.z * 0.1) * 1.6, 14.1);
+	// land
+	bandHeight = getTerrainBandHeight(wPosition, TERRAIN_LAND_WAVE);
+	pctLine = step(bandHeight, TERRAIN_LAND_LINE);
+	pct2 = step(bandHeight, TERRAIN_LAND_LEVEL);
 	diffuseColor.rgb = mix(vec3(0., 0., 0.), diffuseColor.rgb, pctLine);
 	diffuseColor.rgb = mix(landBiomes, diffuseColor.rgb, pct2);
 
-	// brown
-	pctLine = step(wPosition.y + sin(wPosition.x * 0.15) * 2.5 + cos(wPosition.z * 0.15) * 2.5, 22.);
-	pctRock = step(wPosition.y + sin(wPosition.x * 0.15) * 2.5 + cos(wPosition.z * 0.15) * 2.5, 22.2);
+	// rocks
+	bandHeight = getTerrainBandHeight(wPosition, TERRAIN_ROCKS_WAVE);
+	pctLine = step(bandHeight, TERRAIN_ROCKS_LINE);
+	pctRock = step(bandHeight, TERRAIN_ROCKS_LEVEL);
 	diffuseColor.rgb = mix(vec3(0.0, 0.0, 0.0), diffuseColor.rgb, pctLine);
 	diffuseColor.rgb = mix(rocksBiomes, diffuseColor.rgb, pctRock);
 
 	// snow
-	pctLine = step(wPosition.y + sin(wPosition.x * 0.15) * 5. + cos(wPosition.z * 0.15) * 5., 40.);
-	pct3 = step(wPosition.y + sin(wPosition.x * 0.15) * 5. + cos(wPosition.z * 0.15) * 5., 40.2);
+	bandHeight = getTerrainBandHeight(wPosition, TERRAIN_SNOW_WAVE);
+	pctLine = step(bandHeight, TERRAIN_SNOW_LINE);
+	pct3 = step(bandHeight, TERRAIN_SNOW_LEVEL);
 	diffuseColor.rgb = mix(vec3(0., 0., 0.), diffuseColor.rgb, pctLine);
 	diffuseColor.rgb = mix(snowBiomes, diffuseColor.rgb, pct3);
 
@@ -87,13 +92,13 @@ if (wPosition.y >= 0.1) {
 }
 
 // Layer for normal-fragment-map.glsl, indexed like TERRAIN_BANDS in
-// src/terrainNormals.js. Same priority as the color mixes above.
-int terrainBand = 0;
-if (pctSand < 0.5) terrainBand = 1;
-if (pct < 0.5) terrainBand = 2;
-if (pct2 < 0.5) terrainBand = 3;
-if (pctRock < 0.5) terrainBand = 4;
-if (pct3 < 0.5) terrainBand = 5;
+// src/terrainBands.js. Same priority as the color mixes above.
+int terrainBand = TERRAIN_BAND_SEA;
+if (pctSand < 0.5) terrainBand = TERRAIN_BAND_SAND;
+if (pct < 0.5) terrainBand = TERRAIN_BAND_GRASS;
+if (pct2 < 0.5) terrainBand = TERRAIN_BAND_LAND;
+if (pctRock < 0.5) terrainBand = TERRAIN_BAND_ROCKS;
+if (pct3 < 0.5) terrainBand = TERRAIN_BAND_SNOW;
 
 float onda = sin(wPosition.y * 8. - uTime * 4. + sin(wPosition.x * 0.5) + sin(wPosition.z * 0.5)) * 0.5 + 0.5;
 onda *= onda * onda * onda;

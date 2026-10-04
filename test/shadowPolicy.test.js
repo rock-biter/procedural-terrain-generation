@@ -74,6 +74,15 @@ test('the higher light casts shadows and fades in with elevation', () => {
 	assert.ok(fading.strength > 0 && fading.strength < 1)
 })
 
+test('the shadow light is written into the object passed in', () => {
+	const settings = createSceneryShadowSettings()
+	const out = selectShadowLight(direction(0.8), direction(-0.8, Math.PI), settings)
+	const moon = direction(0.6, Math.PI)
+	assert.equal(selectShadowLight(direction(-0.6), moon, settings, out), out)
+	assert.equal(out.light, 'moon')
+	assert.equal(out.direction, moon)
+})
+
 test('the sun/moon hand-over happens at zero strength', () => {
 	const settings = createSceneryShadowSettings()
 	for (const elevation of [-0.04, -0.01, 0, 0.01, 0.04]) {

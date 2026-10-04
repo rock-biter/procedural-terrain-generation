@@ -42,10 +42,7 @@ class LevelChainPass extends Pass {
 	initialize(renderer, alpha, frameBufferType) {
 		for (const target of this.levels) {
 			target.texture.type = frameBufferType
-			if (
-				frameBufferType === UnsignedByteType &&
-				renderer.outputColorSpace === SRGBColorSpace
-			) {
+			if (frameBufferType === UnsignedByteType && renderer.outputColorSpace === SRGBColorSpace) {
 				target.texture.colorSpace = SRGBColorSpace
 			}
 		}
@@ -166,8 +163,7 @@ export default class SpeedEffect extends Effect {
 
 	// Renders only the pyramid levels the current maximum blur can reach.
 	getRequiredLevels() {
-		const maxBlurPixels =
-			this.uniforms.get('blurParams').value.x * this.intensity * this.height
+		const maxBlurPixels = this.uniforms.get('blurParams').value.x * this.intensity * this.height
 		const maxLod = Math.log2(Math.max(maxBlurPixels, 1))
 		return Math.min(Math.ceil(maxLod), BLUR_LEVELS)
 	}
@@ -205,12 +201,7 @@ export default class SpeedEffect extends Effect {
 
 function setMaskParams(target, { strength, start, end, curve }) {
 	// smoothstep() is undefined when its edges are equal or inverted.
-	target.set(
-		strength,
-		start,
-		Math.max(end, start + 0.001),
-		Math.max(curve, 0.01),
-	)
+	target.set(strength, start, Math.max(end, start + 0.001), Math.max(curve, 0.01))
 }
 
 function createFullscreenMaterial(name, fragmentShader, uniforms) {

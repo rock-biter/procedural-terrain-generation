@@ -228,7 +228,10 @@ test('blends neighbouring frontal frames and clamps views outside the band', () 
 	const exact = getViewFrameBlend(...getViewFrameDirection(2, 6, CLOUD_VIEWS), CLOUD_VIEWS)
 	assert.deepEqual(exact.frames[exact.weights.indexOf(Math.max(...exact.weights))], [2, 6])
 	// From above, from the side, and from behind: clamped to the band edges.
-	assert.deepEqual(encodeView(0, 1, -0.2, CLOUD_VIEWS).map((value) => value + 0), [0.5, 0])
+	assert.deepEqual(
+		encodeView(0, 1, -0.2, CLOUD_VIEWS).map((value) => value + 0),
+		[0.5, 0],
+	)
 	assert.equal(encodeView(...frontalDirection(Math.PI / 2, 0.3), CLOUD_VIEWS)[0], 1)
 	assert.equal(encodeView(...frontalDirection(-Math.PI / 2, 0.3), CLOUD_VIEWS)[0], 0)
 	assert.equal(encodeView(0, -1, 0, CLOUD_VIEWS)[1], 1)
@@ -249,7 +252,10 @@ test('sizes atlases per layout and fits the texture limit', () => {
 	})
 	// The supersampled bake block of the tall frontal grid is the limit here.
 	assert.equal(getMaxImpostorFrameSize(2048, CLOUD_VIEWS, CLOUD_ATLAS, 2), 102)
-	assert.equal(getMaxImpostorFrameSize(4096, createHemiOctViews(12), { columns: 3, rows: 2 }, 2), 113)
+	assert.equal(
+		getMaxImpostorFrameSize(4096, createHemiOctViews(12), { columns: 3, rows: 2 }, 2),
+		113,
+	)
 })
 
 test('turns layouts into shader defines', () => {

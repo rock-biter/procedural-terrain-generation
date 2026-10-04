@@ -1,15 +1,5 @@
-import {
-	BufferAttribute,
-	BufferGeometry,
-	Color,
-	ExtrudeGeometry,
-	Shape,
-	Vector2,
-} from 'three'
-import {
-	mergeGeometries,
-	mergeVertices,
-} from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { BufferAttribute, BufferGeometry, Color, ExtrudeGeometry, Shape, Vector2 } from 'three'
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { CLOUD_TYPE } from './impostorTypes.js'
 
 // Source models for the cloud impostors and the near cloud meshes, in the
@@ -47,13 +37,25 @@ const CLOUD_SLABS = {
 	// Long and low.
 	[CLOUD_TYPE.BANK]: [
 		{
-			bumps: [[-24, 7, 8], [-11, 11, 11], [4, 12, 12], [19, 9, 9], [30, 5, 6]],
+			bumps: [
+				[-24, 7, 8],
+				[-11, 11, 11],
+				[4, 12, 12],
+				[19, 9, 9],
+				[30, 5, 6],
+			],
 			depth: 8,
 			z: 0,
 			color: COLORS.front,
 		},
 		{
-			bumps: [[-31, 6, 7], [-19, 12, 11], [-4, 13, 10], [9, 8, 8], [18, 5, 6]],
+			bumps: [
+				[-31, 6, 7],
+				[-19, 12, 11],
+				[-4, 13, 10],
+				[9, 8, 8],
+				[18, 5, 6],
+			],
 			depth: 7,
 			z: 9,
 			color: COLORS.back,
@@ -62,13 +64,23 @@ const CLOUD_SLABS = {
 	// One tall central bump.
 	[CLOUD_TYPE.HEAP]: [
 		{
-			bumps: [[-20, 6, 7], [-8, 12, 11], [7, 15, 14], [21, 7, 8]],
+			bumps: [
+				[-20, 6, 7],
+				[-8, 12, 11],
+				[7, 15, 14],
+				[21, 7, 8],
+			],
 			depth: 9,
 			z: 0,
 			color: COLORS.front,
 		},
 		{
-			bumps: [[-28, 6, 7], [-17, 12, 10], [-3, 14, 11], [10, 6, 8]],
+			bumps: [
+				[-28, 6, 7],
+				[-17, 12, 10],
+				[-3, 14, 11],
+				[10, 6, 8],
+			],
 			depth: 8,
 			z: 10,
 			color: COLORS.back,
@@ -77,13 +89,21 @@ const CLOUD_SLABS = {
 	// Small and compact.
 	[CLOUD_TYPE.PUFF]: [
 		{
-			bumps: [[-9, 5, 6], [2, 8, 8], [11, 4, 5]],
+			bumps: [
+				[-9, 5, 6],
+				[2, 8, 8],
+				[11, 4, 5],
+			],
 			depth: 6,
 			z: 0,
 			color: COLORS.front,
 		},
 		{
-			bumps: [[-12, 5, 6], [-3, 8, 7], [6, 5, 6]],
+			bumps: [
+				[-12, 5, 6],
+				[-3, 8, 7],
+				[6, 5, 6],
+			],
 			depth: 5,
 			z: 7,
 			color: COLORS.back,
@@ -119,10 +139,7 @@ function pushQuadratic(points, from, control, to, segments) {
 		const b = 2 * (1 - t) * t
 		const c = t * t
 		points.push(
-			new Vector2(
-				a * from.x + b * control.x + c * to.x,
-				a * from.y + b * control.y + c * to.y,
-			),
+			new Vector2(a * from.x + b * control.x + c * to.x, a * from.y + b * control.y + c * to.y),
 		)
 	}
 }
@@ -151,9 +168,7 @@ function createOutline(bumps, { circleSegments, filletSegments, bottomSpacing })
 				? Math.PI + Math.asin(y / r)
 				: Math.atan2(junctions[i - 1][1] - y, junctions[i - 1][0] - x)
 		let finish =
-			i === last
-				? -Math.asin(y / r)
-				: Math.atan2(junctions[i][1] - y, junctions[i][0] - x)
+			i === last ? -Math.asin(y / r) : Math.atan2(junctions[i][1] - y, junctions[i][0] - x)
 		while (finish >= start) finish -= Math.PI * 2
 		const trim = Math.min(FILLET / r, (start - finish) * 0.3)
 		return { start, finish, trim }
@@ -262,12 +277,7 @@ function applyOcclusion(geometry) {
 	for (let i = 0; i < position.count; i++) {
 		const t = Math.min(Math.max((position.getY(i) - min.y) / height, 0), 1)
 		const occlusion = 0.8 + 0.2 * Math.sqrt(t)
-		color.setXYZ(
-			i,
-			color.getX(i) * occlusion,
-			color.getY(i) * occlusion,
-			color.getZ(i) * occlusion,
-		)
+		color.setXYZ(i, color.getX(i) * occlusion, color.getY(i) * occlusion, color.getZ(i) * occlusion)
 	}
 }
 
@@ -289,7 +299,8 @@ function buildCloud(type, lod) {
 export function createCloudSources(type, lodCount = 1) {
 	if (!CLOUD_SLABS[type]) throw new Error(`Unknown cloud type: ${type}`)
 	const sources = []
-	for (let lod = 0; lod < lodCount; lod++) sources.push(buildCloud(type, Math.min(lod, DETAIL.length - 1)))
+	for (let lod = 0; lod < lodCount; lod++)
+		sources.push(buildCloud(type, Math.min(lod, DETAIL.length - 1)))
 	const lod0 = sources[0]
 	lod0.computeBoundingBox()
 	lod0.computeBoundingSphere()

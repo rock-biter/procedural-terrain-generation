@@ -47,7 +47,7 @@ vSphereNormal = normalize(normalMatrix * sphereNormal);
 // mvPosition.y += wave * (1. - smoothstep(0.,1500., dist )) * 2.;
 mvPosition.y += wave * pctWave * 0.5;
 
-mvPosition.y += -uCurvature * (1. - cos(dist / uCurvature));
+mvPosition.y -= getCurvatureDrop(dist);
 
 mvPosition = modelViewMatrix * mvPosition;
 gl_Position = projectionMatrix * mvPosition;

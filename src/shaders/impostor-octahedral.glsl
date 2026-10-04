@@ -71,3 +71,41 @@ vec2 getFrameUv(vec3 cameraLocal, vec3 vertexLocal, vec2 frame, float frameRadiu
 	vec3 hit = cameraLocal + ray * t;
 	return vec2(dot(hit, right), dot(hit, up)) / frameRadius * 0.5 + 0.5;
 }
+
+// The three baked frames around the local view direction `view` and their
+// blend weights: each frame's atlas cell (xy, inside the type's block) and the
+// vertex UV in it (zw), seen from `viewerLocal`. Impostors look from the eye,
+// shadow casters from far along the light.
+void selectImpostorFrames(
+	vec3 view,
+	vec3 viewerLocal,
+	vec3 vertexLocal,
+	int type,
+	float frameRadius,
+	out vec4 frame0,
+	out vec4 frame1,
+	out vec4 frame2,
+	out vec3 weights
+) {
+	vec2 frameGrid = encodeImpostorView(view) * IMPOSTOR_LAST_FRAME;
+	vec2 baseFrame = min(floor(frameGrid), IMPOSTOR_LAST_FRAME - 1.0);
+	vec2 frameFraction = frameGrid - baseFrame;
+	vec2 middleFrame;
+	if (frameFraction.x > frameFraction.y) {
+		middleFrame = baseFrame + vec2(1.0, 0.0);
+		weights = vec3(1.0 - frameFraction.x, frameFraction.x - frameFraction.y, frameFraction.y);
+	} else {
+		middleFrame = baseFrame + vec2(0.0, 1.0);
+		weights = vec3(1.0 - frameFraction.y, frameFraction.y - frameFraction.x, frameFraction.x);
+	}
+	vec2 farFrame = baseFrame + 1.0;
+
+	float typeIndex = float(type);
+	vec2 typeCell = vec2(
+		mod(typeIndex, float(IMPOSTOR_ATLAS_COLUMNS)),
+		floor(typeIndex / float(IMPOSTOR_ATLAS_COLUMNS))
+	) * vec2(float(IMPOSTOR_FRAMES_X), float(IMPOSTOR_FRAMES_Y));
+	frame0 = vec4(typeCell + baseFrame, getFrameUv(viewerLocal, vertexLocal, baseFrame, frameRadius));
+	frame1 = vec4(typeCell + middleFrame, getFrameUv(viewerLocal, vertexLocal, middleFrame, frameRadius));
+	frame2 = vec4(typeCell + farFrame, getFrameUv(viewerLocal, vertexLocal, farFrame, frameRadius));
+}

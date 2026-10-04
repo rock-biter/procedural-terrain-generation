@@ -1,15 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BIOME_BORDER_MARGIN, createBiomeOffset, getBiomeValue } from '../src/biome.js'
-import {
-	DESERT_TERRAIN_DEFAULTS,
-	createTerrainNoises,
-	getHeight,
-} from '../src/chunkGeometry.js'
-import {
-	IMPOSTOR_INSTANCE_STRIDE,
-	IMPOSTOR_TYPE,
-} from '../src/impostors/impostorTypes.js'
+import { TERRAIN_DEFAULTS, createTerrainNoises, getHeight } from '../src/chunkGeometry.js'
+import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from '../src/impostors/impostorTypes.js'
 import {
 	SCENERY_CATEGORIES,
 	SCENERY_CONFIG,
@@ -17,18 +10,13 @@ import {
 	SCENERY_TYPE_KEYS,
 	createScenerySettings,
 	generateSceneryInstances,
-	isSnow,
+	isSceneryBand,
 	packTint,
 } from '../src/sceneryPlacement.js'
+import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from '../src/terrainBands.js'
 
-const params = {
-	amplitude: 23,
-	frequency: { x: 0.5, z: 0.5 },
-	octaves: 3,
-	lacunarity: 2,
-	persistance: 0.5,
-	desert: DESERT_TERRAIN_DEFAULTS,
-}
+// The production terrain.
+const params = TERRAIN_DEFAULTS
 const seed = 'scenery-test'
 const noises = createTerrainNoises(seed, params.octaves)
 const biomeOffset = createBiomeOffset(seed)
@@ -86,17 +74,30 @@ test('keeps every instance inside its own chunk without duplicates', () => {
 	}
 })
 
+test('scenery grows only on the grass, land, and rocks bands', () => {
+	assert.deepEqual(
+		TERRAIN_BANDS.filter((_, band) => isSceneryBand(band)),
+		Object.keys(SCENERY_CONFIG.temperate.bands),
+	)
+})
+
 test('never places scenery in water, on beaches, or on snow', () => {
+	const bands = new Set()
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
 			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
-			assert.ok(height >= SCENERY_CONFIG.grassLevel)
-			assert.equal(isSnow(instance.x, height, instance.z), false)
-			assert.ok(
-				Math.abs(instance.y - (height - SCENERY_CONFIG.sink * instance.scale)) < 1e-3,
-			)
+			const band = getTerrainBand(instance.x, height, instance.z)
+			assert.ok(band >= TERRAIN_BAND.grass && band <= TERRAIN_BAND.rocks)
+			assert.ok(Math.abs(instance.y - (height - SCENERY_CONFIG.sink * instance.scale)) < 1e-3)
+			// Temperate types follow the band the shader colors under them.
+			if (getBiomeValue(instance.x, instance.z, biomeOffset) > 0) {
+				const table = SCENERY_CONFIG.temperate.bands[TERRAIN_BANDS[band]]
+				assert.ok(table.some(([type]) => type === instance.type))
+			}
+			bands.add(band)
 		}
 	}
+	assert.ok(bands.size > 1)
 })
 
 test('keeps desert and temperate types in their biome', () => {
@@ -175,15 +176,12 @@ test('changes only the density of the edited category', () => {
 test('scales only the edited type', () => {
 	const defaults = createScenerySettings()
 	const key = SCENERY_TYPE_KEYS[IMPOSTOR_TYPE.CONIFER]
-	const [i, j, baseline] = chunks.find(([, , data]) =>
-		countByType(data).has(IMPOSTOR_TYPE.CONIFER),
-	)
+	const [i, j, baseline] = chunks.find(([, , data]) => countByType(data).has(IMPOSTOR_TYPE.CONIFER))
 	const scaled = generate(i, j, {}, { size: { ...defaults.size, [key]: 2 } })
 
 	assert.equal(scaled.length, baseline.length)
 	for (let k = 0; k < baseline.length; k += IMPOSTOR_INSTANCE_STRIDE) {
-		const factor =
-			baseline[k + 5] === IMPOSTOR_TYPE.CONIFER ? 2 / defaults.size[key] : 1
+		const factor = baseline[k + 5] === IMPOSTOR_TYPE.CONIFER ? 2 / defaults.size[key] : 1
 		assert.ok(Math.abs(scaled[k + 3] - baseline[k + 3] * factor) < 1e-5)
 	}
 })

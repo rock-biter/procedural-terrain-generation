@@ -18,20 +18,12 @@ import impostorVertex from '../shaders/impostor-vertex.glsl'
 import impostorParsFragment from '../shaders/impostor-pars-fragment.glsl'
 import impostorColorFragment from '../shaders/impostor-color-fragment.glsl'
 import impostorNormalFragment from '../shaders/impostor-normal-fragment.glsl'
-import sceneryShadowParsFragment from '../shaders/scenery-shadow-pars-fragment.glsl'
-import cloudShadowParsFragment from '../shaders/cloud-shadow-pars-fragment.glsl'
-import {
-	createShadowedLightsFragment,
-	createUnshadowedLightsFragment,
-} from '../curvedLights'
-import { getSceneryShadowTapDefines } from '../shadowPolicy'
+import { createSceneryLighting } from '../curvedLights'
+import { replaceChunks } from '../shaderChunks'
 import { getCatalogDefines } from './impostorCatalogs'
 import { getViewDefines, isSameViews } from './octahedral'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
-import {
-	makeSceneryWireframeMaterial,
-	patchSceneryWireframeShader,
-} from './sceneryWireframe'
+import { makeSceneryWireframeMaterial, patchSceneryWireframeShader } from './sceneryWireframe'
 
 // Far fade of the scenery impostors: they shrink into the fog between these
 // eye distances, before the scenery LOD limit removes their chunk.
@@ -64,16 +56,15 @@ export function createImpostorMaterial(
 	} = {},
 ) {
 	const impostorUniforms = {
-		uImpostorVariationAmount:
-			variation?.amount ?? { value: new Array(atlas.catalog.typeCount).fill(0) },
+		uImpostorVariationAmount: variation?.amount ?? {
+			value: new Array(atlas.catalog.typeCount).fill(0),
+		},
 		uImpostorVariationFrequency: variation?.frequency ?? { value: 1 },
 		uImpostorFarFade: farFade ?? { value: new Vector2(...SCENERY_IMPOSTOR_FAR_FADE) },
 		uImpostorAlbedo: { value: atlas.albedo },
 		uImpostorNormal: { value: atlas.normal },
 		uImpostorTypes: {
-			value: atlas.types.map(
-				({ frameRadius, centerY }) => new Vector2(frameRadius, centerY),
-			),
+			value: atlas.types.map(({ frameRadius, centerY }) => new Vector2(frameRadius, centerY)),
 		},
 	}
 	if (ambientScale) impostorUniforms.uSceneryAmbientScale = ambientScale
@@ -120,12 +111,19 @@ function buildImpostorMaterial(
 		...getCatalogDefines(atlas.catalog),
 	}
 	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
-	// Keeps the unshadowed program apart from the shadowed one.
-	if (receiveShadows) {
-		Object.assign(material.defines, getSceneryShadowTapDefines(shadowTaps))
-	} else {
-		material.defines.SCENERY_NO_SHADOWS = ''
-	}
+	// Its defines keep the unshadowed program apart from the shadowed one.
+	const lighting = createSceneryLighting(
+		receiveShadows
+			? {
+					shadows: {
+						taps: [shadowTaps, shadowTaps],
+						position: 'impostorShadowPosition',
+						selfBias: 'vShadowSelfBias',
+					},
+				}
+			: { ambientScale: impostorUniforms.uSceneryAmbientScale },
+	)
+	Object.assign(material.defines, lighting.defines)
 
 	// Lets a re-bake swap the atlas without recompiling the material.
 	material.userData.atlas = atlas
@@ -136,16 +134,6 @@ function buildImpostorMaterial(
 		shadowTaps,
 		receiveShadows,
 	}
-	const lightsFragment = receiveShadows
-		? createShadowedLightsFragment(
-				'getSceneryShadow(impostorShadowPosition, vShadowSelfBias) * getCloudShadow(impostorShadowPosition)',
-			)
-		: createUnshadowedLightsFragment(
-				impostorUniforms.uSceneryAmbientScale ? 'uSceneryAmbientScale' : '1.0',
-			)
-	const ambientParsFragment = impostorUniforms.uSceneryAmbientScale
-		? 'uniform float uSceneryAmbientScale;'
-		: ''
 
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms = {
@@ -154,20 +142,16 @@ function buildImpostorMaterial(
 			...impostorUniforms,
 		}
 
-		shader.vertexShader = shader.vertexShader
-			.replace(
-				'#include <common>',
-				`${common}\n${sceneryInstanceParsVertex}\n${impostorParsVertex}\n${impostorOctahedral}`,
-			)
-			.replace('#include <project_vertex>', impostorVertex)
-		shader.fragmentShader = shader.fragmentShader
-			.replace(
-				'#include <common>',
-				`${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}\n${sceneryShadowParsFragment}\n${cloudShadowParsFragment}\n${ambientParsFragment}`,
-			)
-			.replace('#include <color_fragment>', impostorColorFragment)
-			.replace('#include <normal_fragment_begin>', impostorNormalFragment)
-			.replace('#include <lights_fragment_begin>', lightsFragment)
+		shader.vertexShader = replaceChunks(shader.vertexShader, {
+			common: `${common}\n${sceneryInstanceParsVertex}\n${impostorParsVertex}\n${impostorOctahedral}`,
+			project_vertex: impostorVertex,
+		})
+		shader.fragmentShader = replaceChunks(shader.fragmentShader, {
+			common: `${common}\n${sceneryDitherParsFragment}\n${impostorParsFragment}\n${lighting.parsFragment}`,
+			color_fragment: impostorColorFragment,
+			normal_fragment_begin: impostorNormalFragment,
+			lights_fragment_begin: lighting.lightsFragment,
+		})
 		patchSceneryWireframeShader(shader, material)
 	}
 
@@ -195,30 +179,19 @@ export function setImpostorAtlas(material, atlas) {
 // instance buffer) is unique to the chunk and disposed with it. With a
 // `wireframeMaterial` (createImpostorWireframeMaterial()), a child mesh draws
 // the same quads as the debug overlay.
-export function createImpostorMesh(
-	instances,
-	material,
-	boundingRadius,
-	wireframeMaterial = null,
-) {
+export function createImpostorMesh(instances, material, boundingRadius, wireframeMaterial = null) {
 	const geometry = new InstancedBufferGeometry()
 	geometry.setIndex([0, 1, 2, 0, 2, 3])
 	geometry.setAttribute(
 		'position',
-		new BufferAttribute(
-			new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]),
-			3,
-		),
+		new BufferAttribute(new Float32Array([-1, -1, 0, 1, -1, 0, 1, 1, 0, -1, 1, 0]), 3),
 	)
 	geometry.setAttribute(
 		'normal',
 		new BufferAttribute(new Float32Array([0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1]), 3),
 	)
 
-	const buffer = new InstancedInterleavedBuffer(
-		instances,
-		IMPOSTOR_INSTANCE_STRIDE,
-	)
+	const buffer = new InstancedInterleavedBuffer(instances, IMPOSTOR_INSTANCE_STRIDE)
 	geometry.setAttribute('aInstanceA', new InterleavedBufferAttribute(buffer, 4, 0))
 	geometry.setAttribute('aInstanceB', new InterleavedBufferAttribute(buffer, 4, 4))
 	geometry.instanceCount = instances.length / IMPOSTOR_INSTANCE_STRIDE

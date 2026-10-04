@@ -27,10 +27,24 @@
 			style="opacity: 0"
 			class="absolute w-[200px] top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-50"
 		>
-			<span class="absolute left-0 w-full bottom-10 text-white text-center"
-				>Loading...</span
-			>
+			<span class="absolute left-0 w-full bottom-10 text-white text-center">Loading...</span>
 			<div id="progress" class="h-2 bg-white" style="width: 0%"></div>
+		</div>
+		<!-- Shown by src/intro.js when the airplane fails to load. -->
+		<div
+			id="load-error"
+			role="alert"
+			hidden
+			class="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[min(90vw,320px)] flex flex-col items-center gap-4 text-white text-center"
+		>
+			<p id="load-error-message"></p>
+			<button
+				id="load-retry"
+				type="button"
+				class="cursor-pointer bg-white hover:bg-violet-400 transition-colors text-black text-lg px-4 py-2 rounded-lg shadow-lg"
+			>
+				Retry
+			</button>
 		</div>
 		<div
 			id="play"

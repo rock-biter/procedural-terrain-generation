@@ -126,14 +126,8 @@ test('a disabled range gives the impostor every distance', () => {
 })
 
 test('keeps the bands valid for smoothstep and the LOD band within the meshes', () => {
-	assert.deepEqual(
-		getSceneryMeshRange({ enabled: true, start: 120, end: 80 }),
-		[120, 121],
-	)
-	assert.deepEqual(
-		getSceneryMeshRange({ enabled: true, start: -5, end: 40 }),
-		[0, 40],
-	)
+	assert.deepEqual(getSceneryMeshRange({ enabled: true, start: 120, end: 80 }), [120, 121])
+	assert.deepEqual(getSceneryMeshRange({ enabled: true, start: -5, end: 40 }), [0, 40])
 	assert.deepEqual(
 		getSceneryMeshLodRange({ enabled: true, start: 100, end: 150, lodStart: 120, lodEnd: 400 }),
 		[120, 150],
@@ -159,10 +153,7 @@ test('selection windows cover every distance a level can draw', () => {
 		const lod = getSceneryLodFade(distance, meshRange, lodRange)
 		if (lod > 0) assert.ok(distance <= lod0.maxRadius, `LOD 0 at ${distance}`)
 		if (mesh - lod > 0) {
-			assert.ok(
-				distance >= lod1.minRadius && distance <= lod1.maxRadius,
-				`LOD 1 at ${distance}`,
-			)
+			assert.ok(distance >= lod1.minRadius && distance <= lod1.maxRadius, `LOD 1 at ${distance}`)
 		}
 	}
 })
@@ -191,16 +182,7 @@ test('routes instances to each level by distance with world bases', () => {
 		// 400 units: impostor only.
 		...instance(400, 0, 0, IMPOSTOR_TYPE.ROUND_TREE),
 	])
-	const appended = appendNearSceneryInstances(
-		levels,
-		instances,
-		1000,
-		-2,
-		2000,
-		1000,
-		0,
-		2000,
-	)
+	const appended = appendNearSceneryInstances(levels, instances, 1000, -2, 2000, 1000, 0, 2000)
 	assert.equal(appended, 4)
 	assert.equal(lod0.buckets[IMPOSTOR_TYPE.ROUND_TREE].count, 1)
 	assert.equal(lod0.buckets[IMPOSTOR_TYPE.BOULDER].count, 1)
@@ -213,10 +195,7 @@ test('routes instances to each level by distance with world bases', () => {
 		[...lod0.buckets[IMPOSTOR_TYPE.ROUND_TREE].array.subarray(0, IMPOSTOR_INSTANCE_STRIDE)],
 		[1050, 0, 2000, Math.fround(1.2), 0.5, IMPOSTOR_TYPE.ROUND_TREE, 99, Math.fround(1.1)],
 	)
-	assert.deepEqual(
-		[...lod1.buckets[IMPOSTOR_TYPE.CONIFER].array.subarray(0, 3)],
-		[750, -2, 2000],
-	)
+	assert.deepEqual([...lod1.buckets[IMPOSTOR_TYPE.CONIFER].array.subarray(0, 3)], [750, -2, 2000])
 
 	for (const level of levels) resetSceneryBuckets(level.buckets)
 	assert.ok(levels.every((level) => level.buckets.every((bucket) => bucket.count === 0)))
@@ -229,10 +208,7 @@ test('uses the 3D eye distance and tests visibility once per instance', () => {
 		...instance(130, 0, 0, IMPOSTOR_TYPE.CACTUS_TWO_ARMS),
 	])
 	// The eye is 400 units above the first base: outside every window.
-	assert.equal(
-		appendNearSceneryInstances(levels, instances, 0, 0, 0, 0, 400, 0),
-		0,
-	)
+	assert.equal(appendNearSceneryInstances(levels, instances, 0, 0, 0, 0, 400, 0), 0)
 
 	const seen = []
 	const appended = appendNearSceneryInstances(

@@ -1,0 +1,9 @@
+# Generated, binary, or third-party content.
+dist/
+public/
+assets-src/
+src/textures/
+src/audio/
+pnpm-lock.yaml
+# Prose with long table rows: Prettier would pad every table cell.
+*.md

@@ -79,7 +79,7 @@ export default class PostProcessing {
 	createComposer(toneMapped) {
 		this.composer?.dispose()
 
-		// The only antialiasing: the canvas has no MSAA (main.js). 2x instead of
+		// The only antialiasing: the canvas has no MSAA (src/renderSetup.js). 2x instead of
 		// 4x: without multisampled render-to-texture the whole MSAA buffer is
 		// written to memory and resolved, the largest cost of the chain.
 		// Tone mapping needs the unclamped scene, so its buffers are half float;
@@ -106,10 +106,7 @@ export default class PostProcessing {
 	setSpeedEffect(acceleration) {
 		const idle = MathUtils.clamp(this.params.idleSpeedEffect, 0, 1)
 		const effect = idle + (1 - idle) * MathUtils.clamp(acceleration, 0, 1)
-		this.speedEffect.intensity = Math.max(
-			MathUtils.smoothstep(effect, 0.1, 1),
-			this.params.preview,
-		)
+		this.speedEffect.intensity = Math.max(MathUtils.smoothstep(effect, 0.1, 1), this.params.preview)
 	}
 
 	render(deltaTime) {

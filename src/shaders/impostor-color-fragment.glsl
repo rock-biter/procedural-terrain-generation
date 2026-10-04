@@ -18,7 +18,7 @@ sampleImpostorFrame(vFrame1, vFrameWeights.y, impostorAlbedo, impostorNormalSum,
 sampleImpostorFrame(vFrame2, vFrameWeights.z, impostorAlbedo, impostorNormalSum, impostorDepthSum);
 #endif
 // <alphatest_fragment> discards or converts this coverage to MSAA samples.
-diffuseColor.rgb = impostorSRGBToLinear(impostorAlbedo.rgb / max(impostorAlbedo.a, 1e-4)) * vTint;
+diffuseColor.rgb = sRGBTransferEOTF(vec4(impostorAlbedo.rgb / max(impostorAlbedo.a, 1e-4), 1.0)).rgb * vTint;
 diffuseColor.a = impostorAlbedo.a;
 
 // Surface position for the shadow lookup: the baked depth moves the quad

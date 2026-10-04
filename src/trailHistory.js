@@ -1,21 +1,22 @@
+import { smoothstep } from './math.js'
+
+// The wing trails' recorded path (three-free, tested in Node). A ring buffer
+// of airplane poses (center, forward, wing axis, left and right ribbon
+// widths, bank) kept only as far back as the ribbon reaches; sample() reads
+// the pose any distance behind the airplane, interpolated by flown distance.
+// src/wingTrails.js builds the ribbon from it every frame.
+
+// Values per pose: the distance flown up to it, then center, forward, and
+// wing (3 each), the left and right widths, and the bank.
 const STRIDE = 13
 const MIN_SAMPLE_DISTANCE = 0.25
 
-function smoothstep(low, high, value) {
-	const t = Math.max(0, Math.min(1, (value - low) / (high - low)))
-	return t * t * (3 - 2 * t)
-}
-
+// Ribbon widths for the left and right wing, from 0 to 1: the outer wing of a
+// sharp turn shows a trail, and both do at boost speed.
 export function getTrailWidths(turnInput, speed, baseSpeed, out) {
-	const curvature = speed > 0
-		? Math.abs(turnInput) * baseSpeed / speed
-		: 0
+	const curvature = speed > 0 ? (Math.abs(turnInput) * baseSpeed) / speed : 0
 	const turnWidth = 0.75 * smoothstep(0.65, 1, curvature)
-	const speedWidth = smoothstep(
-		0.1,
-		1,
-		(speed - baseSpeed) / (baseSpeed * 2),
-	)
+	const speedWidth = smoothstep(0.1, 1, (speed - baseSpeed) / (baseSpeed * 2))
 	const outerWidth = Math.max(turnWidth, speedWidth)
 	const innerWidth = outerWidth * (1 - 0.45 * turnWidth)
 	out[0] = turnInput < 0 ? outerWidth : innerWidth
@@ -23,6 +24,7 @@ export function getTrailWidths(turnInput, speed, baseSpeed, out) {
 	return out
 }
 
+// The airplane roll as a 0-1 share of the maximum bank.
 export function getTrailBankFactor(roll) {
 	return Math.max(0, Math.min(1, Math.abs(roll) / (Math.PI * 0.25)))
 }
@@ -93,10 +95,7 @@ export default class TrailHistory {
 		}
 		this.write(this.count - 1, center, forward, wing, leftWidth, rightWidth, bank)
 
-		while (
-			this.count > 2 &&
-			this.values[this.index(1)] <= this.distance - length
-		) {
+		while (this.count > 2 && this.values[this.index(1)] <= this.distance - length) {
 			this.start = (this.start + 1) % this.capacity
 			this.count--
 		}
@@ -118,8 +117,8 @@ export default class TrailHistory {
 		const span = this.values[b] - this.values[a]
 		const t = span > 0 ? Math.max(0, Math.min(1, (target - this.values[a]) / span)) : 0
 		for (let field = 1; field < STRIDE; field++) {
-			out[field - 1] = this.values[a + field] +
-				(this.values[b + field] - this.values[a + field]) * t
+			out[field - 1] =
+				this.values[a + field] + (this.values[b + field] - this.values[a + field]) * t
 		}
 		out[STRIDE - 1] = this.values[a] + (this.values[b] - this.values[a]) * t
 		return true

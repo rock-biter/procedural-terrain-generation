@@ -110,9 +110,7 @@ test('aligns palette sunrise and sunset with the dipped horizon', () => {
 		// Find the real time at which the sun meets the apparent horizon.
 		let time = crossing
 		const direction = crossing === 0.25 ? -1 : 1
-		while (
-			getApparentElevation(getCelestialDirections(time).sun[1], CRUISE_DIP) > 0
-		) {
+		while (getApparentElevation(getCelestialDirections(time).sun[1], CRUISE_DIP) > 0) {
 			time += direction * 1e-5
 		}
 		assertClose(getPaletteTime(time, CRUISE_DIP), crossing, 1e-4)

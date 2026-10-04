@@ -20,11 +20,8 @@ varying vec4 vFrame2;
 varying vec3 vFrameWeights;
 
 #include ./impostor-octahedral.glsl
+#include ./rotate-yaw.glsl
 #include ./scenery-facing.glsl
-
-vec3 rotateYaw(vec3 v, float c, float s) {
-	return vec3(c * v.x + s * v.z, v.y, -s * v.x + c * v.z);
-}
 
 void main() {
 	float impostorScale = aInstanceA.w;
@@ -63,27 +60,15 @@ void main() {
 	// A viewer far along the light makes getFrameUv() an orthographic projection.
 	vec3 viewerLocal = vertexLocal + lightLocal * (frameRadius * 4.0);
 
-	vec2 frameGrid = encodeImpostorView(lightLocal) * IMPOSTOR_LAST_FRAME;
-	vec2 baseFrame = min(floor(frameGrid), IMPOSTOR_LAST_FRAME - 1.0);
-	vec2 frameFraction = frameGrid - baseFrame;
-	vec2 middleFrame;
-	if (frameFraction.x > frameFraction.y) {
-		middleFrame = baseFrame + vec2(1.0, 0.0);
-		vFrameWeights = vec3(1.0 - frameFraction.x, frameFraction.x - frameFraction.y, frameFraction.y);
-	} else {
-		middleFrame = baseFrame + vec2(0.0, 1.0);
-		vFrameWeights = vec3(1.0 - frameFraction.y, frameFraction.y - frameFraction.x, frameFraction.x);
-	}
-	vec2 farFrame = baseFrame + 1.0;
-
-	float typeIndex = float(impostorType);
-	vec2 typeCell = vec2(
-		mod(typeIndex, float(IMPOSTOR_ATLAS_COLUMNS)),
-		floor(typeIndex / float(IMPOSTOR_ATLAS_COLUMNS))
-	) * vec2(float(IMPOSTOR_FRAMES_X), float(IMPOSTOR_FRAMES_Y));
-	vFrame0 = vec4(typeCell + baseFrame, getFrameUv(viewerLocal, vertexLocal, baseFrame, frameRadius));
-	vFrame1 = vec4(typeCell + middleFrame, getFrameUv(viewerLocal, vertexLocal, middleFrame, frameRadius));
-	vFrame2 = vec4(typeCell + farFrame, getFrameUv(viewerLocal, vertexLocal, farFrame, frameRadius));
+	vec4 frame0;
+	vec4 frame1;
+	vec4 frame2;
+	vec3 frameWeights;
+	selectImpostorFrames(lightLocal, viewerLocal, vertexLocal, impostorType, frameRadius, frame0, frame1, frame2, frameWeights);
+	vFrame0 = frame0;
+	vFrame1 = frame1;
+	vFrame2 = frame2;
+	vFrameWeights = frameWeights;
 
 	gl_Position = projectionMatrix * viewMatrix * vec4(vertex, 1.0);
 }

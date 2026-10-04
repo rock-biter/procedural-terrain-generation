@@ -10,11 +10,8 @@ import {
 	TubeGeometry,
 	Vector3,
 } from 'three'
-import {
-	mergeGeometries,
-	mergeVertices,
-} from 'three/examples/jsm/utils/BufferGeometryUtils.js'
-import { snoise } from '../biome.js'
+import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { snoise } from '../noise.js'
 import { IMPOSTOR_TYPE } from './impostorTypes.js'
 
 // Source models for the impostor baker and the near scenery meshes. They are
@@ -149,7 +146,13 @@ function cactusArm(lod, side, startY, reach, rise, radius) {
 function cactusTrunk(lod) {
 	// Two radial segments per rib keep the 9 ribs from aliasing. LOD 1 is too
 	// coarse for ribs and keeps a plain 9-sided trunk.
-	const trunk = new CapsuleGeometry(0.6, 3.8, detail(lod, 4, 2), detail(lod, 18, 9), detail(lod, 3, 1))
+	const trunk = new CapsuleGeometry(
+		0.6,
+		3.8,
+		detail(lod, 4, 2),
+		detail(lod, 18, 9),
+		detail(lod, 3, 1),
+	)
 	trunk.translate(0, 2.3, 0)
 	return part(trunk, COLORS.cactus, { ribs: detail(lod, 9, 0) })
 }

@@ -1,16 +1,17 @@
-import { MathUtils, Mesh, MeshStandardMaterial, Vector3 } from 'three'
+import { MathUtils, Mesh, MeshStandardMaterial, Sphere, Vector3 } from 'three'
 import projectVertex from './shaders/project-vertex.glsl'
 import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
+import terrainBandsPars from './shaders/terrain-bands-pars.glsl'
 import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
-import sceneryShadowParsFragment from './shaders/scenery-shadow-pars-fragment.glsl'
-import cloudShadowParsFragment from './shaders/cloud-shadow-pars-fragment.glsl'
 import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
-import { createShadowedLightsFragment } from './curvedLights'
-import { getSceneryShadowTapDefines } from './shadowPolicy'
+import { TERRAIN_SHADER_DEFINES } from './terrainBands'
+import { createSceneryLighting } from './curvedLights'
+import { getCurvedBoxSphere } from './chunkPolicy'
+import { replaceChunks } from './shaderChunks'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import { getHeight } from './chunkGeometry'
 import { disposeChunkGeometry } from './chunkTopology'
@@ -24,8 +25,11 @@ const material = new MeshStandardMaterial({
 	normalMap,
 })
 
-// Shared with GLSL through the `uCurvature` uniform created in main.js.
-export const CURVATURE = 3000
+// Largest sea wave displacement in project-vertex.glsl.
+const WAVE_AMPLITUDE = 0.5
+// Reach of the scenery beyond the terrain's box: instance sizes and their
+// eye-facing quads (createImpostorMesh() pads its flat sphere by as much).
+const SCENERY_MARGIN = 40
 
 const DEFAULT_FEATURES = Object.freeze({
 	scenery: true,
@@ -49,6 +53,11 @@ export default class Chunk extends Mesh {
 	) {
 		super(geometry, material)
 		if (!geometry) throw new Error('Chunk geometry is required')
+		// Frustum culling reads this mesh-level sphere instead of the
+		// geometry's: updateCurvedBounds() moves it onto the curved world, while
+		// the geometry keeps its flat sphere.
+		this.boundingSphere = new Sphere()
+		this.resetBounds()
 
 		this.position.copy(position)
 		this.noise = noise
@@ -74,9 +83,17 @@ export default class Chunk extends Mesh {
 	}
 
 	onBeforeCompile() {
-		// Every chunk shares the material and the same tap counts.
-		const [nearTaps, farTaps] = this.params.shadows.taps.terrain
-		this.material.defines = getSceneryShadowTapDefines(nearTaps, farTaps)
+		// Every chunk shares the material and the same tap counts. Terrain casts
+		// no shadows, so it needs no self-shadow bias.
+		const lighting = createSceneryLighting({
+			shadows: {
+				taps: this.params.shadows.taps.terrain,
+				position: 'vShadowPosition',
+				selfBias: '0.0',
+			},
+		})
+		// The band and biome constants shared with the CPU (src/terrainBands.js).
+		this.material.defines = { ...lighting.defines, ...TERRAIN_SHADER_DEFINES }
 		this.material.onBeforeCompile = (shader) => {
 			if (this.uniforms) {
 				shader.uniforms = {
@@ -85,50 +102,72 @@ export default class Chunk extends Mesh {
 				}
 			}
 
-			shader.vertexShader = shader.vertexShader.replace(
-				'#include <common>',
-				common +
+			shader.vertexShader = replaceChunks(shader.vertexShader, {
+				common:
+					common +
 					`
 				attribute float height;
 				varying vec3 vSphereNormal;
 				varying vec3 vShadowPosition;
 				`,
-			)
-			shader.vertexShader = shader.vertexShader.replace(
-				'#include <project_vertex>',
-				projectVertex,
-			)
-			shader.fragmentShader = shader.fragmentShader.replace(
-				'#include <common>',
-				common +
+				project_vertex: projectVertex,
+			})
+			shader.fragmentShader = replaceChunks(shader.fragmentShader, {
+				common:
+					common +
+					'\n' +
+					terrainBandsPars +
 					'\n' +
 					terrainNormalPars +
 					'\n' +
 					terrainColorNoisePars +
 					'\n' +
-					sceneryShadowParsFragment +
-					'\n' +
-					cloudShadowParsFragment +
+					lighting.parsFragment +
 					`
 				varying vec3 vSphereNormal;
 				`,
-			)
-			shader.fragmentShader = shader.fragmentShader.replace(
-				'#include <color_fragment>',
-				colorFragment,
-			)
-			// Terrain casts no shadows, so it needs no self-shadow bias.
-			shader.fragmentShader = shader.fragmentShader.replace(
-				'#include <lights_fragment_begin>',
-				createShadowedLightsFragment(
-					'getSceneryShadow(vShadowPosition, 0.0) * getCloudShadow(vShadowPosition)',
-				),
-			)
-			shader.fragmentShader = shader.fragmentShader.replace(
-				'#include <normal_fragment_maps>',
-				normalFragmentMap,
-			)
+				color_fragment: colorFragment,
+				lights_fragment_begin: lighting.lightsFragment,
+				normal_fragment_maps: normalFragmentMap,
+			})
 		}
+	}
+
+	resetBounds() {
+		if (!this.geometry.boundingSphere) this.geometry.computeBoundingSphere()
+		this.boundingSphere.copy(this.geometry.boundingSphere)
+	}
+
+	// The terrain and its scenery are drawn lower the farther they are from the
+	// eye (the airplane), so their culling spheres follow every frame; with flat
+	// ones a camera pitched down culls distant chunks it can see. The worker's
+	// flat sphere encloses the box of the footprint and height range, which
+	// gives the box's half height.
+	updateCurvedBounds(eye, curvature) {
+		const flat = this.geometry.boundingSphere
+		const horizontal = this.size * Math.SQRT1_2
+		const halfHeight = Math.sqrt(Math.max(flat.radius ** 2 - horizontal ** 2, 0))
+		const distance = Math.hypot(
+			this.position.x + flat.center.x - eye.x,
+			this.position.y + flat.center.y - eye.y,
+			this.position.z + flat.center.z - eye.z,
+		)
+		const terrain = getCurvedBoxSphere(distance, horizontal, halfHeight + WAVE_AMPLITUDE, curvature)
+		this.boundingSphere.center.set(flat.center.x, flat.center.y - terrain.drop, flat.center.z)
+		this.boundingSphere.radius = terrain.radius
+		if (!this.scenery) return
+		const scenery = getCurvedBoxSphere(
+			distance,
+			horizontal + SCENERY_MARGIN,
+			halfHeight + SCENERY_MARGIN,
+			curvature,
+		)
+		this.scenery.boundingSphere.center.set(
+			flat.center.x,
+			flat.center.y - scenery.drop,
+			flat.center.z,
+		)
+		this.scenery.boundingSphere.radius = scenery.radius
 	}
 
 	replaceGeometry(geometry, LOD) {
@@ -136,6 +175,7 @@ export default class Chunk extends Mesh {
 
 		disposeChunkGeometry(this.geometry)
 		this.geometry = geometry
+		this.resetBounds()
 		this.LOD = LOD
 		this.updateScenery()
 	}
@@ -153,6 +193,11 @@ export default class Chunk extends Mesh {
 			this.size * 0.75 + 40,
 			this.assets.impostorWireframeMaterial,
 		)
+		// Mesh-level culling sphere for updateCurvedBounds(); the shadow casters
+		// reuse the geometry with its flat sphere, since they render the flat
+		// world. The hidden wireframe twin culls with the same sphere.
+		this.scenery.boundingSphere = this.scenery.geometry.boundingSphere.clone()
+		for (const child of this.scenery.children) child.boundingSphere = this.scenery.boundingSphere
 		this.add(this.scenery)
 	}
 
@@ -174,22 +219,14 @@ export default class Chunk extends Mesh {
 		const n = MathUtils.randInt(0, 3)
 
 		for (let i = 0; i < n; i++) {
-			let x = 0
-			let z = 0
-			let h = 0
+			let x, z, h
 
 			let attempt = 0
 
 			do {
 				x = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.x
 				z = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.z
-				h = getHeight(
-					x,
-					z,
-					this.noise,
-					this.params,
-					this.uniforms.uBiomeOffset.value.toArray(),
-				)
+				h = getHeight(x, z, this.noise, this.params, this.uniforms.uBiomeOffset.value.toArray())
 				attempt++
 			} while ((h > -2 || h < -10) && attempt < 20)
 
@@ -217,17 +254,14 @@ export default class Chunk extends Mesh {
 						...this.uniforms,
 					}
 
-					shader.vertexShader = shader.vertexShader.replace(
-						'#include <common>',
-						common +
+					shader.vertexShader = replaceChunks(shader.vertexShader, {
+						common:
+							common +
 							`
 				attribute float height;
 				`,
-					)
-					shader.vertexShader = shader.vertexShader.replace(
-						'#include <project_vertex>',
-						projectVertexBoat,
-					)
+						project_vertex: projectVertexBoat,
+					})
 				}
 			}
 		})

@@ -1,5 +1,6 @@
 import { DataTexture, MathUtils, RepeatWrapping, Vector2 } from 'three'
 import { loadKTX2Texture } from './ktx2Textures'
+import { TERRAIN_BANDS } from './terrainBands'
 import fabricSrc from './textures/normal.ktx2?url'
 import curlyTeddySrc from './textures/curly_teddy/curly_teddy_checkered_nor_gl_1k.ktx2?url'
 import dirtyCarpetSrc from './textures/dirty_carpet/dirty_carpet_nor_gl_1k.ktx2?url'
@@ -22,19 +23,8 @@ export const TERRAIN_NORMAL_TEXTURES = Object.freeze({
 	wafflePique: { src: wafflePiqueSrc, invertGreen: false },
 })
 
-// Terrain layers in shader order: sea, then the five elevation bands of
-// color-fragment.glsl from lowest to highest. `terrainBand` in that shader
-// holds the index into this list.
-export const TERRAIN_BANDS = Object.freeze([
-	'sea',
-	'sand',
-	'grass',
-	'land',
-	'rocks',
-	'snow',
-])
-
-// Which normal map each layer uses. texture is a TERRAIN_NORMAL_TEXTURES key,
+// Which normal map each terrain layer (TERRAIN_BANDS in src/terrainBands.js)
+// uses. texture is a TERRAIN_NORMAL_TEXTURES key,
 // scale is the size of one texture tile in world units, strength multiplies
 // the normal-map XY, and rotation turns the texture on the ground in degrees
 // (counter-clockwise seen from above). The debug GUI edits all three.
@@ -66,7 +56,7 @@ export const FLAT_TERRAIN_NORMAL = new DataTexture(new Uint8Array([128, 128, 255
 FLAT_TERRAIN_NORMAL.needsUpdate = true
 
 // Loads every map the layers of `settings` use, each once, and writes it into
-// uTerrainNormalMaps when ready. Needs initKTX2Loader() (main.js).
+// uTerrainNormalMaps when ready. Needs initKTX2Loader() (src/assetLoader.js).
 export function loadTerrainNormalTextures(uniforms, settings) {
 	const names = new Set(TERRAIN_BANDS.map((band) => settings[band].texture))
 	for (const name of names) {
@@ -89,9 +79,7 @@ export function createTerrainNormalSettings(
 	fade = TERRAIN_NORMAL_FADE,
 ) {
 	return {
-		...Object.fromEntries(
-			TERRAIN_BANDS.map((band) => [band, { ...layers[band] }]),
-		),
+		...Object.fromEntries(TERRAIN_BANDS.map((band) => [band, { ...layers[band] }])),
 		fade: { ...fade },
 	}
 }
@@ -128,14 +116,8 @@ export function updateTerrainNormalUniforms(uniforms, settings) {
 		const layer = settings[band]
 		const green = TERRAIN_NORMAL_TEXTURES[layer.texture].invertGreen ? -1 : 1
 		uniforms.uTerrainNormalScale.value[index] = Math.max(layer.scale, 0.001)
-		uniforms.uTerrainNormalStrength.value[index].set(
-			layer.strength,
-			layer.strength * green,
-		)
+		uniforms.uTerrainNormalStrength.value[index].set(layer.strength, layer.strength * green)
 		const angle = MathUtils.degToRad(layer.rotation ?? 0)
-		uniforms.uTerrainNormalRotation.value[index].set(
-			Math.cos(angle),
-			Math.sin(angle),
-		)
+		uniforms.uTerrainNormalRotation.value[index].set(Math.cos(angle), Math.sin(angle))
 	})
 }

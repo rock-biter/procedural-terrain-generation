@@ -1,11 +1,11 @@
-import {
-	DoubleSide,
-	Group,
-	Mesh,
-	MeshBasicMaterial,
-	Shape,
-	ShapeGeometry,
-} from 'three'
+import { DoubleSide, Group, Mesh, MeshBasicMaterial, Shape, ShapeGeometry } from 'three'
+import { replaceChunks } from './shaderChunks.js'
+import curvatureDrop from './shaders/curvature-drop.glsl'
+
+// The ?debug=1 terrain corridor markers: a white cross at each of the four
+// points the flight samples under and ahead of the airplane
+// (getFlightCorridor() in src/flightPolicy.js), on top of everything and
+// dropped by the world curvature like the terrain.
 
 const MARKER_COLOR = 0xffffff
 
@@ -46,21 +46,18 @@ function createMarkerMaterial(color, uniforms) {
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms.uCamera = uniforms.uCamera
 		shader.uniforms.uCurvature = uniforms.uCurvature
-		shader.vertexShader = shader.vertexShader.replace(
-			'#include <common>',
-			`#include <common>
+		shader.vertexShader = replaceChunks(shader.vertexShader, {
+			common: `#include <common>
 			uniform vec3 uCamera;
-			uniform float uCurvature;`,
-		)
-		shader.vertexShader = shader.vertexShader.replace(
-			'#include <project_vertex>',
-			`vec4 mvPosition = vec4(transformed, 1.0);
+			uniform float uCurvature;
+			${curvatureDrop}`,
+			project_vertex: `vec4 mvPosition = vec4(transformed, 1.0);
 			vec3 markerWorldPosition = (modelMatrix * vec4(transformed, 1.0)).xyz;
 			float markerDistance = length(markerWorldPosition - uCamera);
-			mvPosition.y -= uCurvature * (1.0 - cos(markerDistance / uCurvature));
+			mvPosition.y -= getCurvatureDrop(markerDistance);
 			mvPosition = modelViewMatrix * mvPosition;
 			gl_Position = projectionMatrix * mvPosition;`,
-		)
+		})
 	}
 
 	return material
@@ -73,10 +70,7 @@ export default class TerrainSampleDebug extends Group {
 		this.name = 'terrain-sample-debug'
 		const geometry = createCrossGeometry()
 		this.markers = Array.from({ length: 4 }, (_, index) => {
-			const marker = new Mesh(
-				geometry,
-				createMarkerMaterial(MARKER_COLOR, uniforms),
-			)
+			const marker = new Mesh(geometry, createMarkerMaterial(MARKER_COLOR, uniforms))
 			marker.name = `terrain-sample-${index}`
 			marker.rotation.y = Math.PI * 0.25
 			marker.renderOrder = 1000

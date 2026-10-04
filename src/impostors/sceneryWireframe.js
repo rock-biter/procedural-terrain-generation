@@ -1,5 +1,6 @@
 import { Color } from 'three'
 import sceneryWireframeFragment from '../shaders/scenery-wireframe-fragment.glsl'
+import { replaceChunks } from '../shaderChunks'
 
 // Debug overlay that outlines the scenery triangles in a flat color per level
 // of detail: the near meshes (sceneryMeshes.js) and the impostor quads
@@ -30,9 +31,9 @@ export function patchSceneryWireframeShader(shader, material) {
 	const color = material.userData.wireframeColor
 	if (!color) return
 	shader.uniforms.uSceneryWireframeColor = color
-	shader.fragmentShader = `uniform vec3 uSceneryWireframeColor;\n${shader.fragmentShader}`.replace(
-		'#include <opaque_fragment>',
-		`#include <opaque_fragment>\n${sceneryWireframeFragment}`,
+	shader.fragmentShader = replaceChunks(
+		`uniform vec3 uSceneryWireframeColor;\n${shader.fragmentShader}`,
+		{ opaque_fragment: `#include <opaque_fragment>\n${sceneryWireframeFragment}` },
 	)
 }
 

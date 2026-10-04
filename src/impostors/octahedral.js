@@ -1,3 +1,4 @@
+import { clamp01 } from '../math.js'
 // View mappings for impostors. Directions point from the object toward the
 // viewer in the object's local frame (+Y up). A baked atlas holds one grid of
 // framesX x framesY views per type, laid out by a view layout:
@@ -76,10 +77,6 @@ export function getFrameBlend(x, y, z, frames, hemisphere = 1) {
 	})
 }
 
-function clamp01(value) {
-	return Math.min(Math.max(value, 0), 1)
-}
-
 // The frame count must be even, so no frame looks straight at the pole, where
 // the frame basis is degenerate (getFrameBasis()).
 export function createHemiOctViews(frames, hemisphere = 1) {
@@ -128,10 +125,7 @@ export function encodeView(x, y, z, views) {
 		const horizontal = Math.hypot(x, z)
 		const azimuth = horizontal > 1e-9 ? Math.atan2(x, -z) : 0
 		const elevation = Math.atan2(-y, horizontal)
-		return [
-			clamp01((azimuth / views.azimuth) * 0.5 + 0.5),
-			clamp01(elevation / views.elevation),
-		]
+		return [clamp01((azimuth / views.azimuth) * 0.5 + 0.5), clamp01(elevation / views.elevation)]
 	}
 	const [u, v] = encodeHemiOct(x, y, z, views.hemisphere)
 	return [clamp01(u * 0.5 + 0.5), clamp01(v * 0.5 + 0.5)]
@@ -143,11 +137,7 @@ export function decodeView(gx, gy, views) {
 		const azimuth = (gx * 2 - 1) * views.azimuth
 		const elevation = gy * views.elevation
 		const horizontal = Math.cos(elevation)
-		return [
-			horizontal * Math.sin(azimuth),
-			-Math.sin(elevation),
-			-horizontal * Math.cos(azimuth),
-		]
+		return [horizontal * Math.sin(azimuth), -Math.sin(elevation), -horizontal * Math.cos(azimuth)]
 	}
 	return decodeHemiOct(gx * 2 - 1, gy * 2 - 1, views.hemisphere)
 }

@@ -1,6 +1,5 @@
 import { Quaternion, Vector3 } from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls'
-import gsap from 'gsap'
 import { isFlightPauseShortcut } from './debugPolicy'
 
 /**
@@ -61,8 +60,8 @@ export default class FlightPauseDebug {
 		if (this.#paused || !this.canPause) return
 		this.#paused = true
 
+		// Also drops a held wheel request, so the speed effect stays frozen.
 		this.plane.setInputEnabled(false)
-		gsap.killTweensOf(this.plane, 'acceleration')
 
 		this.savedCameraPosition.copy(this.camera.position)
 		this.savedCameraQuaternion.copy(this.camera.quaternion)

@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import {
-	BIOME,
-	createBiomeOffset,
-	getBiome,
-	getBiomeValue,
-	snoise,
-} from '../src/biome.js'
+import { BIOME, createBiomeOffset, getBiome, getBiomeValue } from '../src/biome.js'
+import { snoise } from '../src/noise.js'
 
 test('creates a deterministic seed-dependent biome offset', () => {
 	assert.deepEqual(createBiomeOffset('alpha'), createBiomeOffset('alpha'))
@@ -19,8 +14,8 @@ test('creates a deterministic seed-dependent biome offset', () => {
 
 test('keeps the simplex port bounded and continuous', () => {
 	for (let i = 0; i < 2000; i++) {
-		const x = (i * 37.13) % 500 - 250
-		const z = (i * 91.71) % 500 - 250
+		const x = ((i * 37.13) % 500) - 250
+		const z = ((i * 91.71) % 500) - 250
 		const value = snoise(x, z)
 
 		assert.ok(value >= -1 && value <= 1, `snoise(${x}, ${z}) = ${value}`)

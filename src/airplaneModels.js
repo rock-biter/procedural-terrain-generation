@@ -1,4 +1,4 @@
-// Per-model data for the player airplane (loaded in main.js, used by
+// Per-model data for the player airplane (loaded by src/assetLoader.js, used by
 // src/plane.js). Lengths are in each model's geometry units after
 // BufferGeometry.center() and the `rotationY` turn, where the nose points to
 // +Z, the wings run along X, and +Y is up. Measurements: docs/ASSETS.md.

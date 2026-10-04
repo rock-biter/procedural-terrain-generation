@@ -21,18 +21,9 @@ import sceneryDitherParsFragment from '../shaders/scenery-dither-pars-fragment.g
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
 import sceneryMeshParsFragment from '../shaders/scenery-mesh-pars-fragment.glsl'
 import sceneryMeshColorFragment from '../shaders/scenery-mesh-color-fragment.glsl'
-import sceneryShadowParsFragment from '../shaders/scenery-shadow-pars-fragment.glsl'
-import cloudShadowParsFragment from '../shaders/cloud-shadow-pars-fragment.glsl'
-import {
-	createShadowedLightsFragment,
-	createUnshadowedLightsFragment,
-} from '../curvedLights'
-import { getSceneryShadowTapDefines } from '../shadowPolicy'
-import {
-	SCENERY_IMPOSTORS,
-	getCatalogDefines,
-	getCatalogSources,
-} from './impostorCatalogs'
+import { createSceneryLighting } from '../curvedLights'
+import { replaceChunks } from '../shaderChunks'
+import { SCENERY_IMPOSTORS, getCatalogDefines, getCatalogSources } from './impostorCatalogs'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import {
 	makeSceneryWireframeMaterial,
@@ -182,22 +173,19 @@ export default class SceneryMeshes extends Group {
 			...getCatalogDefines(this.catalog),
 			SCENERY_MESH_LOD: lod,
 		}
-		// Keeps the unshadowed program apart from the shadowed one.
-		if (this.receiveShadows) {
-			Object.assign(material.defines, getSceneryShadowTapDefines(this.shadowTaps))
-		} else {
-			material.defines.SCENERY_NO_SHADOWS = ''
-		}
-		const lightsFragment = this.receiveShadows
-			? createShadowedLightsFragment(
-					'getSceneryShadow(vShadowPosition, vShadowSelfBias) * getCloudShadow(vShadowPosition)',
-				)
-			: createUnshadowedLightsFragment(
-					this.ambientScale ? 'uSceneryAmbientScale' : '1.0',
-				)
-		const ambientParsFragment = this.ambientScale
-			? 'uniform float uSceneryAmbientScale;'
-			: ''
+		// Its defines keep the unshadowed program apart from the shadowed one.
+		const lighting = createSceneryLighting(
+			this.receiveShadows
+				? {
+						shadows: {
+							taps: [this.shadowTaps, this.shadowTaps],
+							position: 'vShadowPosition',
+							selfBias: 'vShadowSelfBias',
+						},
+					}
+				: { ambientScale: this.ambientScale },
+		)
+		Object.assign(material.defines, lighting.defines)
 		material.onBeforeCompile = (shader) => {
 			shader.uniforms = {
 				...shader.uniforms,
@@ -208,22 +196,18 @@ export default class SceneryMeshes extends Group {
 				uImpostorVariationFrequency: variation.frequency,
 				...detail,
 			}
-			if (this.ambientScale) shader.uniforms.uSceneryAmbientScale = this.ambientScale
+			Object.assign(shader.uniforms, lighting.uniforms)
 
-			shader.vertexShader = shader.vertexShader
-				.replace(
-					'#include <common>',
-					`${common}\n${sceneryInstanceParsVertex}\n${sceneryMeshParsVertex}`,
-				)
-				.replace('#include <beginnormal_vertex>', sceneryMeshNormalVertex)
-				.replace('#include <project_vertex>', sceneryMeshVertex)
-			shader.fragmentShader = shader.fragmentShader
-				.replace(
-					'#include <common>',
-					`${common}\n${sceneryDitherParsFragment}\n${sceneryDetailParsFragment}\n${sceneryMeshParsFragment}\n${sceneryShadowParsFragment}\n${cloudShadowParsFragment}\n${ambientParsFragment}`,
-				)
-				.replace('#include <color_fragment>', sceneryMeshColorFragment)
-				.replace('#include <lights_fragment_begin>', lightsFragment)
+			shader.vertexShader = replaceChunks(shader.vertexShader, {
+				common: `${common}\n${sceneryInstanceParsVertex}\n${sceneryMeshParsVertex}`,
+				beginnormal_vertex: sceneryMeshNormalVertex,
+				project_vertex: sceneryMeshVertex,
+			})
+			shader.fragmentShader = replaceChunks(shader.fragmentShader, {
+				common: `${common}\n${sceneryDitherParsFragment}\n${sceneryDetailParsFragment}\n${sceneryMeshParsFragment}\n${lighting.parsFragment}`,
+				color_fragment: sceneryMeshColorFragment,
+				lights_fragment_begin: lighting.lightsFragment,
+			})
 			patchSceneryWireframeShader(shader, material)
 		}
 		return material
@@ -235,14 +219,8 @@ export default class SceneryMeshes extends Group {
 		if (info.buffer) info.geometry.dispose()
 		const buffer = new InstancedInterleavedBuffer(array, IMPOSTOR_INSTANCE_STRIDE)
 		buffer.setUsage(DynamicDrawUsage)
-		info.geometry.setAttribute(
-			'aInstanceA',
-			new InterleavedBufferAttribute(buffer, 4, 0),
-		)
-		info.geometry.setAttribute(
-			'aInstanceB',
-			new InterleavedBufferAttribute(buffer, 4, 4),
-		)
+		info.geometry.setAttribute('aInstanceA', new InterleavedBufferAttribute(buffer, 4, 0))
+		info.geometry.setAttribute('aInstanceB', new InterleavedBufferAttribute(buffer, 4, 4))
 		info.buffer = buffer
 	}
 
@@ -278,24 +256,10 @@ export default class SceneryMeshes extends Group {
 			for (const chunk of chunks.values()) {
 				if (!chunk.scenery) continue
 				const { x, y, z } = chunk.position
-				if (
-					!chunkIntersectsSelection(
-						x,
-						z,
-						halfSize,
-						eyeX,
-						eyeZ,
-						this.outerRadius,
-					)
-				) {
+				if (!chunkIntersectsSelection(x, z, halfSize, eyeX, eyeZ, this.outerRadius)) {
 					continue
 				}
-				this.appendInstances(
-					chunk.scenery.geometry.attributes.aInstanceA.data.array,
-					x,
-					y,
-					z,
-				)
+				this.appendInstances(chunk.scenery.geometry.attributes.aInstanceA.data.array, x, y, z)
 			}
 		}
 		this.endUpdate()
@@ -310,10 +274,7 @@ export default class SceneryMeshes extends Group {
 
 		camera.updateWorldMatrix(true, false)
 		this.eye.setFromMatrixPosition(camera.matrixWorld)
-		this.viewProjection.multiplyMatrices(
-			camera.projectionMatrix,
-			camera.matrixWorldInverse,
-		)
+		this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse)
 		this.frustum.setFromProjectionMatrix(this.viewProjection)
 		return true
 	}
@@ -323,17 +284,7 @@ export default class SceneryMeshes extends Group {
 	appendInstances(instances, x, y, z) {
 		if (this.outerRadius <= 0) return
 		const { x: eyeX, y: eyeY, z: eyeZ } = this.eye
-		appendNearSceneryInstances(
-			this.levels,
-			instances,
-			x,
-			y,
-			z,
-			eyeX,
-			eyeY,
-			eyeZ,
-			this.isVisible,
-		)
+		appendNearSceneryInstances(this.levels, instances, x, y, z, eyeX, eyeY, eyeZ, this.isVisible)
 	}
 
 	// Uploads the frame's selection and shows the meshes that have instances.
@@ -361,16 +312,11 @@ export default class SceneryMeshes extends Group {
 		const bounds = this.bounds[type]
 		const { uCamera, uCurvature } = this.uniforms
 		const curvature = uCurvature.value
-		const planeDistance = Math.hypot(
-			x - uCamera.value.x,
-			y - uCamera.value.y,
-			z - uCamera.value.z,
-		)
+		const planeDistance = Math.hypot(x - uCamera.value.x, y - uCamera.value.y, z - uCamera.value.z)
 		const drop = curvature * (1 - Math.cos(planeDistance / curvature))
 		this.cullSphere.center.set(x, y - drop + bounds.centerY * scale * stretch, z)
 		this.cullSphere.radius =
-			bounds.radius * scale * Math.max(stretch, 1) * CULL_RADIUS_SCALE +
-			CULL_RADIUS_OFFSET
+			bounds.radius * scale * Math.max(stretch, 1) * CULL_RADIUS_SCALE + CULL_RADIUS_OFFSET
 		return this.frustum.intersectsSphere(this.cullSphere)
 	}
 

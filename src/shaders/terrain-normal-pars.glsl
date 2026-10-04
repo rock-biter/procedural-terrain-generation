@@ -1,6 +1,7 @@
 // Per-layer terrain normal maps. Arrays follow TERRAIN_BANDS in
-// src/terrainNormals.js: 0 sea, 1 sand, 2 grass, 3 land, 4 rocks, 5 snow.
-#define TERRAIN_NORMAL_LAYERS 6
+// src/terrainBands.js: 0 sea, 1 sand, 2 grass, 3 land, 4 rocks, 5 snow; the
+// material defines TERRAIN_BAND_COUNT.
+#define TERRAIN_NORMAL_LAYERS TERRAIN_BAND_COUNT
 uniform sampler2D uTerrainNormalMaps[TERRAIN_NORMAL_LAYERS];
 // Size of one texture tile in world units.
 uniform float uTerrainNormalScale[TERRAIN_NORMAL_LAYERS];

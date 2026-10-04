@@ -20,6 +20,8 @@ uniform vec2 uSceneryShadowSoftness;
 uniform float uSceneryShadowBias;
 varying vec3 vShadowPosition;
 
+#include ./interleaved-gradient-noise.glsl
+
 // PCF samples per cascade come from the material defines
 // SCENERY_SHADOW_TAPS_NEAR and SCENERY_SHADOW_TAPS_FAR
 // (getSceneryShadowTapDefines() in src/shadowPolicy.js), at most 16. Unshadowed
@@ -27,10 +29,6 @@ varying vec3 vShadowPosition;
 // the declarations above.
 #ifdef SCENERY_SHADOW_TAPS_NEAR
 
-// Interleaved gradient noise (Jimenez 2014) rotates the kernel per pixel.
-float getSceneryShadowNoise() {
-	return fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
-}
 
 // Golden-angle (Vogel) spiral: tap i at angle i * 2.39996323 and radius
 // sqrt(i + 0.5). A kernel of n taps divides the first n by sqrt(n), so tap i
@@ -94,7 +92,8 @@ float getSceneryShadow(vec3 position, float selfBias) {
 		uSceneryShadowSoftness.y,
 		smoothstep(0.0, uSceneryShadowFade.y, planeDistance)
 	);
-	float angle = 6.28318531 * getSceneryShadowNoise();
+	// Interleaved gradient noise rotates the kernel per pixel.
+	float angle = 6.28318531 * interleavedGradientNoise(gl_FragCoord.xy);
 	float cosine = cos(angle);
 	float sine = sin(angle);
 	mat2 rotation = mat2(cosine, sine, -sine, cosine);

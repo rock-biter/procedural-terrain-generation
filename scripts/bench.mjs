@@ -8,7 +8,15 @@
 // Usage: pnpm bench [--compare HEAD] [--rounds 2] [--shots <dir>] ...
 // Run `pnpm bench --help` for every option.
 import { spawn, execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdtempSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	symlinkSync,
+	writeFileSync,
+} from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -61,7 +69,11 @@ if (typeof WebSocket !== 'function') {
 }
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
-const viewport = { width: Number(options.width), height: Number(options.height), dpr: Number(options.dpr) }
+const viewport = {
+	width: Number(options.width),
+	height: Number(options.height),
+	dpr: Number(options.dpr),
+}
 const warm = Number(options.warm)
 const frames = Number(options.frames)
 // Held captures wait this many frames after Play before stopping time.
@@ -109,17 +121,31 @@ async function waitFor(check, what, timeoutMs = 60000) {
 const vite = join(root, 'node_modules/vite/bin/vite.js')
 
 function build(sourceDir, outDir) {
-	execFileSync(process.execPath, [vite, 'build', '--outDir', outDir, '--emptyOutDir', '--logLevel', 'error'], {
-		cwd: sourceDir,
-		stdio: 'inherit',
-	})
+	execFileSync(
+		process.execPath,
+		[vite, 'build', '--outDir', outDir, '--emptyOutDir', '--logLevel', 'error'],
+		{
+			cwd: sourceDir,
+			stdio: 'inherit',
+		},
+	)
 }
 
 async function serve(outDir, children) {
 	const port = await getFreePort()
 	const child = spawn(
 		process.execPath,
-		[vite, 'preview', '--outDir', outDir, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+		[
+			vite,
+			'preview',
+			'--outDir',
+			outDir,
+			'--host',
+			'127.0.0.1',
+			'--port',
+			String(port),
+			'--strictPort',
+		],
 		{ cwd: root, stdio: 'ignore' },
 	)
 	children.push(child)
@@ -131,7 +157,9 @@ async function serve(outDir, children) {
 // One CDP session on the browser's first page.
 async function connect(port) {
 	const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`)).json()
-	const socket = new WebSocket(targets.find((target) => target.type === 'page').webSocketDebuggerUrl)
+	const socket = new WebSocket(
+		targets.find((target) => target.type === 'page').webSocketDebuggerUrl,
+	)
 	await new Promise((done) => socket.addEventListener('open', done, { once: true }))
 	let nextId = 0
 	const pending = new Map()
@@ -156,7 +184,13 @@ async function connect(port) {
 		return new Promise((done) => pending.set(id, done))
 	}
 	session.evaluate = async (expression) =>
-		(await session.send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true })).result?.result?.value
+		(
+			await session.send('Runtime.evaluate', {
+				expression,
+				returnByValue: true,
+				awaitPromise: true,
+			})
+		).result?.result?.value
 	session.close = () => socket.close()
 	await session.send('Runtime.enable')
 	await session.send('Page.enable')
@@ -235,15 +269,21 @@ function createShim(config) {
 }
 
 async function load(session, url, config) {
-	const { identifier } = (await session.send('Page.addScriptToEvaluateOnNewDocument', { source: createShim(config) })).result
+	const { identifier } = (
+		await session.send('Page.addScriptToEvaluateOnNewDocument', { source: createShim(config) })
+	).result
 	// Leave the previous, possibly frozen, page before loading the next one.
 	await session.send('Page.navigate', { url: 'about:blank' })
-	await waitFor(async () => (await session.evaluate('location.href')) === 'about:blank', 'about:blank')
+	await waitFor(
+		async () => (await session.evaluate('location.href')) === 'about:blank',
+		'about:blank',
+	)
 	session.errors.length = 0
 	session.warnings.length = 0
 	await session.send('Page.navigate', { url })
 	await waitFor(
-		async () => await session.evaluate(`location.href === ${JSON.stringify(url)} && !!window.__bench`),
+		async () =>
+			await session.evaluate(`location.href === ${JSON.stringify(url)} && !!window.__bench`),
 		'the app page',
 	)
 	await session.send('Page.removeScriptToEvaluateOnNewDocument', { identifier })
@@ -251,7 +291,11 @@ async function load(session, url, config) {
 
 async function measure(session, url) {
 	await load(session, url, { mode: 'measure', warm, frames })
-	await waitFor(async () => await session.evaluate('window.__bench.frozen === true'), 'the measured frames', 300000)
+	await waitFor(
+		async () => await session.evaluate('window.__bench.frozen === true'),
+		'the measured frames',
+		300000,
+	)
 	return JSON.parse(
 		await session.evaluate(`(() => {
 			const start = window.__bench.clickMark + ${warm}
@@ -271,12 +315,18 @@ async function measure(session, url) {
 
 async function capture(session, url, path) {
 	await load(session, url, { mode: 'shot', holdAt: HOLD_FRAMES })
-	await waitFor(async () => await session.evaluate('window.__bench.hold === true'), 'the held frame', 300000)
+	await waitFor(
+		async () => await session.evaluate('window.__bench.hold === true'),
+		'the held frame',
+		300000,
+	)
 	// Streaming converged twice in a row, half a second apart.
 	let stable = 0
 	while (stable < 2) {
 		await sleep(500)
-		const chunks = JSON.parse(await session.evaluate('JSON.stringify(window.__INFINITE_WORLD__.getChunkStats())'))
+		const chunks = JSON.parse(
+			await session.evaluate('JSON.stringify(window.__INFINITE_WORLD__.getChunkStats())'),
+		)
 		const settled =
 			chunks.live === chunks.desired &&
 			chunks.pending === 0 &&
@@ -285,11 +335,19 @@ async function capture(session, url, path) {
 			chunks.ready === 0
 		stable = settled ? stable + 1 : 0
 	}
-	await session.evaluate('void (window.__bench.capture = true, window.__bench.freezeAt = window.__bench.frame + 10)')
+	await session.evaluate(
+		'void (window.__bench.capture = true, window.__bench.freezeAt = window.__bench.frame + 10)',
+	)
 	await waitFor(async () => await session.evaluate('!!window.__bench.shot'), 'the capture')
 	const dataUrl = await session.evaluate('window.__bench.shot')
 	writeFileSync(path, Buffer.from(dataUrl.slice(dataUrl.indexOf(',') + 1), 'base64'))
-	return JSON.parse(await session.evaluate('JSON.stringify(window.__INFINITE_WORLD__.getFlightStats().position)'))
+	return JSON.parse(
+		await session.evaluate(`JSON.stringify({
+			...window.__INFINITE_WORLD__.getFlightStats().position,
+			drawCalls: window.__INFINITE_WORLD__.getRenderStats?.().drawCalls,
+			triangles: window.__INFINITE_WORLD__.getRenderStats?.().triangles,
+		})`),
+	)
 }
 
 // 8-bit RGB or RGBA PNG to { width, height, channels, pixels }.
@@ -366,7 +424,9 @@ try {
 	const builds = [{ name: 'working tree', source: root }]
 	if (options.compare) {
 		worktree = join(work, 'ref-source')
-		execFileSync('git', ['worktree', 'add', '--detach', '--quiet', worktree, options.compare], { cwd: root })
+		execFileSync('git', ['worktree', 'add', '--detach', '--quiet', worktree, options.compare], {
+			cwd: root,
+		})
 		symlinkSync(join(root, 'node_modules'), join(worktree, 'node_modules'))
 		builds.push({ name: options.compare, source: worktree })
 	}
@@ -397,19 +457,26 @@ try {
 		{ stdio: 'ignore' },
 	)
 	children.push(chrome)
-	await waitFor(async () => (await fetch(`http://127.0.0.1:${chromePort}/json/version`)).ok, 'Chrome')
+	await waitFor(
+		async () => (await fetch(`http://127.0.0.1:${chromePort}/json/version`)).ok,
+		'Chrome',
+	)
 	const session = await connect(chromePort)
 
 	const canvas = `${viewport.width * viewport.dpr} × ${viewport.height * viewport.dpr}`
 	if (Number(options.rounds) > 0) {
-		console.log(`Measuring frames ${warm}–${warm + frames} after Play, ${canvas} canvas, ${options.rounds} round(s)...`)
+		console.log(
+			`Measuring frames ${warm}–${warm + frames} after Play, ${canvas} canvas, ${options.rounds} round(s)...`,
+		)
 	}
 	for (let round = 0; round < Number(options.rounds); round++) {
 		for (const entry of builds) {
 			const run = await measure(session, entry.url)
 			entry.runs.push(run)
 			const errors = session.errors.length ? `, ${session.errors.length} console error(s)` : ''
-			console.log(`  ${entry.name}: ${run.mean.toFixed(2)} ms mean, p50 ${run.p50.toFixed(2)}, p95 ${run.p95.toFixed(2)}${errors}`)
+			console.log(
+				`  ${entry.name}: ${run.mean.toFixed(2)} ms mean, p50 ${run.p50.toFixed(2)}, p95 ${run.p95.toFixed(2)}${errors}`,
+			)
 			for (const error of session.errors) console.log(`    error: ${error}`)
 			if (options.verbose) {
 				for (const warning of session.warnings) console.log(`    warning: ${warning}`)
@@ -419,15 +486,19 @@ try {
 	}
 
 	if (Number(options.rounds) > 0) {
-		console.log('\nBuild                 Mean ms   p50 ms   p95 ms   Draw calls   Triangles   Change')
+		console.log(
+			'\nBuild                 Mean ms   p50 ms   p95 ms   Draw calls   Triangles   Change',
+		)
 		const baseline = builds.at(-1)
-		const average = (entry, key) => entry.runs.reduce((sum, run) => sum + run[key], 0) / entry.runs.length
+		const average = (entry, key) =>
+			entry.runs.reduce((sum, run) => sum + run[key], 0) / entry.runs.length
 		for (const entry of builds) {
 			const mean = average(entry, 'mean')
 			const last = entry.runs.at(-1).render
-			const change = entry === baseline || builds.length === 1
-				? ''
-				: `${(((mean - average(baseline, 'mean')) / average(baseline, 'mean')) * 100).toFixed(1)}%`
+			const change =
+				entry === baseline || builds.length === 1
+					? ''
+					: `${(((mean - average(baseline, 'mean')) / average(baseline, 'mean')) * 100).toFixed(1)}%`
 			console.log(
 				`${entry.name.padEnd(20)} ${mean.toFixed(2).padStart(8)} ${average(entry, 'p50').toFixed(2).padStart(8)} ${average(entry, 'p95').toFixed(2).padStart(8)} ${String(last?.drawCalls ?? '-').padStart(12)} ${last ? `${(last.triangles / 1e6).toFixed(2)}M`.padStart(11) : '-'.padStart(11)}   ${change}`,
 			)
@@ -440,13 +511,21 @@ try {
 		console.log(`\nHeld captures in ${shots}:`)
 		for (const [index, entry] of builds.entries()) {
 			entry.shot = join(shots, `build-${index}.png`)
-			const position = await capture(session, entry.url, entry.shot)
-			console.log(`  ${entry.name}: build-${index}.png at z ${position.z.toFixed(3)}`)
+			const held = await capture(session, entry.url, entry.shot)
+			// The held frame is deterministic, so its counters compare builds exactly.
+			const counters =
+				held.drawCalls === undefined
+					? ''
+					: `, ${held.drawCalls} draw calls, ${held.triangles} triangles`
+			console.log(`  ${entry.name}: build-${index}.png at z ${held.z.toFixed(3)}${counters}`)
+			for (const error of session.errors) console.log(`    error: ${error}`)
 		}
 		if (builds.length > 1) {
 			const result = compareImages(builds[0].shot, builds[1].shot)
 			if (result) {
-				console.log(`  PSNR ${result.psnr.toFixed(1)} dB, ${(result.changed * 100).toFixed(3)}% of pixels off by more than 16`)
+				console.log(
+					`  PSNR ${result.psnr.toFixed(1)} dB, ${(result.changed * 100).toFixed(3)}% of pixels off by more than 16`,
+				)
 			}
 		}
 	}
@@ -455,7 +534,10 @@ try {
 	for (const child of children) child.kill()
 	if (worktree) {
 		try {
-			execFileSync('git', ['worktree', 'remove', '--force', worktree], { cwd: root, stdio: 'ignore' })
+			execFileSync('git', ['worktree', 'remove', '--force', worktree], {
+				cwd: root,
+				stdio: 'ignore',
+			})
 		} catch {
 			execFileSync('git', ['worktree', 'prune'], { cwd: root, stdio: 'ignore' })
 		}

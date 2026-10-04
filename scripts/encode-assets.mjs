@@ -2,13 +2,7 @@
 // settings. Requires `basisu` (Basis Universal) on PATH, for example
 // `brew install basis_universal`. Usage: pnpm assets:encode
 import { execFileSync } from 'node:child_process'
-import {
-	mkdirSync,
-	mkdtempSync,
-	readFileSync,
-	rmSync,
-	writeFileSync,
-} from 'node:fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -27,8 +21,17 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 // with distance, so the strongly scaled fabric detail flattens instead of
 // turning into noise.
 const TERRAIN_NORMAL = [
-	'-etc1s', '-q', '255', '-normal_map', '-separate_rg_to_color_alpha',
-	'-mip_filter', 'box', '-mip_linear', '-resample', '1024', '1024',
+	'-etc1s',
+	'-q',
+	'255',
+	'-normal_map',
+	'-separate_rg_to_color_alpha',
+	'-mip_filter',
+	'box',
+	'-mip_linear',
+	'-resample',
+	'1024',
+	'1024',
 ]
 // sRGB color.
 const COLOR = ['-etc1s', '-q', '255']
@@ -82,15 +85,25 @@ function createShadowCaster(document) {
 	const [vertexRemap, vertexCount] = MeshoptSimplifier.compactMesh(simplified)
 	const compact = new Float32Array(vertexCount * 3)
 	vertexRemap.forEach((target, source) => {
-		if (target < vertexCount) compact.set(positions.subarray(source * 3, source * 3 + 3), target * 3)
+		if (target < vertexCount)
+			compact.set(positions.subarray(source * 3, source * 3 + 3), target * 3)
 	})
 
 	const caster = new Document()
 	const buffer = caster.createBuffer()
 	const casterPrimitive = caster
 		.createPrimitive()
-		.setAttribute('POSITION', caster.createAccessor().setType('VEC3').setArray(compact).setBuffer(buffer))
-		.setIndices(caster.createAccessor().setType('SCALAR').setArray(Uint16Array.from(simplified)).setBuffer(buffer))
+		.setAttribute(
+			'POSITION',
+			caster.createAccessor().setType('VEC3').setArray(compact).setBuffer(buffer),
+		)
+		.setIndices(
+			caster
+				.createAccessor()
+				.setType('SCALAR')
+				.setArray(Uint16Array.from(simplified))
+				.setBuffer(buffer),
+		)
 	const mesh = caster.createMesh('shadow-caster').addPrimitive(casterPrimitive)
 	caster.createScene().addChild(caster.createNode('shadow-caster').setMesh(mesh))
 	return { caster, triangles: simplified.length / 3, vertices: vertexCount, error }
@@ -98,11 +111,9 @@ function createShadowCaster(document) {
 
 function encode(source, target, args) {
 	mkdirSync(dirname(target), { recursive: true })
-	execFileSync(
-		'basisu',
-		[...args, '-mipmap', '-ktx2', '-output_file', target, source],
-		{ stdio: 'ignore' },
-	)
+	execFileSync('basisu', [...args, '-mipmap', '-ktx2', '-output_file', target, source], {
+		stdio: 'ignore',
+	})
 }
 
 for (const [path, args] of TEXTURES) {

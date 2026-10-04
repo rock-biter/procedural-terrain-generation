@@ -1,3 +1,4 @@
+import { smoothstep } from './math.js'
 // Pure rules for the scenery shadows (src/sceneryShadows.js). Shadows are
 // computed in flat world space, before the visual curvature: scenery
 // impostors and the airplane render into light-aligned depth maps in two
@@ -16,7 +17,9 @@ export const SCENERY_SHADOW_MAX_TAPS = 16
 export function getSceneryShadowTapDefines(near, far = near) {
 	for (const taps of [near, far]) {
 		if (!Number.isInteger(taps) || taps < 1 || taps > SCENERY_SHADOW_MAX_TAPS) {
-			throw new RangeError(`Shadow taps must be an integer from 1 to ${SCENERY_SHADOW_MAX_TAPS}: ${taps}`)
+			throw new RangeError(
+				`Shadow taps must be an integer from 1 to ${SCENERY_SHADOW_MAX_TAPS}: ${taps}`,
+			)
 		}
 	}
 	return { SCENERY_SHADOW_TAPS_NEAR: near, SCENERY_SHADOW_TAPS_FAR: far }
@@ -71,11 +74,6 @@ export const SCENERY_SHADOW_DEFAULTS = Object.freeze({
 	lightThreshold: 0.0035,
 })
 
-function smoothstep(edge0, edge1, x) {
-	const t = Math.min(Math.max((x - edge0) / (edge1 - edge0), 0), 1)
-	return t * t * (3 - 2 * t)
-}
-
 export function createSceneryShadowSettings({ isMobile = false } = {}) {
 	const preset = isMobile ? SCENERY_SHADOW_PRESETS.mobile : SCENERY_SHADOW_PRESETS.desktop
 	return {
@@ -95,18 +93,18 @@ export function createSceneryShadowSettings({ isMobile = false } = {}) {
 
 // Picks the light that casts shadows: the sun or the moon, whichever stands
 // higher above the flat horizon. `strength` fades in with that elevation.
-// Directions are unit [x, y, z] arrays pointing toward the light.
-export function selectShadowLight(sunDirection, moonDirection, { elevationFade }) {
+// Directions are unit [x, y, z] arrays pointing toward the light. Writes into
+// `out`, so a caller that passes the same object every frame allocates nothing.
+export function selectShadowLight(sunDirection, moonDirection, { elevationFade }, out = {}) {
 	const sunElevation = Math.asin(Math.min(Math.max(sunDirection[1], -1), 1))
 	const moonElevation = Math.asin(Math.min(Math.max(moonDirection[1], -1), 1))
 	const isSun = sunElevation >= moonElevation
 	const elevation = isSun ? sunElevation : moonElevation
-	return {
-		light: isSun ? 'sun' : 'moon',
-		direction: isSun ? sunDirection : moonDirection,
-		elevation,
-		strength: smoothstep(elevationFade.start, elevationFade.end, elevation),
-	}
+	out.light = isSun ? 'sun' : 'moon'
+	out.direction = isSun ? sunDirection : moonDirection
+	out.elevation = elevation
+	out.strength = smoothstep(elevationFade.start, elevationFade.end, elevation)
+	return out
 }
 
 // Shader strength: 0 skips the shadow pass and every receiver lookup.

@@ -1,7 +1,4 @@
-import {
-	IMPOSTOR_INSTANCE_STRIDE,
-	IMPOSTOR_TYPE_COUNT,
-} from './impostors/impostorTypes.js'
+import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE_COUNT } from './impostors/impostorTypes.js'
 
 // Pure rules for the near scenery meshes (src/impostors/sceneryMeshes.js).
 // Near the eye each instance is a real mesh in two levels of detail: LOD 0
@@ -80,14 +77,8 @@ export function getSceneryMeshRange({ enabled, start, end }) {
 export function getSceneryMeshLodRange(settings) {
 	if (!settings.enabled) return [...SCENERY_MESH_DISABLED_RANGE]
 	const meshEnd = getSceneryMeshRange(settings)[1]
-	const lodEnd = Math.min(
-		Math.max(settings.lodEnd, SCENERY_MESH_MIN_BAND),
-		meshEnd,
-	)
-	const lodStart = Math.min(
-		Math.max(settings.lodStart, 0),
-		lodEnd - SCENERY_MESH_MIN_BAND,
-	)
+	const lodEnd = Math.min(Math.max(settings.lodEnd, SCENERY_MESH_MIN_BAND), meshEnd)
+	const lodStart = Math.min(Math.max(settings.lodStart, 0), lodEnd - SCENERY_MESH_MIN_BAND)
 	return [lodStart, lodEnd]
 }
 
@@ -132,14 +123,7 @@ export function getSceneryMeshSelection(settings) {
 // True when a square chunk centered on (centerX, centerZ) can hold a base
 // within `radius` of the eye. Horizontal distance never exceeds the 3D one, so
 // the test is conservative.
-export function chunkIntersectsSelection(
-	centerX,
-	centerZ,
-	halfSize,
-	eyeX,
-	eyeZ,
-	radius,
-) {
+export function chunkIntersectsSelection(centerX, centerZ, halfSize, eyeX, eyeZ, radius) {
 	const dx = Math.max(Math.abs(eyeX - centerX) - halfSize, 0)
 	const dz = Math.max(Math.abs(eyeZ - centerZ) - halfSize, 0)
 	return dx * dx + dz * dz <= radius * radius
@@ -228,9 +212,7 @@ export function appendNearSceneryInstances(
 			if (distanceSquared > level.maxRadius * level.maxRadius) continue
 			if (distanceSquared < level.minRadius * level.minRadius) continue
 			if (visible === null) {
-				visible =
-					!isVisible ||
-					isVisible(type, x, y, z, instances[i + 3], instances[i + 7])
+				visible = !isVisible || isVisible(type, x, y, z, instances[i + 3], instances[i + 7])
 			}
 			if (!visible) break
 			appendInstance(bucket, instances, i, x, y, z)

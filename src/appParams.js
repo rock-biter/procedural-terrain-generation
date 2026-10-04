@@ -1,0 +1,134 @@
+import { ACESFilmicToneMapping } from 'three'
+import { createAdaptivePixelRatioSettings, parsePixelRatio } from './adaptivePixelRatio'
+import { createTerrainSettings } from './chunkGeometry'
+import { createCloudSettings } from './cloudPlacement'
+import { createDayNightPalette, DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './dayNightPolicy'
+import {
+	createCloudMeshSettings,
+	createSceneryMeshSettings,
+	createSceneryWireframeSettings,
+} from './sceneryMeshPolicy'
+import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
+import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
+import { createTerrainNormalSettings } from './terrainNormals'
+
+// The mutable parameters of the app, edited live by the ?gui=1 debug panel
+// (src/debug/debugGui.js) and read by every system. `urlParams` supplies
+// ?time= and ?dpr=; `isMobile` picks the mobile presets.
+export function createAppParams({ urlParams, isMobile }) {
+	return {
+		speedEffect: 0,
+		// Peak intensities; the day/night cycle scales them every frame.
+		directionalLight: 4,
+		moonLight: 1.2,
+		ambientLight: 1.5,
+		dayNight: {
+			timeOfDay: parseTimeOfDay(urlParams) ?? DAY_NIGHT_DEFAULTS.startTimeOfDay,
+			cycleDuration: DAY_NIGHT_DEFAULTS.cycleDuration,
+			paused: false,
+			// Editable copy of DAY_NIGHT_DEFAULTS.keyframes (sRGB colors).
+			keyframes: createDayNightPalette(),
+			skyGradientHeight: DAY_NIGHT_DEFAULTS.skyGradientHeight,
+		},
+		// Radial fog range in world units from the eye; DayNight applies it.
+		fog: { near: 200, far: 2100 },
+		// Terrain generation (amplitude, frequency, octaves, lacunarity,
+		// persistance, desert topography); see TERRAIN_DEFAULTS.
+		...createTerrainSettings(),
+		colors: {
+			uGrass: '#6d976d',
+			uLand: '#5e551d',
+			uRocks: '#521f00',
+		},
+		// Soft lighter patches on land from a world-space noise: frequency (per world
+		// unit), intensity (0.3 = up to 30% brighter), threshold (noise value in
+		// [0, 1] where lightening starts), softness (transition half-width), and
+		// speed (noise drift per second).
+		terrainColorNoise: {
+			frequency: 0.012,
+			intensity: 0.75,
+			threshold: 0.61,
+			softness: 0.3,
+			speed: 0.25,
+		},
+		// Normal map, tile size (world units), and strength per terrain layer;
+		// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
+		terrainNormals: createTerrainNormalSettings(),
+		// Renderer tone mapping operator (a THREE.*ToneMapping constant) and exposure.
+		// A tone-mapped mode switches the composer to half-float buffers.
+		toneMapping: { mode: ACESFilmicToneMapping, exposure: 1 },
+		// Adaptive resolution (src/adaptivePixelRatio.js): the pixel ratio drops
+		// toward `min` while the frame rate is below 60 fps. `?dpr=` pins the ratio
+		// and turns adaptation off.
+		pixelRatio: createAdaptivePixelRatioSettings({
+			enabled: parsePixelRatio(urlParams) === null,
+		}),
+		postProcessing: {
+			// Minimum effect intensity; lets the GUI hold the effect on while tuning.
+			preview: 0,
+			// Edge blur and aberration always shown, as for a speed effect of this
+			// value; boosting animates the rest. 0 leaves the edges sharp at rest. The
+			// camera FOV kick ignores it.
+			idleSpeedEffect: 0.4,
+			// Static screen-space grain; intensity is the maximum brightness change
+			// (0.05 = ±5%). 0 disables it.
+			grain: { intensity: 0.035 },
+			// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
+			// verticalScale shrinks only the vertical distance (1 = circular falloff).
+			verticalScale: 0.78,
+			blur: { strength: 0.075, start: 0.35, end: 1.5, curve: 1.2 },
+			aberration: { strength: 0.016, start: 0.28, end: 0.9, curve: 2.2 },
+		},
+		// Placement settings sent to the chunk workers; see createScenerySettings().
+		scenery: createScenerySettings({ isMobile }),
+		// Shader-side, applied live: brightness change per type in stops (1 = half
+		// to double brightness) and the world frequency of the noise that drives it.
+		// Wood color baked into every impostor: repeats per world unit and color
+		// strength (0 = vertex color only, 1 = vertex color × texture). Changing
+		// them re-bakes the atlas.
+		impostorDetail: { scale: 0.01, color: 0.1 },
+		// Near scenery meshes, in units from the eye: full-detail meshes below
+		// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
+		// beyond `end`, with dithered cross-fades inside each band.
+		sceneryMeshes: createSceneryMeshSettings({ isMobile }),
+		// Debug overlay outlining scenery triangles in one color per level of
+		// detail: LOD 0 mesh, LOD 1 mesh, impostor quad.
+		sceneryWireframe: createSceneryWireframeSettings(),
+		// Soft shadows of scenery and the airplane on terrain and scenery, in two
+		// cascades that fade out with distance; see createSceneryShadowSettings().
+		shadows: createSceneryShadowSettings({ isMobile }),
+		impostorVariation: {
+			frequency: 0.01,
+			amount: Object.fromEntries(Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8])),
+		},
+		// World-level cloud field (src/clouds.js): deterministic placement (see
+		// createCloudSettings()), near-mesh bands like sceneryMeshes, the wood
+		// detail baked into the cloud atlas (changing it re-bakes), the ambient
+		// light multiplier that keeps the undersides bright, the brightness
+		// variation per type, and the cloud shadows on terrain and scenery (see
+		// createCloudShadowSettings()).
+		clouds: {
+			placement: createCloudSettings({ isMobile }),
+			meshes: createCloudMeshSettings({ isMobile }),
+			detail: { scale: 0.012, color: 0.6 },
+			ambient: 2.72,
+			variation: {
+				frequency: 0.0405,
+				// Keyed like CLOUD_TYPE_KEYS.
+				amount: { bank: 0.99, heap: 1.26, puff: 0.99 },
+			},
+			shadows: createCloudShadowSettings({ isMobile }),
+		},
+		// Airplane propeller rotation in turns per second. With two blades, speeds
+		// near half the frame rate (30 at 60 fps) strobe and look still.
+		propeller: { speed: 4 },
+		trails: {
+			ribbonWidth: 9.6,
+			lineWidth: 0.65,
+			borderWidth: 0.08,
+			outerEdge: { frequency: 1.4, amplitude: 0.47 },
+			innerEdge: { frequency: 1.4, amplitude: 0.43 },
+			oscillation: { frequency: 0.03, amplitude: 0.3 },
+		},
+	}
+}

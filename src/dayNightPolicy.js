@@ -1,3 +1,4 @@
+import { smoothstep } from './math.js'
 // Time of day is a unit value: 0 = midnight, 0.5 = noon; on a flat horizon
 // 0.25 = sunrise and 0.75 = sunset. Colors are sRGB triplets in [0, 1]; the
 // runtime converts them into the renderer working color space.
@@ -178,15 +179,6 @@ export const DAY_NIGHT_SCALAR_FIELDS = Object.freeze([
 	'night',
 ])
 
-function clampUnit(value) {
-	return Math.max(0, Math.min(value, 1))
-}
-
-function smoothstep(value) {
-	const clampedValue = clampUnit(value)
-	return clampedValue * clampedValue * (3 - 2 * clampedValue)
-}
-
 export function wrapTimeOfDay(timeOfDay) {
 	const wrapped = timeOfDay - Math.floor(timeOfDay)
 	// Guards against -1e-17 style inputs rounding up to exactly 1.
@@ -214,11 +206,7 @@ export function getApparentElevation(directionY, dip) {
 // Stretches the apparent day [sunrise, sunset] onto [0.25, 0.75] and the night
 // onto the rest, so flat-horizon keyframes stay aligned with the sun on the
 // curved horizon. Continuous, monotonic, and the identity when dip is 0.
-export function getPaletteTime(
-	timeOfDay,
-	dip,
-	tilt = DAY_NIGHT_DEFAULTS.orbitTilt,
-) {
+export function getPaletteTime(timeOfDay, dip, tilt = DAY_NIGHT_DEFAULTS.orbitTilt) {
 	const wrapped = wrapTimeOfDay(timeOfDay)
 	const ratio = Math.min(Math.sin(Math.max(dip, 0)) / Math.cos(tilt), 0.999)
 	const shift = Math.asin(ratio) / TWO_PI
@@ -229,18 +217,12 @@ export function getPaletteTime(
 		return 0.25 + ((wrapped - sunrise) * 0.5) / (sunset - sunrise)
 	}
 	const nightTime = wrapped < sunrise ? wrapped + 1 : wrapped
-	return wrapTimeOfDay(
-		0.75 + ((nightTime - sunset) * 0.5) / (sunrise + 1 - sunset),
-	)
+	return wrapTimeOfDay(0.75 + ((nightTime - sunset) * 0.5) / (sunrise + 1 - sunset))
 }
 
 // Inverse of getPaletteTime(): the time of day whose palette time is
 // `paletteTime` at this dip.
-export function getTimeOfDayForPaletteTime(
-	paletteTime,
-	dip,
-	tilt = DAY_NIGHT_DEFAULTS.orbitTilt,
-) {
+export function getTimeOfDayForPaletteTime(paletteTime, dip, tilt = DAY_NIGHT_DEFAULTS.orbitTilt) {
 	const wrapped = wrapTimeOfDay(paletteTime)
 	const ratio = Math.min(Math.sin(Math.max(dip, 0)) / Math.cos(tilt), 0.999)
 	const shift = Math.asin(ratio) / TWO_PI
@@ -251,9 +233,7 @@ export function getTimeOfDayForPaletteTime(
 		return sunrise + ((wrapped - 0.25) * (sunset - sunrise)) / 0.5
 	}
 	const nightPalette = wrapped < 0.25 ? wrapped + 1 : wrapped
-	return wrapTimeOfDay(
-		sunset + ((nightPalette - 0.75) * (sunrise + 1 - sunset)) / 0.5,
-	)
+	return wrapTimeOfDay(sunset + ((nightPalette - 0.75) * (sunrise + 1 - sunset)) / 0.5)
 }
 
 // Mutable deep copy of the keyframes, for live palette editing.
@@ -309,6 +289,9 @@ export function getCelestialDirections(
 	return out
 }
 
+// Reused by every getDayNightState() call, which reads it right away.
+const segment = { from: null, to: null, blend: 0 }
+
 function findSegment(timeOfDay, keyframes) {
 	const count = keyframes.length
 	for (let index = count - 1; index >= 0; index--) {
@@ -316,17 +299,19 @@ function findSegment(timeOfDay, keyframes) {
 			const from = keyframes[index]
 			const to = keyframes[(index + 1) % count]
 			const end = index === count - 1 ? to.t + 1 : to.t
-			return { from, to, blend: (timeOfDay - from.t) / (end - from.t) }
+			segment.from = from
+			segment.to = to
+			segment.blend = (timeOfDay - from.t) / (end - from.t)
+			return segment
 		}
 	}
 	// Before the first keyframe: interpolate from the last one across midnight.
 	const from = keyframes[count - 1]
 	const to = keyframes[0]
-	return {
-		from,
-		to,
-		blend: (timeOfDay + 1 - from.t) / (to.t + 1 - from.t),
-	}
+	segment.from = from
+	segment.to = to
+	segment.blend = (timeOfDay + 1 - from.t) / (to.t + 1 - from.t)
+	return segment
 }
 
 export function getDayNightState(
@@ -338,7 +323,7 @@ export function getDayNightState(
 	const wrapped = wrapTimeOfDay(timeOfDay)
 	const paletteTime = getPaletteTime(wrapped, dip, options.orbitTilt)
 	const { from, to, blend } = findSegment(paletteTime, options.keyframes)
-	const weight = smoothstep(blend)
+	const weight = smoothstep(0, 1, blend)
 
 	out.timeOfDay = wrapped
 	out.paletteTime = paletteTime
@@ -346,9 +331,7 @@ export function getDayNightState(
 	for (const field of DAY_NIGHT_COLOR_FIELDS) {
 		const target = out[field]
 		for (let channel = 0; channel < 3; channel++) {
-			target[channel] =
-				from[field][channel] +
-				(to[field][channel] - from[field][channel]) * weight
+			target[channel] = from[field][channel] + (to[field][channel] - from[field][channel]) * weight
 		}
 	}
 	for (const field of DAY_NIGHT_SCALAR_FIELDS) {
@@ -365,12 +348,8 @@ export function getDayNightState(
 	const fadeRange = options.lightFadeEnd - options.lightFadeStart
 	out.sunElevation = getApparentElevation(out.sunDirection[1], dip)
 	out.moonElevation = getApparentElevation(out.moonDirection[1], dip)
-	out.sunIntensity *= smoothstep(
-		(out.sunElevation - options.lightFadeStart) / fadeRange,
-	)
-	out.moonIntensity *= smoothstep(
-		(out.moonElevation - options.lightFadeStart) / fadeRange,
-	)
+	out.sunIntensity *= smoothstep(0, 1, (out.sunElevation - options.lightFadeStart) / fadeRange)
+	out.moonIntensity *= smoothstep(0, 1, (out.moonElevation - options.lightFadeStart) / fadeRange)
 
 	return out
 }

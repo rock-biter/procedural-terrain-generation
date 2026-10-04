@@ -34,7 +34,7 @@ import {
 // Clouds receive no shadows; src/cloudShadows.js makes them cast theirs.
 //
 // Ownership: this object owns the cloud atlas, impostor material and mesh,
-// near meshes, and its own uniforms. `uniforms` is main.js's shared object
+// near meshes, and its own uniforms. `uniforms` is the shared object (src/sharedUniforms.js)
 // (uCamera, uCurvature, uAtmosphere, uTime, and the shadow uniforms the shared
 // shader chunks declare); a copy carries the clouds' own uSceneryMeshRange.
 // `settings` is params.clouds ({ placement, meshes, detail, ambient,
@@ -83,10 +83,7 @@ export default class Clouds extends Group {
 			farFade: this.farFade,
 			ambientScale: this.ambient,
 		})
-		this.wireframeMaterial = createImpostorWireframeMaterial(
-			this.material,
-			wireframe.impostorColor,
-		)
+		this.wireframeMaterial = createImpostorWireframeMaterial(this.material, wireframe.impostorColor)
 		this.meshes = new SceneryMeshes({
 			uniforms: this.uniforms,
 			variation: this.variation,

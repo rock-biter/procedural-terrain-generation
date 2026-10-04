@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import FrameStats, {
-	GpuTimer,
-	MAX_FRAME_INTERVAL,
-	SampleWindow,
-} from '../src/frameStats.js'
+import FrameStats, { GpuTimer, MAX_FRAME_INTERVAL, SampleWindow } from '../src/frameStats.js'
 
 // Stand-in for EXT_disjoint_timer_query_webgl2: each query reads `elapsed` ns
 // once the test marks it finished.
@@ -18,8 +14,12 @@ function createGl({ timer = true } = {}) {
 		active: null,
 		getExtension: (name) => (timer && name === 'EXT_disjoint_timer_query_webgl2' ? ext : null),
 		createQuery: () => ({ id: gl.created++, done: false, elapsed: 0 }),
-		beginQuery: (target, query) => { gl.active = query },
-		endQuery: () => { gl.active = null },
+		beginQuery: (target, query) => {
+			gl.active = query
+		},
+		endQuery: () => {
+			gl.active = null
+		},
 		getParameter: (name) => (name === ext.GPU_DISJOINT_EXT ? gl.disjoint : null),
 		getQueryParameter: (query, name) =>
 			name === gl.QUERY_RESULT_AVAILABLE ? query.done : query.elapsed,

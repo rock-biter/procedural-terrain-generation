@@ -1,4 +1,4 @@
-// Pure rules for the renderer pixel ratio (applied by main.js): the cap, the
+// Pure rules for the renderer pixel ratio (applied by src/renderSetup.js): the cap, the
 // `?dpr=` override, and the adaptive ratio that lowers the resolution when the
 // frame rate drops below 60 fps and raises it again when there is room.
 

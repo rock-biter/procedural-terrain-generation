@@ -9,16 +9,14 @@ import {
 	generateCloudInstances,
 	getCloudCell,
 	getCloudFarFade,
+	getCloudFieldReach,
 	getCloudFieldOffsets,
 	getCloudNeighbourRing,
 	getCloudRegion,
 	getFacingYaw,
 } from '../src/cloudPlacement.js'
 import { FLIGHT_LIMITS } from '../src/flightPolicy.js'
-import {
-	CLOUD_TYPE_COUNT,
-	IMPOSTOR_INSTANCE_STRIDE,
-} from '../src/impostors/impostorTypes.js'
+import { CLOUD_TYPE_COUNT, IMPOSTOR_INSTANCE_STRIDE } from '../src/impostors/impostorTypes.js'
 
 // The follow camera rides this far above the airplane (Plane.addEffect()).
 const CAMERA_HEIGHT = 7
@@ -76,12 +74,15 @@ test('a cell keeps its cloud wherever the field is centered', () => {
 	assert.ok(shared > 10, 'overlapping fields share clouds')
 })
 
-test('keeps bases inside the radius, the altitude band, and the type range', () => {
+test('keeps bases inside the field reach, the altitude band, and the type range', () => {
 	const settings = createCloudSettings()
 	const instances = generate({ centerX: 1234, centerZ: -567, settings })
 	for (let i = 0; i < instances.length; i += IMPOSTOR_INSTANCE_STRIDE) {
-		const [x, y, z, scale, seed, type, , stretch] = instances.subarray(i, i + IMPOSTOR_INSTANCE_STRIDE)
-		assert.ok(Math.hypot(x - 1234, z + 567) <= settings.radius + 1e-3)
+		const [x, y, z, scale, seed, type, , stretch] = instances.subarray(
+			i,
+			i + IMPOSTOR_INSTANCE_STRIDE,
+		)
+		assert.ok(Math.hypot(x - 1234, z + 567) <= getCloudFieldReach(settings.radius) + 1e-3)
 		assert.ok(y >= settings.altitude.min - 1e-3)
 		assert.ok(y <= settings.altitude.min + settings.altitude.range + 1e-3)
 		assert.ok(Number.isInteger(type) && type >= 0 && type < CLOUD_TYPE_COUNT)
@@ -127,7 +128,12 @@ function assertFootprintsApart(instances) {
 }
 
 test('drops neighbours that could cut through each other at any heading', () => {
-	const settings = { ...createCloudSettings(), density: 1, coverage: 1, altitude: { min: 130, range: 0 } }
+	const settings = {
+		...createCloudSettings(),
+		density: 1,
+		coverage: 1,
+		altitude: { min: 130, range: 0 },
+	}
 	assertFootprintsApart(generate({ settings }))
 })
 
@@ -168,7 +174,10 @@ test('turns the front face (local -Z) toward the target', () => {
 		assert.ok(Math.abs(z - targetZ / length) < 1e-9)
 	}
 	// The starting view (airplane at -Z) keeps the source orientation.
-	assert.deepEqual(getFacingYaw(0, 100, 0, 0).map((value) => value + 0), [1, 0])
+	assert.deepEqual(
+		getFacingYaw(0, 100, 0, 0).map((value) => value + 0),
+		[1, 0],
+	)
 	assert.deepEqual(getFacingYaw(5, 5, 5, 5), [1, 0])
 })
 
@@ -242,11 +251,52 @@ test('regional fields are independent and follow the seed', () => {
 		const x = i * 2111
 		const z = -i * 1373
 		const region = getCloudRegion(x, z, offsets, settings)
-		if (Math.abs(region.density - getCloudRegion(x, z, other, settings).density) > 0.05) differentSeed++
+		if (Math.abs(region.density - getCloudRegion(x, z, other, settings).density) > 0.05)
+			differentSeed++
 		const densityUp = region.density > settings.density
 		const sizeUp = region.size > 1
 		if (densityUp === sizeUp) correlated++
 	}
 	assert.ok(differentSeed > 100, 'another seed has another sky')
 	assert.ok(correlated > 60 && correlated < 140, 'density and size vary independently')
+})
+
+test('every cloud nearer than the far fade end exists wherever the airplane is in its cell', () => {
+	const { cellSize } = CLOUD_CONFIG
+	const settings = createCloudSettings()
+	const [, fadeEnd] = getCloudFarFade(settings.radius)
+	const key = (values, i) => `${values[i].toFixed(3)},${values[i + 2].toFixed(3)}`
+	let checked = 0
+	for (const seed of ['reach-a', 'reach-b', 'reach-c']) {
+		const field = generate({ seed, centerX: cellSize / 2, centerZ: cellSize / 2, settings })
+		const present = new Set()
+		for (let i = 0; i < field.length; i += IMPOSTOR_INSTANCE_STRIDE) present.add(key(field, i))
+		// The cell's corners and edge midpoints, just inside the cell.
+		for (const [u, v] of [
+			[0, 0],
+			[1, 0],
+			[0, 1],
+			[1, 1],
+			[0.5, 0],
+			[0, 0.5],
+			[1, 0.5],
+			[0.5, 1],
+		]) {
+			const eyeX = (0.001 + u * 0.998) * cellSize
+			const eyeZ = (0.001 + v * 0.998) * cellSize
+			// Every cloud around the eye, from a field large enough to hold them all.
+			const around = generate({
+				seed,
+				centerX: eyeX,
+				centerZ: eyeZ,
+				settings: { ...settings, radius: fadeEnd + cellSize },
+			})
+			for (let i = 0; i < around.length; i += IMPOSTOR_INSTANCE_STRIDE) {
+				if (Math.hypot(around[i] - eyeX, around[i + 2] - eyeZ) >= fadeEnd) continue
+				assert.ok(present.has(key(around, i)), `missing cloud ${key(around, i)} for eye ${u},${v}`)
+				checked++
+			}
+		}
+	}
+	assert.ok(checked > 100)
 })

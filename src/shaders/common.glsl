@@ -2,6 +2,7 @@
 uniform float uTime;
 uniform vec3 uCamera;
 uniform float uCurvature;
+#include ./curvature-drop.glsl
 uniform vec3 uGrass;
 uniform vec3 uLand;
 uniform vec3 uRocks;
@@ -43,12 +44,4 @@ float snoise(vec2 v){
   g.x  = a0.x  * x0.x  + h.x  * x0.y;
   g.yz = a0.yz * x12.xz + h.yz * x12.yw;
   return 130.0 * dot(m, g);
-}
-
-// Mirrored by getBiomeValue() in src/biome.js; keep both in sync.
-// biomeXZ is the world XZ position already shifted by uBiomeOffset.
-float getBiomeValue(vec2 biomeXZ) {
-  return snoise(biomeXZ * 0.000175)
-    + snoise(biomeXZ * 0.0035) * 0.22
-    + snoise(biomeXZ * 0.012) * 0.06;
 }

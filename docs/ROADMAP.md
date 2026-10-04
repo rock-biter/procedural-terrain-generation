@@ -8,7 +8,7 @@ The first analysis focuses on terrain generation and streaming because they domi
 
 Last baseline review: **2026-09-26**. The full-project review of **2026-10-02** ([Project Review](reviews/2026-10-02-project-review.md)) lists its findings by area, a phased plan, and which items are done; promote an item into this register when it becomes part of a milestone.
 
-Current implementation scope: `worldFeatures` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`), and still disables boats. The dormant boat implementation remains for later reintroduction; the historical cost analysis of the former per-chunk clouds stays in this document for reference.
+Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`), and still disables boats. The dormant boat implementation remains for later reintroduction; the historical cost analysis of the former per-chunk clouds stays in this document for reference.
 
 Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
 
@@ -51,7 +51,7 @@ Time estimates from unmeasured hardware are intentionally excluded. Static opera
 ## Current Terrain Hot Path
 
 ```text
-main.js: tic()
+World.tic() (src/world.js)
   -> Plane.update()
   -> ChunkManager.updateChunks()
      -> on a chunk boundary or heading-sector change, build a heading-biased desired Map
@@ -158,7 +158,7 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `CORR-002`  | P1       | Observed    | Boat world coordinates are assigned as local coordinates on a chunk child.              | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                                 |
 | `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter and GUI seed changes revision jobs, rebuild seeded noises and the biome offset, and regenerate scenery; a seed change re-places the clouds; dormant boats would retain old placement. |
 | `DET-001`   | P1       | In progress | Dormant boat placement is not deterministic.                                            | `?seed=` drives terrain, biomes, hashed scenery placement, and the cloud field; dormant boats still use `Math.random()`.                          |
-| `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity; cancellation and disposal remain browser-only.     |
+| `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity, and since 2026-10-04 the reconcile state machine end to end (fake workers running the real job: streaming, disposal across borders, stale results, retries) and the worker pool's restarts. GPU upload and rendering remain browser-only. |
 | `STRM-003`  | P2       | In progress | Priority is biased by heading only and LOD has no hysteresis.                           | The set and LOD follow a quantized heading with sector hysteresis; camera visibility and recent LOD state are ignored, so turns re-generate many chunks. |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
 | `FRAME-001` | P2       | Observed    | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
@@ -371,9 +371,9 @@ These issues are real but have not received the same depth of performance analys
 | `EXP-001`   | P2       | Responsive behavior | Mobile policy is fixed at startup width; crossing the breakpoint does not rebuild runtime policy.  |
 | `EXP-002`   | P2       | Camera              | Mobile play transition ends at Z `-16`, but the later effect baseline is Z `-18`.                  |
 | `A11Y-001`  | P2       | Interface           | Play and sound controls are not semantic buttons and lack keyboard behavior and accessible labels. |
-| `LOAD-002`  | P2       | Reliability         | Startup-critical assets have no visible error or retry state.                                      |
+| `LOAD-002`  | P3       | Reliability         | Resolved for the one critical asset (2026-10-04): an airplane failure shows an error with Retry, which reloads the whole page; the other assets degrade without a message. |
 | `ASSET-001` | P1       | Licensing           | Soundtrack and texture provenance are not recorded in dedicated license metadata.                  |
-| `QUAL-001`  | P1       | Quality             | There is no linting, type checking, CI, browser automation, or visual regression baseline.         |
+| `QUAL-001`  | P1       | Quality             | There is no type checking or browser automation in CI. ESLint, Prettier, and a GitHub Actions workflow (lint, format, test, build) exist since 2026-10-04; `pnpm bench --shots` compares builds visually, but only locally. |
 
 See the owning guides for current behavior and constraints. Promote an item into a detailed phase when it becomes part of an implementation milestone.
 
@@ -389,188 +389,49 @@ See the owning guides for current behavior and constraints. Promote an item into
 
 ## Future Feature Intake
 
+The features below are implemented; their behavior, parameters, and costs live in the owning guides. What stays here is what the guides do not hold: the alternatives that were rejected and the work still open. Each feature's frame-time acceptance depends on `OBS-001`, and none has been validated on real mobile devices yet.
+
+| ID         | Feature                                                         | Status      | Owning guide                                                                                   |
+| ---------- | --------------------------------------------------------------- | ----------- | ---------------------------------------------------------------------------------------------- |
+| `FEAT-001` | Post-processing pipeline and speed effect                       | In progress | [Rendering](RENDERING.md#post-processing-pipeline)                                             |
+| `FEAT-002` | Day/night cycle                                                 | In progress | [Rendering](RENDERING.md#daynight-cycle)                                                       |
+| `FEAT-003` | Biome scenery with octahedral impostors                         | In progress | [Terrain](TERRAIN.md#per-chunk-scenery), [Rendering](RENDERING.md#impostor-scenery)            |
+| `FEAT-004` | Near scenery meshes                                             | In progress | [Rendering](RENDERING.md#near-scenery-meshes)                                                  |
+| `FEAT-005` | Soft scenery shadows                                            | In progress | [Rendering](RENDERING.md#scenery-shadows)                                                      |
+| `FEAT-006` | Carved-wood clouds with impostors and cloud shadows             | In progress | [Terrain](TERRAIN.md#clouds), [Rendering](RENDERING.md#clouds)                                 |
+
 ### `FEAT-001`: Post-Processing Pipeline And Speed Effect
 
-- **Status:** In progress
-- **User value:** Makes acceleration feel faster without affecting the sharp center of the view.
-- **Behavior:** A minimum edge blur and chromatic aberration is always on, equal to a `0.4` speed effect (`params.postProcessing.idleSpeedEffect`). While boosting they grow from configurable radii toward the viewport edges up to full strength. The FOV kick is unchanged. Every frame renders through the composer, whose 2x MSAA is the only antialiasing; the canvas has no MSAA or depth buffer, and the film grain is the last effect of the same pass. With the idle level at `0` the edges stay sharp, but the chain still runs.
-- **Dependencies:** `postprocessing` 6.x within its `three` peer range.
-- **Affected systems:** Rendering, frame loop, debug GUI.
-- **Performance budget:** The composer chain runs every frame, so the cost below (mostly the 2x MSAA resolve, measured at about +3–4 ms at 2560×1600 on an Apple M1) applies at cruise too. At the default idle intensity (about `0.259`) the reachable blur exceeds `8` pixels on viewports taller than about `825` pixels, so all four pyramid levels render. The canvas no longer allocates or resolves its own MSAA color and depth buffers (removed 2026-10-02, because the composer was already always on), and the grain no longer adds a blended full-screen draw. Per frame: one 2x MSAA scene target, up to four downsample and three upsample passes at half resolution and below, and one fullscreen composite that samples only where masks are nonzero. Not yet measured against a baseline.
-- **Options:** Hardware mipmap blur was rejected because box-filtered mips looked blocky. A single-level blurred image mixed with the sharp image was rejected because it ghosts. The pyramid with B-spline sampling gives a variable radius at low cost. Its downsample started as the 13-tap Jimenez filter and now uses a 5-tap dual filter (Bjørge 2015), about 60% fewer pyramid reads. Measured in headless Chrome on an Apple M1 at 2560×1600 with the flight paused, as frame time over idle at full intensity: the composer path alone cost about +6 ms with 4x MSAA, +3–4 ms with 2x, and +0.5 ms without MSAA; blur and aberration together add only 1–2 ms. The composer therefore uses 2x MSAA. Skipping the MSAA depth resolve (`resolveDepthBuffer`/`storeMultisampledDepthBuffer`) gave no measurable gain and was reverted. A masked upsample chain that moves the two-level blend from the full-resolution composite to the reduced levels (24 to 12 composite taps per aberrated pixel) also showed no measurable gain on the M1, where the whole blur costs 1–2 ms; it was later reintroduced to cut composite reads after reading red and blue with one bilinear tap per level visibly degraded the blur. Untried options for the remaining MSAA cost: rendering the scene to the MSAA canvas and copying it to a texture only while active (same quality), or SMAA with an unsampled composer (about −5 ms, different antialiasing in the sharp center).
-- **Acceptance criteria:** Smooth blur without blockiness at maximum strength; sharp center; no shader errors; the cruise minimum restored after the boost with the default idle level. Remaining: mobile-device validation and frame-time measurement against a baseline (`OBS-001`).
-- **Documentation:** [Rendering](RENDERING.md), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
+- **Rejected:** hardware mipmap blur (box-filtered mips look blocky); one blurred image mixed with the sharp one (ghosts). The pyramid with B-spline sampling gives a variable radius at low cost; its downsample moved from the 13-tap Jimenez filter to a 5-tap dual filter (about 60% fewer reads).
+- **MSAA:** measured at 2560×1600 on an Apple M1, the composer alone cost about +6 ms with 4x MSAA, +3–4 ms with 2x, and +0.5 ms without; blur and aberration add 1–2 ms. Hence 2x. Skipping the MSAA depth resolve gave nothing measurable. Untried: rendering to the MSAA canvas and copying only while active, or SMAA with an unsampled composer (about −5 ms, different antialiasing in the sharp center).
+- **Open:** mobile validation and a baseline frame-time measurement.
 
 ### `FEAT-002`: Day/Night Cycle
 
-- **Status:** In progress
-- **User value:** Gives the flight a sense of time and variety: sunrise, daylight, sunset, and a starry night over the same procedural world.
-- **Behavior:** Time of day advances continuously (default `240` seconds per day, start `0.3`). The sky dome shows a horizon-to-zenith gradient, sun and moon discs, and stars at night. Lights, fog, background, and the distant-terrain atmosphere follow keyframed palettes; shading follows the sun and moon. Everything is aligned with the curved world: the horizon dip sets the sky gradient, disc visibility, palette timing, and light fades, and terrain normals bend with the curvature and have a per-fragment terminator. The wing trails are tinted pink at dawn, orange at sunset, and blue at night; the airplane has no navigation lights for now. `?time=` sets the start, the `?gui=1` **Day/night** folder scrubs, pauses, or changes the duration, and the **Sky** folder tunes the gradient height, the radial fog range, and every keyframe's palette live.
-- **Dependencies:** None blocking. Scenery impostors use `uAtmosphere`; clouds skip its clamp and only fog fades them. Frame-time acceptance depends on `OBS-001`.
-- **Affected systems:** Rendering (sky `ShaderMaterial`, shared `uAtmosphere`, lights, fog), terrain lighting (bent normals, `lights_fragment_begin` terminator), `Plane` (trail tint), frame loop, debug GUI, tests.
-- **Performance budget:** One extra draw call for the sky (32×16 sphere, drawn last on the far plane so only pixels the scene leaves empty run its shader; stars branch skipped by day), one extra directional light (moon), a few ALU ops per terrain vertex and per directional light per fragment, no `PointLight`, no Three.js shadow maps, and no per-frame allocation in the policy or runtime. Scenery shadows from the sun or moon are a separate feature (`FEAT-005`).
-- **Options:** Palette interpolation with a gradient dome was chosen over the Three.js `Sky` addon (physically based but less stylized, and it needs tone mapping) and over flat background colors (no celestial bodies).
-- **Acceptance criteria:** No shader errors. The horizon has no seam between the sky and fogged terrain. No light switches direction while lit. The sun rises and sets on the curved edge in sync with the palette. The dusk keyframe keeps the original static sky colors. Stars appear only at night. Pure policy tests pass. Verified so far in headless Chrome (SwiftShader) on desktop and a 390 px mobile viewport. Remaining: real mobile devices, frame-time measurement (`OBS-001`), and art-direction tuning of the palettes, now under the default ACES Filmic tone mapping (since 2026-10-03), which darkens the night.
-- **Follow-ups:** decide on airplane lights later (the first sprite version was removed); align boat lighting with curved normals when boats are re-enabled (scenery and clouds already use bent normals and the terminator).
-- **Documentation:** [Rendering](RENDERING.md#daynight-cycle), [Architecture](ARCHITECTURE.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md).
+- **Rejected:** the Three.js `Sky` addon (physically based, less stylized) and flat background colors (no celestial bodies), in favor of palette interpolation with a gradient dome.
+- **Open:** art-direction tuning of the palettes under ACES Filmic (default since 2026-10-03; it darkens the night); airplane lights (a first sprite version was removed); curved lighting for the boats when they return.
 
 ### `FEAT-003`: Biome Scenery With Octahedral Impostors
 
-- **Status:** In progress
-- **User value:** Populates each biome in the clay/toy style of [`docs/style-references/`](style-references/): round trees and conifers in temperate areas; cacti and red layered rocks in the desert; boulders in both.
-- **Behavior:**
-  - Six scenery types are built from Three.js primitives and baked at startup into a hemi-octahedral impostor atlas with albedo plus normals: `12 × 12` views per type on desktop and mobile (desktop used `16 × 16` until the near meshes took over the close range).
-  - Each instance is one camera-facing quad. It blends three frames and is lit from its baked normals with the terrain's curvature bend and terminator.
-  - Placement is deterministic per seed. A world-space jittered grid runs in the chunk worker and applies biome, height band, slope, snow, and cluster rules.
-  - Only chunks at LOD `≤ 2` carry scenery.
-  - The `?gui=1` **Scenery** folder tunes the grid cell, the per-chunk cap, density per category (trees, cacti, rocks), and size per type. Changes use scenery-only worker jobs. The folder also sets a position-based brightness variation per type (shader uniforms, live) and the baked wood-grain detail (re-bake on release).
-  - The seed now also moves the biome field (`uBiomeOffset`).
-- **Dependencies:** `STRM-001` and `STRM-002` (keyed jobs and revisions carry the scenery result). The feature resolves the tree parts of `PERF-004`, `CORR-001`, `DET-001`, `LIFE-001`, and `LOAD-001`. Frame-time acceptance depends on `OBS-001`.
-- **Affected systems:**
-  - Terrain: `biome.js`, `sceneryPlacement.js`, worker protocol, chunk policy, and `Chunk` ownership.
-  - Rendering: `src/impostors/`, impostor shaders, `curvedLights.js`, `uBiomeOffset`, and `rotateAroundAxis()`.
-  - Also the loader (bake in `init()`), tests, and every guide.
-- **Performance budget:**
-  - Scenery work per frame: one draw call per scenery chunk (at most 61 on desktop) and 2 triangles per instance.
-  - Instance counts: at most about 550 per chunk on desktop and 120 on mobile with the current defaults. The earlier `8`-unit, density-`1` defaults gave 1,800–2,300 at a desktop start over land.
-  - Fragment cost: up to six atlas fetches per fragment, three on mobile with single-frame sampling.
-  - Memory: an RGBA8 atlas pair of `2304 × 1536` (about `38` MB with mips) on desktop and mobile. The earlier `16 × 16` desktop grid used `3072 × 2048` (about `67` MB). An earlier `8 × 8` grid used about `17` MB, but its 13–26° view spacing ghosted more between frames.
-  - Bake and placement cost: the bake runs once, taking about `0.2`–`0.35` s in SwiftShader for the earlier `16 × 16` grid (the `12 × 12` grid renders 44% fewer views), and placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile (measured in Node).
-  - Real-GPU frame time has not been measured.
-- **Options:** real low-poly instanced meshes for every instance were rejected because the total instance count is high; `FEAT-004` uses them only for the few instances near the eye. Loaded `.glb` models were declined; sources stay procedural. An `IMPOSTOR_SINGLE_FRAME` path trades blend quality for fetches. The baked depth channel could also drive a `gl_FragDepth` correction if slopes clip impostors visibly; `FEAT-005` reads it to rebuild impostor surfaces for shadows.
-- **Acceptance criteria:**
-  - Met so far:
-    - JS and GLSL biome values match within `1e-5` (SwiftShader).
-    - Placement is deterministic, unique per chunk, and biome-correct, which pure tests cover.
-    - There are no shader errors.
-    - Types appear in the correct biomes, and lighting is coherent at day, sunset, and night.
-    - During desktop and mobile traversals, lifecycle counters stay bounded (`created - disposed = live`, `stale = failed = 0`).
-  - Remaining:
-    - Art-direction tuning of density, scale (cacti read small), and palette.
-    - Real mobile devices.
-    - Frame-time and overdraw measurement against `OBS-001`.
-    - Steep-slope clipping review. Near-camera parallax and ghosting are handled by `FEAT-004`.
-- **Documentation:** [Terrain](TERRAIN.md#per-chunk-scenery), [Rendering](RENDERING.md#impostor-scenery), [Architecture](ARCHITECTURE.md), [Assets](ASSETS.md), [Experience](EXPERIENCE.md), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), `AGENTS.md`.
+- **Rejected:** real instanced meshes for every instance (too many instances; `FEAT-004` uses them near the eye only) and loaded `.glb` models (sources stay procedural). An `8 × 8` view grid used about `17` MB but ghosted between its 13–26° frames; desktop used `16 × 16` (about `67` MB) until the near meshes took over the close range.
+- **Open:** density, scale (cacti read small), and palette tuning; steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
 
 ### `FEAT-004`: Near Scenery Meshes
 
-- **Status:** In progress
-- **User value:** Trees, cacti, and rocks stay sharp and solid when the airplane passes close to them. Impostors blur up close (64 px frames), their flat quad shows parallax and frame ghosting, and it clips into slopes.
-- **Behavior:**
-  - Near the eye each instance is a real mesh in two levels of detail.
-    - Impostor to reduced-detail mesh (LOD 1): `220 → 300` units on desktop and `120 → 180` on mobile.
-    - LOD 1 to full-detail mesh (LOD 0): `110 → 150` on desktop and `60 → 90` on mobile.
-  - Every hand-over is a complementary screen-space dither, so every pixel shows exactly one of LOD 0, LOD 1, or the impostor, with no blending or sorting.
-  - The `?gui=1` **Scenery > Near meshes** folder toggles the system and moves both bands live.
-  - The first version used a single level with the impostor band at `110 → 150` / `60 → 90`. The meshes now appear from twice that distance, and LOD 1 keeps the extra instances cheap.
-- **Dependencies:** `FEAT-003` (sources, placement layout, shared variation and wood detail). Frame-time acceptance depends on `OBS-001`.
-- **Affected systems:**
-  - Rendering: `src/impostors/sceneryMeshes.js`, the shared `scenery-*` GLSL chunks, the impostor vertex and color shaders, `uSceneryMeshRange`, and `uSceneryMeshLodRange`.
-  - Pure selection rules: `src/sceneryMeshPolicy.js` with tests.
-  - Source geometry detail, which also changes the bake, plus the reduced LOD 1 builders.
-  - Also the frame loop, the GUI, and the stats.
-- **Performance budget:**
-  - Draws: at most twelve extra draw calls (one per type and level).
-  - Geometry: LOD 0 source meshes lowered to 264–876 triangles per type, from up to 1,824. LOD 1 uses 78–364.
-  - CPU, per frame: a selection that visits only chunks near the eye, reads their instance arrays in place, frustum-culls each instance, and reuses doubling per-type buffers. It allocates nothing in steady state.
-  - Upload: only the used buffer range, 32 bytes per selected instance.
-  - Impostors inside the band start skip their fragments entirely.
-  - Measured on an Apple M1 (Chrome, Metal, `1280 × 800`, default density), on the same paused forest view:
-    - with the two-level defaults: 48 mesh instances (5 at LOD 0, 43 at LOD 1), about 10,300 triangles, and six draw calls, with selection at or below the `0.1` ms timer resolution;
-    - the same view with LOD 0 everywhere: about 18,900 triangles;
-    - the earlier single-level stress band of `400 → 500` units: 101 instances and about 39,000 triangles;
-    - frame time stayed at the `16.7` ms vsync cap in every case.
-- **Options:**
-  - A per-chunk mesh draw without CPU selection was rejected, because every instance of every near chunk would be transformed even when collapsed.
-  - An alpha-blended cross-fade was rejected, because it needs sorting and double-draws pixels.
-  - A temporal dither was rejected, because it flickers without TAA.
-  - The baked depth channel (`gl_FragDepth`) could reduce the remaining silhouette mismatch inside the band but is not used.
-- **Acceptance criteria:**
-  - Met so far:
-    - no shader errors on the desktop and mobile paths;
-    - with the flight paused, toggling the system swaps nearby instances with matching position, scale, color, wood detail, tint, and lighting at day and dusk;
-    - at its distances, LOD 1 is indistinguishable from the impostor and from LOD 0;
-    - the dither leaves no gaps beyond the small impostor silhouette mismatch;
-    - pure tests pass.
-  - Remaining:
-    - real mobile devices and a mobile run with scenery inside the band;
-    - frame-time measurement on weaker GPUs against `OBS-001`;
-    - art review of the band distances while flying at boost.
-- **Documentation:** [Rendering](RENDERING.md#near-scenery-meshes), [Architecture](ARCHITECTURE.md), [Terrain](TERRAIN.md#resource-lifecycle), [Experience](EXPERIENCE.md#responsive-behavior), [Development](DEVELOPMENT.md), [Quality](QUALITY.md), [Assets](ASSETS.md#textures), `AGENTS.md`.
+- **Rejected:** a per-chunk mesh draw without CPU selection (transforms every near instance, even collapsed ones), an alpha-blended cross-fade (sorting and double draws), and a temporal dither (flickers without TAA).
+- **Measured** on an Apple M1 at `1280 × 800` on a paused forest view: 48 mesh instances, about 10,300 triangles, six draws, selection at most `0.1` ms; LOD 0 everywhere about 18,900 triangles.
+- **Open:** a mobile run with scenery inside the band, weaker GPUs, and an art review of the band distances at boost.
 
 ### `FEAT-005`: Soft Scenery Shadows
 
-- **Status:** In progress
-- **User value:** Trees, cacti, rocks, and the airplane cast shadows on the ground and on neighboring scenery, which anchors objects to the terrain and shows the sun direction.
-- **Behavior:**
-  - The sun by day and the moon by night cast shadows. Shadows fade in with the light's elevation, so they are gone at the hand-over and never pop.
-  - Two light-aligned cascades: a sharper near one around the plane and a coarser far one. The near cascade renders every frame and the far one every 2 frames (3 on mobile).
-  - Edges are always soft and grow softer with distance. Shadows weaken with distance and vanish at `450` units (`360` on mobile). The cascade hand-over is a radial blend.
-  - The `?gui=1` **Shadows** folder sets enable, strength, softness, fade, bias, and cascade radii live.
-- **Dependencies:** `FEAT-002` (light directions), `FEAT-003` (atlas, instance layout, baked depth), `FEAT-004` (near-mesh receivers). Frame-time acceptance depends on `OBS-001`.
-- **Affected systems:** `src/sceneryShadows.js`, `src/shadowPolicy.js` with tests, the caster and receiver GLSL, `curvedLights.js`, terrain, impostor, and near-mesh materials, the frame loop, the GUI, and the stats.
-- **Performance budget:**
-  - GPU passes: about 5–25 instanced quad draws per rendered cascade plus the airplane's simplified caster (about 4,000 triangles, since 2026-10-04) in the near cascade only, depth only.
-  - CPU: one loop over live chunks and a few matrix updates per frame, with no per-instance work and no per-frame allocation. `updateMs` was about `0.3` ms in headless Chrome.
-  - Fragments: terrain samples 8 PCF taps near, 4 far, and at most 12 in the blend band (4/2 on mobile); scenery uses 4 (mesh) or 2 (impostor) taps. Since 2026-10-03 the taps read a constant kernel with one rotation per pixel instead of a cosine and sine per tap, which saved about `0.5` ms (`2.8%`) per frame at `3840 × 2160` on an Apple M1. Pixels beyond the fade only pay a branch.
-  - Memory: about `25` MB on desktop (two `2048²` targets with 16-bit depth and the required `R8` color attachment), a quarter on mobile.
-  - Frame time on phones has not been measured.
-- **Options:**
-  - Three.js `renderer.shadowMap` was rejected: it has no cascades or distance fade, and every patched material would need custom depth materials.
-  - Real meshes as near casters were rejected: they need a CPU selection outside the camera frustum. Light-facing impostor silhouettes match the near-cascade texel density.
-  - Blob decals were rejected: they have no shape and z-fight on slopes.
-- **Acceptance criteria:**
-  - Met so far:
-    - no shader errors on the desktop and 390 px mobile paths in headless Chrome;
-    - soft rock and cactus shadows attached at the base, in the right direction, by day and under the moon;
-    - with the flight paused and shadows toggled, objects are not self-shadowed;
-    - pure tests pass.
-  - Remaining:
-    - visual confirmation of the airplane shadow and of tree-on-tree shadows on impostors;
-    - shimmer review during long flights;
-    - real mobile devices;
-    - frame-time measurement against `OBS-001`.
-- **Documentation:** [Rendering](RENDERING.md#scenery-shadows), [Architecture](ARCHITECTURE.md), [Quality](QUALITY.md), `AGENTS.md`.
+- **Rejected:** `renderer.shadowMap` (no cascades or distance fade, and every patched material would need custom depth materials), real meshes as near casters (a CPU selection outside the frustum), and blob decals (no shape, z-fighting on slopes).
+- **Measured:** the constant PCF kernel (2026-10-03) saved about `0.5` ms per frame at `3840 × 2160` on an Apple M1; the simplified airplane caster (2026-10-04) cut the frame's triangles from about `0.99` M to `0.81` M.
+- **Open:** a shimmer review on long flights; the airplane receives no shadows.
 
 ### `FEAT-006`: Carved-Wood Clouds With Impostors And Cloud Shadows
 
-- **Status:** In progress
-- **User value:** Fills the sky with cream, carved-wood clouds in the style of [`docs/style-references/cloud-reference.png`](style-references/cloud-reference.png), above the flight ceiling, and lets their soft shadows drift over the land.
-- **Behavior:**
-  - Three cloud shapes (`bank`, `heap`, `puff`), each two extruded slabs with flat faces and rounded edges, in varied sizes. Every cloud turns about its vertical axis so its front face looks at the airplane.
-  - A world-level field around the airplane, independent of chunks: a deterministic seeded grid (`160` units) with cloudy and clear regions, bases at Y `197`–`257` (raised from `130`–`190` on 2026-10-02), above the highest eye (about Y `102`). Radius `1850` units on desktop (`1500` before 2026-10-02) and `1100` on mobile, with a far fade inside it. Three seeded low-frequency noise fields vary density, coverage, and size smoothly across the world (about `4000`-unit regions), so the sky changes character during the flight; altitude and radius stay fixed.
-  - The scenery treatment: impostors far away, baked only from a frontal band of views because clouds face the airplane and are always seen from below, and real meshes in two levels of detail near the eye, cross-faded by the shared dither.
-  - Soft cloud shadows on the terrain and the scenery from a blurred, light-aligned coverage map, re-rendered only after travel, light rotation, or a field change.
-  - The `?gui=1` **Clouds** folder tunes placement and its regional variation, near-mesh bands, wood detail, ambient boost, brightness variation, and shadows.
-- **Dependencies:** `FEAT-003` and `FEAT-004` (impostor pipeline and near meshes, generalized through impostor catalogs), `FEAT-005` (shadowing light). Resolves `PERF-001`, `PERF-004`, `CORR-001`, and the cloud parts of `LIFE-001`, `STATE-002`, and `DET-001`. Frame-time acceptance depends on `OBS-001`.
-- **Affected systems:**
-  - Terrain: `cloudPlacement.js` (pure), the removed per-chunk cloud code in `Chunk`, and `sceneryPlacement.js` (exported `cellRandom()`).
-  - Rendering: `impostorCatalogs.js`, `cloudArchetypes.js`, `scenery-facing.glsl` (the facing yaw), the generalized baker, impostor material, and `SceneryMeshes`, `octahedral.js` and its GLSL twin (view layouts: the lower hemisphere and the frontal band), `curvedLights.js` (unshadowed variant with ambient scale), `clouds.js`, `cloudShadows.js`, the shadow caster shaders, and every shadow receiver.
-  - Also the frame loop, the GUI, the stats, and tests.
-- **Performance budget:**
-  - Draws: one impostor draw for the whole field, at most six near cloud mesh draws, and per shadow render one caster draw and two blur passes.
-  - Geometry: about 11,000–20,000 near cloud triangles in a desktop flight view (13–15 meshes).
-  - CPU: about `0.3` ms per field rebuild on desktop (once per `160` units of travel), and a near-mesh selection over about 95 instances per frame.
-  - Memory: an `864 × 960` RGBA8 atlas pair on desktop (about `9` MB with mips), `576 × 640` on mobile (about `4` MB); a `768 × 256` shadow atlas (about `2` MB); two `R8` coverage maps (`1024²` desktop, `512²` mobile). The former lower-hemisphere grid took about `42` MB on desktop and `19` MB on mobile.
-  - Receivers: one extra texture tap within the shadow disk.
-  - Real-GPU frame time has not been measured.
-- **Options:**
-  - Per-chunk clouds in the worker were rejected: clouds are few and large and must stay visible beyond the scenery range, and per-chunk impostor meshes would add a draw call per chunk.
-  - Adding the clouds to the existing shadow cascades was rejected: their `450`-unit fade would cut cloud shadows off near the airplane, and depth cascades need many PCF taps. Clouds float above every receiver, so a blurred coverage map needs one tap.
-  - A full-sphere atlas was rejected, and then the lower-hemisphere grid too: clouds face the airplane, so a frontal band of 30 views per type replaces 144 at the same frame resolution, about four times less memory. Only the shadow caster needs other sides (the light can come from any side), so it reads its own small lower-hemisphere coverage atlas. It can look from below because an orthographic silhouette is the same from both ends of the light ray.
-- **Acceptance criteria:**
-  - Met so far:
-    - no shader errors on the desktop and 390 px mobile paths in headless Chrome (Metal);
-    - the look matches the reference: two-slab carved-wood shapes, horizontal grain, front faces turned toward the airplane (also after turns), warm at sunset and dark without glow at night;
-    - the LOD 0, LOD 1, and impostor bands hand over without visible mismatch (wireframe overlay);
-    - cloud shadows appear on terrain, offset away from the sun, also with the scenery shadows disabled;
-    - pure tests pass.
-  - Remaining:
-    - art-direction tuning of density, sizes, and the ambient boost;
-    - the airplane does not receive cloud (or scenery) shadows;
-    - real mobile devices;
-    - frame-time and overdraw measurement against `OBS-001`.
-- **Documentation:** [Terrain](TERRAIN.md#clouds), [Rendering](RENDERING.md#clouds), [Architecture](ARCHITECTURE.md), [Assets](ASSETS.md), [Experience](EXPERIENCE.md), [Quality](QUALITY.md), `AGENTS.md`.
+- **Rejected:** per-chunk clouds in the worker (clouds are few, large, and must stay visible beyond the scenery range); clouds in the scenery cascades (their `450`-unit fade would cut cloud shadows near the airplane, and depth cascades need many taps, while a coverage map needs one); a full-sphere atlas and then the lower-hemisphere grid (a frontal band of 30 views replaces 144, about four times less memory; only the shadow caster keeps a small lower-hemisphere coverage atlas).
+- **Open:** tuning of density, sizes, and the ambient boost.
 
 Add further features with this template:
 
