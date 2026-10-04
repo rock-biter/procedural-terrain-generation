@@ -13,7 +13,7 @@ import {
 import { SCENERY_CATEGORIES } from '../src/sceneryPlacement.js'
 
 const HEX = /^#[0-9a-f]{6}$/i
-const { ROUND_TREE, CONIFER, CACTUS_ONE_ARM, CACTUS_TWO_ARMS } = IMPOSTOR_TYPE
+const { ROUND_TREE, CONIFER, CACTUS_ONE_ARM, CACTUS_TWO_ARMS, SEA_ROCK } = IMPOSTOR_TYPE
 
 function layout(settings = createSceneryPaletteSettings()) {
 	return getSceneryPaletteLayout(settings, IMPOSTOR_TYPE_COUNT)
@@ -29,9 +29,9 @@ test('the palettes fit the shader layout', () => {
 	assert.ok(SCENERY_PAINT_BASE > 0 && SCENERY_PAINT_BASE < 1)
 	assert.deepEqual(
 		[...SCENERY_PAINTED_TYPES],
-		[ROUND_TREE, CONIFER, CACTUS_ONE_ARM, CACTUS_TWO_ARMS],
+		[ROUND_TREE, CONIFER, CACTUS_ONE_ARM, CACTUS_TWO_ARMS, SEA_ROCK],
 	)
-	assert.deepEqual([...SCENERY_PALETTE_KEYS], ['roundTree', 'conifer', 'cactus'])
+	assert.deepEqual([...SCENERY_PALETTE_KEYS], ['roundTree', 'conifer', 'cactus', 'seaRock'])
 	// Noise groups are scenery categories, and every painted type sits in its own.
 	for (const type of SCENERY_PAINTED_TYPES) {
 		const { group } = SCENERY_PALETTE_TYPES[type]
@@ -44,12 +44,19 @@ test('the palettes fit the shader layout', () => {
 	assert.equal(noise.length, IMPOSTOR_TYPE_COUNT)
 })
 
-test('defaults: four round-tree, three conifer, and three cactus colors, valid hex', () => {
+test('defaults: four round-tree, three conifer, three cactus, and two sea rock colors, valid hex', () => {
 	const settings = createSceneryPaletteSettings()
 	const { palettes, noise } = settings
 	assert.equal(palettes.roundTree.colors.length, 4)
 	assert.equal(palettes.conifer.colors.length, 3)
 	assert.equal(palettes.cactus.colors.length, 3)
+	assert.equal(palettes.seaRock.colors.length, 2)
+	assert.equal(palettes.seaRock.trunk, undefined, 'sea rocks are painted whole')
+	assert.equal(palettes.seaRock.byBiome, true, 'one sea rock color per biome')
+	assert.deepEqual(
+		palettes.seaRock.colors.map(({ label }) => label),
+		['Forest', 'Desert'],
+	)
 	assert.match(palettes.roundTree.trunk, HEX)
 	assert.match(palettes.conifer.trunk, HEX)
 	assert.equal(palettes.cactus.trunk, undefined, 'cacti are painted whole')
@@ -80,6 +87,9 @@ test('painted types get their palettes, unpainted types stay white with zero wei
 	assert.equal(trunks[ROUND_TREE], palettes.roundTree.trunk)
 	assert.equal(trunks[CONIFER], palettes.conifer.trunk)
 	assert.equal(trunks[CACTUS_ONE_ARM], null)
+	assert.deepEqual(slots(colors, SEA_ROCK), [...hexes('seaRock'), null, null])
+	assert.deepEqual(slots(weights, SEA_ROCK), [1, 1, 0, 0])
+	assert.equal(trunks[SEA_ROCK], null)
 
 	for (let type = 0; type < IMPOSTOR_TYPE_COUNT; type++) {
 		if (SCENERY_PAINTED_TYPES.includes(type)) continue
@@ -94,11 +104,13 @@ test('noise follows each group, and shared palettes share their fields', () => {
 	settings.noise.trees = { frequency: 0.01, mix: 0.25 }
 	settings.noise.cacti = { frequency: 0.02, mix: 0.75 }
 	const { noise } = layout(settings)
-	assert.deepEqual(noise[ROUND_TREE], [0.01, 0.25, 0])
-	assert.deepEqual(noise[CONIFER], [0.01, 0.25, 1])
-	assert.deepEqual(noise[CACTUS_ONE_ARM], [0.02, 0.75, 2])
+	assert.deepEqual(noise[ROUND_TREE], [0.01, 0.25, 0, 0])
+	assert.deepEqual(noise[CONIFER], [0.01, 0.25, 1, 0])
+	assert.deepEqual(noise[CACTUS_ONE_ARM], [0.02, 0.75, 2, 0])
 	assert.deepEqual(noise[CACTUS_TWO_ARMS], noise[CACTUS_ONE_ARM])
-	assert.deepEqual(noise[IMPOSTOR_TYPE.BOULDER], [0, 0, 0])
+	assert.deepEqual(noise[IMPOSTOR_TYPE.BOULDER], [0, 0, 0, 0])
+	// The sea rock picks its color by biome, without noise.
+	assert.deepEqual(noise[SEA_ROCK], [0, 0, 3, 1])
 })
 
 test('weights are clamped, and a painted type always keeps one slot', () => {

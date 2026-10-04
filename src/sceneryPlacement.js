@@ -115,7 +115,7 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	cactusTwoArms: 1.68,
 	boulder: 0.6,
 	layeredRock: 0.85,
-	seaRock: 1.15,
+	seaRock: 1.6,
 })
 
 // Default sea rock settings. Rocks stand where the sea is at most `maxDepth`
@@ -160,7 +160,7 @@ export function createScenerySettings({ isMobile = false } = {}) {
 	return {
 		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 1 },
+		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 0.7 },
 		size: { ...SCENERY_DEFAULT_SIZES },
 		seaRocks: createSeaRockSettings(),
 	}
@@ -199,14 +199,9 @@ function getTint(type, biome, random) {
 			? packTint(1.02 * brightness, 0.86 * brightness, 0.7 * brightness)
 			: packTint(0.8 * brightness, 0.82 * brightness, 0.84 * brightness)
 	}
-	if (type === IMPOSTOR_TYPE.SEA_ROCK) {
-		return biome === BIOME.DESERT
-			? packTint(1.05 * brightness, 0.84 * brightness, 0.7 * brightness)
-			: packTint(0.86 * brightness, 0.82 * brightness, 0.82 * brightness)
-	}
 	// Trees take their hue from the crown palette in the shaders
 	// (src/sceneryPalettePolicy.js), so they vary in brightness only, like
-	// the cacti and layered rocks.
+	// the cacti, sea rocks, and layered rocks.
 	return packTint(brightness, brightness, brightness)
 }
 
@@ -240,7 +235,8 @@ function placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context) {
 	const scale =
 		(minScale + (maxScale - minScale) * random(4) ** bias) * settings.size[SCENERY_TYPE_KEYS[type]]
 	if (scale <= 0) return
-	const biome = getBiome(getBiomeValue(x, z, biomeOffset))
+	// The palette gives the hue, so the tint is a brightness in every biome.
+	const tint = (salt) => getTint(type, null, random(salt))
 	instances.push({
 		priority: random(8),
 		values: getSeaRockValues(
@@ -249,7 +245,7 @@ function placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context) {
 			height,
 			scale,
 			random(6) * Math.PI * 2,
-			getTint(type, biome, random(7)),
+			tint(7),
 			minStretch + (maxStretch - minStretch) * random(5),
 			context,
 		),
@@ -276,7 +272,7 @@ function placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context) {
 				satelliteHeight,
 				satelliteScale,
 				random(salt + 3) * Math.PI * 2,
-				getTint(type, biome, random(salt + 4)),
+				tint(salt + 4),
 				minStretch + (maxStretch - minStretch) * random(salt + 5),
 				context,
 			),

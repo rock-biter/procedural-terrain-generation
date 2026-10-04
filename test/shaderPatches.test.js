@@ -148,6 +148,8 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 			const shader = patch(level.material, 'physical')
 			assert.ok('uSceneryDetail' in shader.uniforms)
 			assert.ok('uSceneryPaletteNoise' in shader.uniforms)
+			// Biome palettes need the biome layers.
+			if (meshes === scenery) assert.ok('BIOME_NOISE_LAYER_0' in level.material.defines)
 			patch(level.wireframeMaterial, 'physical')
 		}
 	}

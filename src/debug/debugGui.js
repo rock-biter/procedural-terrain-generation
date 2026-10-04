@@ -389,7 +389,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.name(`${key} variation`)
 				.onChange(updateImpostorVariation)
 		}
-		if (params.sceneryPalette.noise[category]) addPalette(folder, category)
+		const painted = Object.values(SCENERY_PALETTE_TYPES).some((entry) => entry.group === category)
+		if (painted) addPalette(folder, category)
 		if (category === 'seaRocks') addSeaRockControls(folder)
 	}
 
@@ -432,11 +433,15 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	function addPalette(parent, group) {
 		const { noise, palettes } = params.sceneryPalette
 		const folder = parent.addFolder('Palette')
-		folder
-			.add(noise[group], 'frequency', 0.0005, 0.1, 0.0005)
-			.name('Patch frequency')
-			.onChange(updatePalette)
-		folder.add(noise[group], 'mix', 0, 1, 0.01).name('Random mix').onChange(updatePalette)
+		// Palettes picked by biome (the sea rocks) use neither the noise nor the
+		// weights, so they show only their colors.
+		if (noise[group]) {
+			folder
+				.add(noise[group], 'frequency', 0.0005, 0.1, 0.0005)
+				.name('Patch frequency')
+				.onChange(updatePalette)
+			folder.add(noise[group], 'mix', 0, 1, 0.01).name('Random mix').onChange(updatePalette)
+		}
 		const keys = new Set(
 			Object.values(SCENERY_PALETTE_TYPES)
 				.filter((entry) => entry.group === group)
@@ -453,6 +458,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			palette.colors.forEach((entry, slot) => {
 				const label = entry.label ?? `Color ${slot + 1}`
 				paletteFolder.addColor(entry, 'color').name(label).onChange(updatePalette)
+				if (palette.byBiome) return
 				paletteFolder
 					.add(entry, 'weight', 0, 1, 0.01)
 					.name(`${label} weight`)

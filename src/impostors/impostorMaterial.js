@@ -44,7 +44,7 @@ export function createSceneryPaletteUniforms(typeCount) {
 		},
 		uSceneryPaletteWeights: { value: Array.from({ length: typeCount }, () => new Vector4()) },
 		uSceneryTrunkColors: { value: Array.from({ length: typeCount }, () => new Color(1, 1, 1)) },
-		uSceneryPaletteNoise: { value: Array.from({ length: typeCount }, () => new Vector3()) },
+		uSceneryPaletteNoise: { value: Array.from({ length: typeCount }, () => new Vector4()) },
 	}
 }
 

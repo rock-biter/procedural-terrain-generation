@@ -14,6 +14,7 @@ import {
 const shader = (name) => readFileSync(new URL(`../src/shaders/${name}`, import.meta.url), 'utf8')
 const code = (name) => shader(name).replace(/\/\/.*$/gm, '')
 const terrainShaders = [
+	'biome-value.glsl',
 	'terrain-bands-pars.glsl',
 	'color-fragment.glsl',
 	'terrain-normal-pars.glsl',
@@ -42,7 +43,8 @@ test('defines are GLSL literals', () => {
 })
 
 test('the shaders sum every biome layer and sample every band layer', () => {
-	const biome = shader('terrain-bands-pars.glsl')
+	const biome = shader('biome-value.glsl')
+	assert.match(shader('terrain-bands-pars.glsl'), /#include \.\/biome-value\.glsl/)
 	BIOME_NOISE_LAYERS.forEach((_, index) =>
 		assert.match(biome, new RegExp(`BIOME_NOISE_LAYER_${index}\\b`)),
 	)

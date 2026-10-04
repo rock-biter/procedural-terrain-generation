@@ -1,7 +1,7 @@
 import { IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 
-// Color palettes of the painted scenery types: the trees' crowns and the whole
-// cacti. Their sources are baked in a neutral gray with a paint mask
+// Color palettes of the painted scenery types: the trees' crowns, the whole
+// cacti, and the whole sea rocks. Their sources are baked in a neutral gray with a paint mask
 // (src/impostors/impostorArchetypes.js), and the shaders pick one palette
 // color per instance from world-space noise (getSceneryPaletteTints() in
 // scenery-instance-pars-vertex.glsl): every slot has its own noise field, and
@@ -20,12 +20,14 @@ export const SCENERY_PAINT_BASE = 0.5
 
 // Each painted type's palette (a key of settings.palettes) and noise group (a
 // key of settings.noise, named like SCENERY_CATEGORIES). Both cactus types
-// share one palette and its noise fields, so a region paints them alike.
+// share one palette and its noise fields, so a region paints them alike. The
+// palette indices select the noise fields, so new palettes go last.
 export const SCENERY_PALETTE_TYPES = Object.freeze({
 	[IMPOSTOR_TYPE.ROUND_TREE]: Object.freeze({ palette: 'roundTree', group: 'trees' }),
 	[IMPOSTOR_TYPE.CONIFER]: Object.freeze({ palette: 'conifer', group: 'trees' }),
 	[IMPOSTOR_TYPE.CACTUS_ONE_ARM]: Object.freeze({ palette: 'cactus', group: 'cacti' }),
 	[IMPOSTOR_TYPE.CACTUS_TWO_ARMS]: Object.freeze({ palette: 'cactus', group: 'cacti' }),
+	[IMPOSTOR_TYPE.SEA_ROCK]: Object.freeze({ palette: 'seaRock', group: 'seaRocks' }),
 })
 
 export const SCENERY_PAINTED_TYPES = Object.freeze(Object.keys(SCENERY_PALETTE_TYPES).map(Number))
@@ -41,7 +43,10 @@ export const SCENERY_PALETTE_KEYS = Object.freeze([
 // instance (0 noise patches only, 1 every instance random). `palettes` holds
 // the colors: sRGB hex strings, labels that name them in the panel, and
 // weights that are relative shares (only their ratios matter, 0 disables a
-// slot); tree palettes also have a `trunk` color. Cacti are painted whole.
+// slot); tree palettes also have a `trunk` color. Cacti and sea rocks are
+// painted whole. A palette with `byBiome` ignores the noise and the weights:
+// its first color paints the temperate biome and its second the desert, as
+// the terrain colors them.
 export function createSceneryPaletteSettings() {
 	return {
 		noise: {
@@ -73,6 +78,13 @@ export function createSceneryPaletteSettings() {
 					{ label: 'Yellow wood', color: '#ee9577', weight: 1 },
 				],
 			},
+			seaRock: {
+				byBiome: true,
+				colors: [
+					{ label: 'Forest', color: '#5f3b2b', weight: 1 },
+					{ label: 'Desert', color: '#e27865', weight: 1 },
+				],
+			},
 		},
 	}
 }
@@ -80,7 +92,8 @@ export function createSceneryPaletteSettings() {
 // Flattens `settings` into the shader layout for `typeCount` types:
 // colors[type * SCENERY_PALETTE_SIZE + slot] and trunks[type] are hex strings,
 // or null for white (unpainted types, unused slots, the cacti's trunks);
-// weights follows colors; noise[type] is [frequency, mix, palette index].
+// weights follows colors; noise[type] is [frequency, mix, palette index, by
+// biome (1) or by noise (0)].
 // Painted types always keep a positive total weight (slot 0 when every weight
 // is 0) and fall back to the defaults for any palette or noise group
 // `settings` lacks.
@@ -88,7 +101,7 @@ export function getSceneryPaletteLayout(settings, typeCount) {
 	const colors = new Array(typeCount * SCENERY_PALETTE_SIZE).fill(null)
 	const weights = new Array(typeCount * SCENERY_PALETTE_SIZE).fill(0)
 	const trunks = new Array(typeCount).fill(null)
-	const noise = Array.from({ length: typeCount }, () => [0, 0, 0])
+	const noise = Array.from({ length: typeCount }, () => [0, 0, 0, 0])
 	const defaults = createSceneryPaletteSettings()
 
 	for (const type of SCENERY_PAINTED_TYPES) {
@@ -113,6 +126,7 @@ export function getSceneryPaletteLayout(settings, typeCount) {
 			Math.max(0, Number(frequency) || 0),
 			Math.min(Math.max(Number(mix) || 0, 0), 1),
 			SCENERY_PALETTE_KEYS.indexOf(key),
+			palette.byBiome ? 1 : 0,
 		]
 	}
 

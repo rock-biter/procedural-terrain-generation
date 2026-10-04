@@ -130,7 +130,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ### Biome Field
 
-[`src/biome.js`](../src/biome.js) is the CPU twin of the GLSL `getBiomeValue()` in [`terrain-bands-pars.glsl`](../src/shaders/terrain-bands-pars.glsl), which `color-fragment.glsl` uses to select biomes.
+[`src/biome.js`](../src/biome.js) is the CPU twin of the GLSL `getBiomeValue()` in [`biome-value.glsl`](../src/shaders/biome-value.glsl), which `color-fragment.glsl` uses to select biomes (through `terrain-bands-pars.glsl`) and the sea rock palette to pick its color by biome.
 
 - Both sum the same simplex layers, `BIOME_NOISE_LAYERS` in [`src/terrainBands.js`](../src/terrainBands.js) (frequency and weight: `0.000175` × `1`, `0.0035` × `0.22`, `0.012` × `0.06`), in the same order; the shader receives them as defines. [`src/noise.js`](../src/noise.js) ports the GLSL Ashima `snoise` exactly, using a floor-based `mod`.
 - `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `createSharedUniforms()` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers in both the terrain and the scenery part of each request, so the seed moves biomes and their topography.
@@ -155,7 +155,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
   - temperate land band: mostly conifers;
   - temperate rocks band: conifers and boulders;
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
-- **Sea rocks:** a candidate on the sea or sand band (`isCoastBand()`) where the sea is at most `settings.seaRocks.maxDepth` (`8.5`) deep (an exact height of at least `-8.5`) can only become a sea rock (`IMPOSTOR_TYPE.SEA_ROCK`), in either biome and up to the biome border. It is accepted with probability `(baseDensity + (maxDensity - baseDensity) × mask) × settings.density.seaRocks`, from `0.03` on plain coast to `0.3` per cell where the [rocky coast](#rocky-coast) mask is `1`, with no slope test. Its scale spans a wide range, `seaRocks.scale.min`–`max` (`0.35`–`2.1`) × the `seaRock` size, drawn as `random ** seaRocks.scale.bias` (`1.6`), so small rocks are common and large ones rare. Its base sits `coast.sink` (`0.2`) × scale below the ground, or below the sea surface (`SEA_SURFACE_Y`) over deeper water, so every rock rises above the sea; the opaque sea hides the part below. Each accepted rock brings up to `seaRocks.satellites.count` (`2`) smaller ones, at `satellites.distance` (`1.1`–`1.8`) × the footprint (`coast.footprint`, `2.5` units) × its scale from it, at `satellites.scale` (`0.4`–`0.7`) of its scale. Each satellite has its own exact height and is dropped where the sea is deeper than `maxDepth`. Satellites use salts from `9` on, so the group is deterministic and belongs to the candidate's chunk even where a satellite crosses its border. The tint is a dark brown in temperate areas and a reddish one in the desert.
+- **Sea rocks:** a candidate on the sea or sand band (`isCoastBand()`) where the sea is at most `settings.seaRocks.maxDepth` (`8.5`) deep (an exact height of at least `-8.5`) can only become a sea rock (`IMPOSTOR_TYPE.SEA_ROCK`), in either biome and up to the biome border. It is accepted with probability `(baseDensity + (maxDensity - baseDensity) × mask) × settings.density.seaRocks`, from `0.03` on plain coast to `0.3` per cell where the [rocky coast](#rocky-coast) mask is `1`, with no slope test. Its scale spans a wide range, `seaRocks.scale.min`–`max` (`0.35`–`2.1`) × the `seaRock` size, drawn as `random ** seaRocks.scale.bias` (`1.6`), so small rocks are common and large ones rare. Its base sits `coast.sink` (`0.2`) × scale below the ground, or below the sea surface (`SEA_SURFACE_Y`) over deeper water, so every rock rises above the sea; the opaque sea hides the part below. Each accepted rock brings up to `seaRocks.satellites.count` (`2`) smaller ones, at `satellites.distance` (`1.1`–`1.8`) × the footprint (`coast.footprint`, `2.5` units) × its scale from it, at `satellites.scale` (`0.4`–`0.7`) of its scale. Each satellite has its own exact height and is dropped where the sea is deeper than `maxDepth`. Satellites use salts from `9` on, so the group is deterministic and belongs to the candidate's chunk even where a satellite crosses its border. Their tint is a brightness only: the hue comes from the sea rock palette in the shaders, one color for the temperate biome and one for the desert, picked from the biome under each rock's base ([Rendering](RENDERING.md#scenery-palettes)).
 
   Scale, vertical stretch, yaw, and tint vary per instance. The tint is a brightness for every type; boulders are also grey in temperate areas and sandy in the desert. Trees and cacti take their hue from the scenery palettes in the shaders, from world-space noise at the instance's base, not from placement (see [Rendering](RENDERING.md#scenery-palettes)).
 - **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category.
@@ -181,7 +181,7 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 - `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `8` on desktop and `16` on mobile;
 - `maxPerChunk`, default `1000`;
-- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, `density.rocks = 0.65`, and `density.seaRocks = 1`;
+- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, `density.rocks = 0.65`, and `density.seaRocks = 0.7`;
 - size multipliers, copied from the `SCENERY_DEFAULT_SIZES` configuration object:
   - `roundTree`: `1.35`;
   - `conifer`: `1.7`;
@@ -189,7 +189,7 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
   - `cactusTwoArms`: `1.68`;
   - `boulder`: `0.6`;
   - `layeredRock`: `0.85`;
-  - `seaRock`: `1.15`;
+  - `seaRock`: `1.6`;
 - `seaRocks`, the sea rocks' `maxDepth`, `scale` (`min`, `max`, `bias`), and `satellites` (`count`, `distance` and `scale` ranges), copied from `SEA_ROCK_DEFAULTS` (see **Sea rocks** under [Placement](#placement)). **Scenery > Sea rocks** edits them (**Max depth**, **Min scale**, **Max scale**, **Small rock bias**, and **Satellites > Max count**, **Min/Max distance ×**, **Min/Max size ×**); like every scenery setting, a change re-places scenery without rebuilding terrain.
 
 Edit `SCENERY_DEFAULT_SIZES`, `SEA_ROCK_DEFAULTS`, and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.

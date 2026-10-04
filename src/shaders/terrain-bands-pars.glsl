@@ -1,13 +1,8 @@
 // Biome field and band borders of the terrain. Every constant comes from
 // src/terrainBands.js (TERRAIN_SHADER_DEFINES), which the CPU reads too.
 
-// biomeXZ is the world XZ position already shifted by uBiomeOffset; each
-// layer is (frequency, weight). getBiomeValue() in src/biome.js mirrors it.
-float getBiomeValue(vec2 biomeXZ) {
-	return snoise(biomeXZ * BIOME_NOISE_LAYER_0.x) * BIOME_NOISE_LAYER_0.y
-		+ snoise(biomeXZ * BIOME_NOISE_LAYER_1.x) * BIOME_NOISE_LAYER_1.y
-		+ snoise(biomeXZ * BIOME_NOISE_LAYER_2.x) * BIOME_NOISE_LAYER_2.y;
-}
+// getBiomeValue(biomeXZ), shared with the scenery palettes.
+#include ./biome-value.glsl
 
 // Sand brightness on fully rocky coast (params.coastSand.shade).
 uniform float uCoastSandShade;

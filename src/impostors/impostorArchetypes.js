@@ -25,12 +25,12 @@ const COLORS = {
 	// (SCENERY_PAINTED_TYPES) are baked in a neutral linear gray: their colors
 	// come from the palette uniforms at runtime (src/sceneryPalettePolicy.js).
 	painted: new Color().setScalar(SCENERY_PAINT_BASE),
+	// The sea rock's smaller stone, painted like the others but baked darker,
+	// so the group keeps two tones under any palette color.
+	paintedDark: new Color().setScalar(SCENERY_PAINT_BASE * 0.64),
 	boulder: '#dcc29a',
 	rockLight: '#e3c9a0',
 	rockDark: '#cfa878',
-	// Sea rocks are darker, as wet stone at the waterline.
-	seaRock: '#7d5a43',
-	seaRockDark: '#664835',
 }
 
 // `paint` (0 or 1) fills the part's `paint` attribute: 1 marks a painted part
@@ -202,15 +202,16 @@ function layeredRock(lod) {
 
 // A group of three stones for the coast: tapered cones, wide at the base and
 // narrower at the blunt top, leaning slightly and roughened by the lumps so
-// their faces stay irregular. Placement sinks the base below the water
+// their faces stay irregular. Painted whole: the color comes from the sea
+// rock palette (src/sceneryPalettePolicy.js). Placement sinks the base below the water
 // surface (src/sceneryPlacement.js), so the stones rise from the sea; their
 // bottoms reach slightly below y = 0.
 function seaRock(lod) {
 	// [base radius, height, x, z, lean around x, lean around z, color]
 	const stones = [
-		[1.5, 2.0, 0, 0, 0.06, -0.08, COLORS.seaRock],
-		[1.05, 1.35, 1.65, -0.5, -0.05, -0.18, COLORS.seaRockDark],
-		[0.8, 1.05, -1.15, 1.1, 0.16, 0.1, COLORS.seaRock],
+		[1.5, 2.0, 0, 0, 0.06, -0.08, COLORS.painted],
+		[1.05, 1.35, 1.65, -0.5, -0.05, -0.18, COLORS.paintedDark],
+		[0.8, 1.05, -1.15, 1.1, 0.16, 0.1, COLORS.painted],
 	]
 	return stones.map(([radius, height, x, z, leanX, leanZ, color]) => {
 		const stone = new CylinderGeometry(
@@ -224,7 +225,7 @@ function seaRock(lod) {
 		stone.rotateX(leanX)
 		stone.rotateZ(leanZ)
 		stone.translate(x, 0, z)
-		return part(stone, color, { lumps: 0.2, lumpScale: 0.85 })
+		return part(stone, color, { lumps: 0.2, lumpScale: 0.85, paint: 1 })
 	})
 }
 

@@ -82,8 +82,9 @@ vec3 getSceneryTint(float packedTint, vec2 baseXZ, int type) {
 }
 
 #ifdef SCENERY_PALETTE
-// Palette per type (tree crowns, whole cacti), one color per instance picked
-// from world-space noise (src/sceneryPalettePolicy.js). Colors are linear and
+#include ./biome-value.glsl
+// Palette per type (tree crowns, whole cacti and sea rocks), one color per
+// instance picked from world-space noise, or by biome (src/sceneryPalettePolicy.js). Colors are linear and
 // divided by SCENERY_PAINT_BASE, the gray the painted types are baked in.
 // Unpainted types have zero weights and white colors, so both of their tints
 // stay the plain tint.
@@ -93,8 +94,9 @@ uniform vec4 uSceneryPaletteWeights[IMPOSTOR_TYPE_COUNT];
 uniform vec3 uSceneryTrunkColors[IMPOSTOR_TYPE_COUNT];
 // Per type, x: patch frequency per world unit, y: random mix (0 noise patches
 // only, 1 a random color per instance), z: palette index, which selects the
-// noise fields (types sharing a palette share its map).
-uniform vec3 uSceneryPaletteNoise[IMPOSTOR_TYPE_COUNT];
+// noise fields (types sharing a palette share its map), w: 1 to pick the color
+// by biome instead (slot 0 temperate, slot 1 desert).
+uniform vec4 uSceneryPaletteNoise[IMPOSTOR_TYPE_COUNT];
 // Tint of the painted parts (paint 1); vTint holds the unpainted parts' (the
 // trunk's).
 varying vec3 vPaintTint;
@@ -123,7 +125,14 @@ void getSceneryPaletteTints(
 	out vec3 paintTint
 ) {
 	vec4 weights = uSceneryPaletteWeights[type];
-	vec3 paletteNoise = uSceneryPaletteNoise[type];
+	vec4 paletteNoise = uSceneryPaletteNoise[type];
+	if (paletteNoise.w > 0.5) {
+		// The biome under the base, as the terrain colors it.
+		int biomeSlot = getBiomeValue(baseXZ + uBiomeOffset) < 0.0 ? 1 : 0;
+		trunkTint = tint * uSceneryTrunkColors[type];
+		paintTint = tint * uSceneryPaletteColors[type * SCENERY_PALETTE_SIZE + biomeSlot];
+		return;
+	}
 	// Shifted by the seeded biome offset, so every world seed paints its own map.
 	vec2 palettePosition = (baseXZ + uBiomeOffset) * paletteNoise.x;
 	int chosen = 0;

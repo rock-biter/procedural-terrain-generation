@@ -60,6 +60,17 @@ function glslFloat(value) {
 	return Number.isInteger(value) ? value.toFixed(1) : String(value)
 }
 
+// The biome layers as defines, for every shader that includes
+// biome-value.glsl: the terrain and the scenery palettes.
+export const BIOME_SHADER_DEFINES = Object.freeze(
+	Object.fromEntries(
+		BIOME_NOISE_LAYERS.map(([frequency, weight], index) => [
+			`BIOME_NOISE_LAYER_${index}`,
+			`vec2(${glslFloat(frequency)}, ${glslFloat(weight)})`,
+		]),
+	),
+)
+
 function createShaderDefines() {
 	const defines = {
 		TERRAIN_BAND_COUNT: String(TERRAIN_BANDS.length),
@@ -76,9 +87,7 @@ function createShaderDefines() {
 		defines[`TERRAIN_${key}_LINE`] = glslFloat(line)
 		defines[`TERRAIN_${key}_LEVEL`] = glslFloat(level)
 	}
-	BIOME_NOISE_LAYERS.forEach(([frequency, weight], index) => {
-		defines[`BIOME_NOISE_LAYER_${index}`] = `vec2(${glslFloat(frequency)}, ${glslFloat(weight)})`
-	})
+	Object.assign(defines, BIOME_SHADER_DEFINES)
 	const [offsetX, offsetZ] = COAST_ROCK_OFFSET
 	defines.COAST_ROCK_OFFSET = `vec2(${glslFloat(offsetX)}, ${glslFloat(offsetZ)})`
 	return Object.freeze(defines)

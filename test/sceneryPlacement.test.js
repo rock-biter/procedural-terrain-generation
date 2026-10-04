@@ -256,6 +256,7 @@ test('painted types vary in brightness only: their hue comes from the palettes',
 		IMPOSTOR_TYPE.CONIFER,
 		IMPOSTOR_TYPE.CACTUS_ONE_ARM,
 		IMPOSTOR_TYPE.CACTUS_TWO_ARMS,
+		IMPOSTOR_TYPE.SEA_ROCK,
 	])
 	let count = 0
 	for (const [, , data] of chunks) {
