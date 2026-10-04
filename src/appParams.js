@@ -56,8 +56,10 @@ export function createAppParams({ urlParams, isMobile }) {
 		// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
 		terrainNormals: createTerrainNormalSettings(),
 		// Renderer tone mapping operator (a THREE.*ToneMapping constant) and exposure.
-		// A tone-mapped mode switches the composer to half-float buffers.
-		toneMapping: { mode: ACESFilmicToneMapping, exposure: 1 },
+		// A tone-mapped mode switches the composer to half-float buffers. `exposure`
+		// is the day value; DayNight blends it toward `nightExposure` by the cycle's
+		// `night` factor every frame.
+		toneMapping: { mode: ACESFilmicToneMapping, exposure: 1, nightExposure: 1.3 },
 		// Adaptive resolution (src/adaptivePixelRatio.js): the pixel ratio drops
 		// toward `min` while the frame rate is below 60 fps. `?dpr=` pins the ratio
 		// and turns adaptation off.

@@ -409,7 +409,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 ### `FEAT-002`: Day/Night Cycle
 
 - **Rejected:** the Three.js `Sky` addon (physically based, less stylized) and flat background colors (no celestial bodies), in favor of palette interpolation with a gradient dome.
-- **Open:** art-direction tuning of the palettes under ACES Filmic (default since 2026-10-03; it darkens the night); airplane lights (a first sprite version was removed); curved lighting for the boats when they return.
+- **Open:** art-direction tuning of the palettes under ACES Filmic (default since 2026-10-03; it darkens the night, which the night exposure of `1.3` only partly offsets); airplane lights (a first sprite version was removed); curved lighting for the boats when they return.
 
 ### `FEAT-003`: Biome Scenery With Octahedral Impostors
 

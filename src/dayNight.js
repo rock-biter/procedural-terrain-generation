@@ -7,6 +7,7 @@ import {
 	SRGBColorSpace,
 	Vector3,
 } from 'three'
+import { lerp } from './math'
 import { CURVATURE } from './worldConstants'
 import {
 	advanceTimeOfDay,
@@ -33,7 +34,8 @@ export default class DayNight {
 	state = createDayNightState()
 	cameraPosition = new Vector3()
 
-	constructor({ scene, camera, ambientLight, sunLight, moonLight, uniforms, params }) {
+	constructor({ renderer, scene, camera, ambientLight, sunLight, moonLight, uniforms, params }) {
+		this.renderer = renderer
 		this.scene = scene
 		this.camera = camera
 		this.ambientLight = ambientLight
@@ -117,6 +119,11 @@ export default class DayNight {
 		this.moonLight.intensity = this.params.moonLight * state.moonIntensity
 		setSRGB(this.ambientLight.color, state.ambientColor)
 		this.ambientLight.intensity = this.params.ambientLight * state.ambientIntensity
+
+		// Day exposure by day, night exposure at full night; the ToneMappingEffect
+		// and the sky read the renderer value.
+		const { exposure, nightExposure } = this.params.toneMapping
+		this.renderer.toneMappingExposure = lerp(exposure, nightExposure, state.night)
 
 		setSRGB(this.skyUniforms.uZenith.value, state.zenith)
 		setSRGB(this.skyUniforms.uHorizon.value, state.horizon)

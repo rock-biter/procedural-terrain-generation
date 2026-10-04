@@ -60,6 +60,7 @@ export default class World {
 		this.FlightPauseDebug = FlightPauseDebug
 
 		this.dayNight = new DayNight({
+			renderer: setup.renderer,
 			scene: setup.scene,
 			camera: setup.camera,
 			ambientLight: setup.ambientLight,

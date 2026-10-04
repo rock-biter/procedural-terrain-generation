@@ -210,13 +210,10 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		})
 		.name('Mode')
 		.onChange((mode) => setup.setToneMapping(mode))
-	// Three.js ignores exposure while the mode is None.
-	toneMappingFolder
-		.add(params.toneMapping, 'exposure', 0, 4, 0.01)
-		.name('Exposure')
-		.onChange((exposure) => {
-			setup.renderer.toneMappingExposure = exposure
-		})
+	// Three.js ignores exposure while the mode is None. DayNight blends the two
+	// by the cycle's night factor every frame.
+	toneMappingFolder.add(params.toneMapping, 'exposure', 0, 4, 0.01).name('Day exposure')
+	toneMappingFolder.add(params.toneMapping, 'nightExposure', 0, 4, 0.01).name('Night exposure')
 
 	const grainFolder = gui.addFolder('Film grain')
 	grainFolder.add(params.postProcessing.grain, 'intensity', 0, 0.3, 0.005).name('Intensity')
