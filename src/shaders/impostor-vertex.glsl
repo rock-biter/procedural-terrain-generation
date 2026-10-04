@@ -80,7 +80,18 @@ vImpostorNormalY = viewRotation * rotateAroundAxis(vec3(0.0, 1.0 / impostorStret
 vImpostorNormalZ = viewRotation * rotateAroundAxis(rotateYaw(vec3(0.0, 0.0, 1.0), yawCos, yawSin), bendAxis, bendCos, bendSin);
 vSphereNormal = normalize(viewRotation * sphereNormal);
 
-vTint = getSceneryTint(aInstanceB.z, impostorBase.xz, impostorType);
+vec3 impostorTint = getSceneryTint(aInstanceB.z, impostorBase.xz, impostorType);
+#ifdef SCENERY_PALETTE
+// Trunk tint in vTint, crown tint in vPaintTint; the fragment mixes them by
+// the baked crown mask.
+vec3 impostorTrunkTint;
+vec3 impostorCrownTint;
+getSceneryPaletteTints(impostorTint, impostorBase.xz, impostorYaw, impostorType, impostorTrunkTint, impostorCrownTint);
+vTint = impostorTrunkTint;
+vPaintTint = impostorCrownTint;
+#else
+vTint = impostorTint;
+#endif
 
 // Shadows use flat world space: undo the bend around the curved center. The
 // map is affine, so the quad position interpolates exactly.

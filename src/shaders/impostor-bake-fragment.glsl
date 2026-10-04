@@ -1,13 +1,17 @@
 layout(location = 0) out vec4 gAlbedo;
 layout(location = 1) out vec4 gNormal;
+layout(location = 2) out vec4 gPaint;
 varying vec3 vColor;
 varying vec3 vNormal;
 varying vec3 vPosition;
 varying float vDepth;
+varying float vPaint;
 
 #ifdef USE_DETAIL
 // Replaced in impostorBaker.js by scenery-detail-pars-fragment.glsl.
 #include <scenery_detail_pars_fragment>
+// The baked type's wood settings (see applyDetail()), set per type.
+uniform vec3 uDetailSettings;
 #endif
 
 
@@ -16,11 +20,14 @@ void main() {
 	vec3 normal = normalize(vNormal);
 
 #ifdef USE_DETAIL
-	color = applyDetail(color, vPosition, normal);
+	color = applyDetail(color, vPosition, normal, uDetailSettings);
 #endif
 
 	// Stored sRGB-encoded in 8 bits (three's transfer function); the impostor
 	// shader decodes it.
 	gAlbedo = vec4(sRGBTransferOETF(vec4(color, 1.0)).rgb, 1.0);
 	gNormal = vec4(normal * 0.5 + 0.5, clamp(vDepth * 0.5 + 0.5, 0.0, 1.0));
+	// Crown mask in a single-channel target: the runtime tint mixes the trunk
+	// and palette colors by it.
+	gPaint = vec4(vPaint, 0.0, 0.0, 1.0);
 }

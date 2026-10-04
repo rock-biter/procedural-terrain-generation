@@ -25,6 +25,7 @@ import { createSceneryLighting } from '../curvedLights'
 import { replaceChunks } from '../shaderChunks'
 import { SCENERY_IMPOSTORS, getCatalogDefines, getCatalogSources } from './impostorCatalogs'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
+import { createSceneryPaletteUniforms } from './impostorMaterial'
 import {
 	makeSceneryWireframeMaterial,
 	patchSceneryWireframeShader,
@@ -60,9 +61,12 @@ const CULL_RADIUS_OFFSET = 0.5
 // materials, and the LOD range uniform. `uniforms` (shared with the terrain and
 // impostors) must include uCamera, uCurvature, uAtmosphere, and
 // uSceneryMeshRange, plus, with `receiveShadows`, the scenery and cloud shadow
-// uniforms; this object writes uSceneryMeshRange. `variation` and `detail` are
-// uniform objects owned by the caller and shared with the impostor material
-// and bake settings. `shadowTaps` is the PCF sample count of the scenery
+// uniforms; this object writes uSceneryMeshRange. `variation`, `detail` ({
+// uDetail, uSceneryDetail: one Vector3 of wood settings per type, see
+// applyDetail()}), and `palette` (createSceneryPaletteUniforms(), for a
+// SCENERY_PALETTE catalog; neutral ones without it) are uniform objects owned
+// by the caller and shared with the impostor material and bake settings.
+// `shadowTaps` is the PCF sample count of the scenery
 // shadow lookup. Without `receiveShadows`, lighting has no shadow and
 // `ambientScale` (a float uniform) scales the ambient light. `wireframe`
 // (createSceneryWireframeSettings()) drives the debug overlay, one wireframe
@@ -72,6 +76,7 @@ export default class SceneryMeshes extends Group {
 		uniforms,
 		variation,
 		detail,
+		palette = null,
 		settings,
 		wireframe,
 		shadowTaps = 4,
@@ -89,6 +94,7 @@ export default class SceneryMeshes extends Group {
 		this.typeCount = catalog.typeCount
 		this.receiveShadows = receiveShadows
 		this.ambientScale = ambientScale
+		this.palette = palette ?? createSceneryPaletteUniforms(this.typeCount)
 		this.lodRange = { value: new Vector2() }
 		// Filled below from each type's LOD 0 bounds.
 		this.boundRadius = { value: new Array(this.typeCount).fill(0) }
@@ -131,8 +137,10 @@ export default class SceneryMeshes extends Group {
 				const level = this.levels[lod]
 				const geometry = new InstancedBufferGeometry()
 				geometry.setIndex(source.index)
-				for (const name of ['position', 'normal', 'color']) {
-					geometry.setAttribute(name, source.getAttribute(name))
+				// Cloud sources carry no crown mask (`paint`).
+				for (const name of ['position', 'normal', 'color', 'paint']) {
+					const attribute = source.getAttribute(name)
+					if (attribute) geometry.setAttribute(name, attribute)
 				}
 				const mesh = new Mesh(geometry, level.material)
 				mesh.name = `${catalog.name}-mesh-${type}-lod${lod}`
@@ -195,6 +203,7 @@ export default class SceneryMeshes extends Group {
 				uImpostorVariationAmount: variation.amount,
 				uImpostorVariationFrequency: variation.frequency,
 				...detail,
+				...this.palette,
 			}
 			Object.assign(shader.uniforms, lighting.uniforms)
 

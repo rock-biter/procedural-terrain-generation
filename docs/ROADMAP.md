@@ -137,7 +137,7 @@ vertices = triangles * 3
 | ------------ | -----: | -------------: | ------------: | ---------------------------: |
 | Former cloud |     10 |          2,420 |         7,260 |                      232,320 |
 
-The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead, in two levels of detail (264 to 876 triangles per type at LOD 0, 78 to 364 at LOD 1). They share one baked atlas of about `67` MB on desktop and `38` MB on mobile, and each chunk adds a quad plus 32 bytes per instance.
+The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead, in two levels of detail (264 to 876 triangles per type at LOD 0, 78 to 364 at LOD 1). They share one baked atlas of about `43` MB on desktop and mobile (albedo, normal, and the trees' crown mask), and each chunk adds a quad plus 32 bytes per instance.
 
 The former clouds created new copies of that base geometry in every chunk. The current clouds (`FEAT-006`) are one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of three shared extruded sources per level: about 2,870–4,350 triangles at LOD 0 and 680–1,040 at LOD 1. A desktop flight view drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Their frontal-view atlas takes about `9` MB on desktop (about `42` MB with the former lower-hemisphere grid), plus about `2` MB for the shadow atlas.
 

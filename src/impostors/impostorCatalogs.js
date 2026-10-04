@@ -1,6 +1,7 @@
 import { createScenerySources } from './impostorArchetypes.js'
 import { createCloudSources } from './cloudArchetypes.js'
 import { SCENERY_MESH_LOD_COUNT } from '../sceneryMeshPolicy.js'
+import { SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy.js'
 import {
 	CLOUD_ATLAS_COLUMNS,
 	CLOUD_ATLAS_ROWS,
@@ -21,7 +22,9 @@ import {
 // different families never share a compiled program (their onBeforeCompile
 // source is the same).
 
-// Trees, cacti, and rocks, placed per chunk by the workers.
+// Trees, cacti, and rocks, placed per chunk by the workers. SCENERY_PALETTE
+// paints the trees' crowns per instance from their baked crown mask
+// (src/sceneryPalettePolicy.js).
 export const SCENERY_IMPOSTORS = Object.freeze({
 	name: 'scenery',
 	typeCount: IMPOSTOR_TYPE_COUNT,
@@ -29,13 +32,16 @@ export const SCENERY_IMPOSTORS = Object.freeze({
 	rows: IMPOSTOR_ATLAS_ROWS,
 	hemisphere: 1,
 	createSources: createScenerySources,
-	defines: Object.freeze({}),
+	defines: Object.freeze({
+		SCENERY_PALETTE: '',
+		SCENERY_PALETTE_SIZE,
+	}),
 })
 
 // Clouds (src/clouds.js): seen only from below, turned in the shaders so their
-// front face looks at the airplane (the yaw slot only seeds the dither), with a
-// wood grain that keeps their light color, and faded by fog alone (no
-// atmosphere clamp).
+// front face looks at the airplane (the yaw slot only seeds the dither), and
+// faded by fog alone (no atmosphere clamp). Their normalized wood grain keeps
+// their light color (src/clouds.js sets it).
 export const CLOUD_IMPOSTORS = Object.freeze({
 	name: 'clouds',
 	typeCount: CLOUD_TYPE_COUNT,
@@ -45,7 +51,6 @@ export const CLOUD_IMPOSTORS = Object.freeze({
 	createSources: createCloudSources,
 	defines: Object.freeze({
 		SCENERY_FACE_AIRPLANE: '',
-		SCENERY_DETAIL_NORMALIZED: '',
 		SCENERY_NO_ATMOSPHERE_CLAMP: '',
 	}),
 })

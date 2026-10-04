@@ -10,6 +10,7 @@ import {
 } from 'three'
 import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
+import { SCENERY_PAINTED_TYPES } from '../sceneryPalettePolicy'
 import { SCENERY_CATEGORIES, SCENERY_CELL_SIZES, SCENERY_TYPE_KEYS } from '../sceneryPlacement'
 import { TERRAIN_BANDS } from '../terrainBands'
 import { updateTerrainNormalUniforms } from '../terrainNormals'
@@ -28,6 +29,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	const regenerateTerrain = () => world.regenerateTerrain()
 	const applySceneryWireframe = () => world.applySceneryWireframe()
 	const updateImpostorVariation = () => world.sceneryImpostors?.applyVariation()
+	const updateTreePalette = () => world.sceneryImpostors?.applyPalette()
 
 	const worldSettings = {
 		seed: world.seed,
@@ -254,16 +256,22 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.add(params.scenery, 'maxPerChunk', 0, 4096, 1)
 		.name('Max per chunk')
 		.onFinishChange(updateScenery)
+	// Per type; releasing a control re-bakes the atlas.
 	const rebakeImpostors = () => world.sceneryImpostors?.rebake()
 	const detailFolder = sceneryFolder.addFolder('Wood detail')
-	detailFolder
-		.add(params.impostorDetail, 'scale', 0.02, 1, 0.01)
-		.name('Repeats per unit')
-		.onFinishChange(rebakeImpostors)
-	detailFolder
-		.add(params.impostorDetail, 'color', 0, 1, 0.01)
-		.name('Color strength')
-		.onFinishChange(rebakeImpostors)
+	for (const key of Object.values(SCENERY_TYPE_KEYS)) {
+		const typeDetail = params.impostorDetail[key]
+		const typeFolder = detailFolder.addFolder(key)
+		typeFolder
+			.add(typeDetail, 'scale', 0.002, 0.5, 0.001)
+			.name('Repeats per unit')
+			.onFinishChange(rebakeImpostors)
+		typeFolder
+			.add(typeDetail, 'color', 0, 1, 0.01)
+			.name('Color strength')
+			.onFinishChange(rebakeImpostors)
+		typeFolder.add(typeDetail, 'normalized').name('Keep base color').onFinishChange(rebakeImpostors)
+	}
 	const wireframeSettings = params.sceneryWireframe
 	const wireframeFolder = sceneryFolder.addFolder('Wireframe')
 	wireframeFolder
@@ -321,6 +329,33 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.add(params.impostorVariation.amount, key, 0, 2, 0.01)
 				.name(`${key} variation`)
 				.onChange(updateImpostorVariation)
+		}
+		if (category === 'trees') addTreePalette(folder)
+	}
+
+	// Live: trunk colors, crown palettes, and their noise distribution.
+	function addTreePalette(parent) {
+		const palette = params.treePalette
+		const folder = parent.addFolder('Palette')
+		folder
+			.add(palette, 'frequency', 0.0005, 0.05, 0.0005)
+			.name('Patch frequency')
+			.onChange(updateTreePalette)
+		folder.add(palette, 'mix', 0, 1, 0.01).name('Random mix').onChange(updateTreePalette)
+		for (const type of SCENERY_PAINTED_TYPES) {
+			const key = SCENERY_TYPE_KEYS[type]
+			const typePalette = palette[key]
+			if (!typePalette) continue
+			const typeFolder = folder.addFolder(key)
+			typeFolder.addColor(typePalette, 'trunk').name('Trunk').onChange(updateTreePalette)
+			typePalette.colors.forEach((entry, slot) => {
+				const label = entry.label ?? `Color ${slot + 1}`
+				typeFolder.addColor(entry, 'color').name(label).onChange(updateTreePalette)
+				typeFolder
+					.add(entry, 'weight', 0, 1, 0.01)
+					.name(`${label} weight`)
+					.onChange(updateTreePalette)
+			})
 		}
 	}
 

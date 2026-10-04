@@ -80,3 +80,66 @@ vec3 getSceneryTint(float packedTint, vec2 baseXZ, int type) {
 	variationNoise = clamp(variationNoise * 1.6, -1.0, 1.0);
 	return tint * exp2(variationNoise * uImpostorVariationAmount[type]);
 }
+
+#ifdef SCENERY_PALETTE
+// Crown palette per type, one color per instance picked from world-space noise
+// (src/sceneryPalettePolicy.js). Colors are linear and divided by
+// SCENERY_PAINT_BASE, the gray the painted types are baked in. Unpainted types
+// have zero weights and white colors, so both of their tints stay the plain
+// tint.
+uniform vec3 uSceneryPaletteColors[IMPOSTOR_TYPE_COUNT * SCENERY_PALETTE_SIZE];
+// Relative share of each palette slot; 0 disables the slot.
+uniform vec4 uSceneryPaletteWeights[IMPOSTOR_TYPE_COUNT];
+uniform vec3 uSceneryTrunkColors[IMPOSTOR_TYPE_COUNT];
+// x: patch frequency per world unit, y: random mix (0 noise patches only, 1 a
+// random color per instance).
+uniform vec2 uSceneryPaletteNoise;
+// Tint of the crown (paint 1); vTint holds the trunk's.
+varying vec3 vPaintTint;
+
+// Uniform [0, 1) hash of the instance seed (its yaw bits) and a slot. Integer
+// math gives the impostor and the mesh programs the same value.
+float getSceneryPaletteHash(float seed, int slot) {
+	uint h = floatBitsToUint(seed) ^ (uint(slot) * 0x9E3779B9u);
+	h ^= h >> 16;
+	h *= 0x7FEB352Du;
+	h ^= h >> 15;
+	h *= 0x846CA68Bu;
+	h ^= h >> 16;
+	return float(h >> 8) * (1.0 / 16777216.0);
+}
+
+// Splits the instance tint into the trunk and crown tints. Every slot has its
+// own noise field; the slot with the largest log(value) / weight wins, a
+// weighted race in which each slot's share follows its weight.
+void getSceneryPaletteTints(
+	vec3 tint,
+	vec2 baseXZ,
+	float seed,
+	int type,
+	out vec3 trunkTint,
+	out vec3 crownTint
+) {
+	vec4 weights = uSceneryPaletteWeights[type];
+	// Shifted by the seeded biome offset, so every world seed paints its own map.
+	vec2 palettePosition = (baseXZ + uBiomeOffset) * uSceneryPaletteNoise.x;
+	int chosen = 0;
+	float bestKey = -1e30;
+	for (int slot = 0; slot < SCENERY_PALETTE_SIZE; slot++) {
+		float weight = weights[slot];
+		if (weight <= 0.0) continue;
+		// Offsets within snoise's 289-unit period keep every type's and slot's
+		// field apart.
+		vec2 offset = fract(float(type * SCENERY_PALETTE_SIZE + slot) * vec2(0.618034, 0.414214)) * 289.0;
+		float field = clamp(snoise(palettePosition + offset) * 0.8 + 0.5, 0.0, 1.0);
+		float value = mix(field, getSceneryPaletteHash(seed, slot), uSceneryPaletteNoise.y);
+		float key = log(max(value, 1e-6)) / weight;
+		if (key > bestKey) {
+			bestKey = key;
+			chosen = slot;
+		}
+	}
+	trunkTint = tint * uSceneryTrunkColors[type];
+	crownTint = tint * uSceneryPaletteColors[type * SCENERY_PALETTE_SIZE + chosen];
+}
+#endif

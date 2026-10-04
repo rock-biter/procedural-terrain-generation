@@ -12,6 +12,7 @@ import {
 } from 'three'
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
 import { snoise } from '../noise.js'
+import { SCENERY_PAINT_BASE } from '../sceneryPalettePolicy.js'
 import { IMPOSTOR_TYPE } from './impostorTypes.js'
 
 // Source models for the impostor baker and the near scenery meshes. They are
@@ -20,18 +21,21 @@ import { IMPOSTOR_TYPE } from './impostorTypes.js'
 // so segment counts are kept low.
 
 const COLORS = {
-	trunk: '#7a4a2a',
-	// Wood-toy look: light brown round-tree crowns, darker brown conifers
-	// and cacti, and the lightest woods for rocks.
-	leaves: '#c69c6d',
-	needles: '#8f5f3a',
+	// Wood-toy look: darker brown cacti and the lightest woods for rocks. The
+	// trees (SCENERY_PAINTED_TYPES) are baked in a neutral linear gray: their
+	// trunk and crown colors come from the palette uniforms at runtime
+	// (src/sceneryPalettePolicy.js).
+	painted: new Color().setScalar(SCENERY_PAINT_BASE),
 	cactus: '#8f5f3a',
 	boulder: '#dcc29a',
 	rockLight: '#e3c9a0',
 	rockDark: '#cfa878',
 }
 
-function part(geometry, color, { lumps = 0, lumpScale = 0.8, ribs = 0 } = {}) {
+// `paint` (0 or 1) fills the part's `paint` attribute: 1 marks a crown, which
+// takes the instance's palette color instead of the trunk color. Every part
+// carries it so mergeGeometries() finds the same attributes.
+function part(geometry, color, { lumps = 0, lumpScale = 0.8, ribs = 0, paint = 0 } = {}) {
 	let smooth = geometry.index ? geometry.toNonIndexed() : geometry
 	smooth.deleteAttribute('normal')
 	smooth.deleteAttribute('uv')
@@ -82,6 +86,7 @@ function part(geometry, color, { lumps = 0, lumpScale = 0.8, ribs = 0 } = {}) {
 		colors[i * 3 + 2] = base.b * occlusion
 	}
 	smooth.setAttribute('color', new BufferAttribute(colors, 3))
+	smooth.setAttribute('paint', new BufferAttribute(new Float32Array(position.count).fill(paint), 1))
 
 	return smooth
 }
@@ -106,10 +111,10 @@ function roundTree(lod) {
 	backBlob.translate(-1.2, 3.6, -1.1)
 
 	return [
-		part(trunk, COLORS.trunk),
-		part(crown, COLORS.leaves, { lumps: 0.12, lumpScale: 1.1 }),
-		part(sideBlob, COLORS.leaves, { lumps: 0.08, lumpScale: 1.4 }),
-		part(backBlob, COLORS.leaves, { lumps: 0.08, lumpScale: 1.4 }),
+		part(trunk, COLORS.painted),
+		part(crown, COLORS.painted, { lumps: 0.12, lumpScale: 1.1, paint: 1 }),
+		part(sideBlob, COLORS.painted, { lumps: 0.08, lumpScale: 1.4, paint: 1 }),
+		part(backBlob, COLORS.painted, { lumps: 0.08, lumpScale: 1.4, paint: 1 }),
 	]
 }
 
@@ -124,10 +129,10 @@ function conifer(lod) {
 	].map(([radius, height, y]) => {
 		const cone = new ConeGeometry(radius, height, detail(lod, 14, 9), detail(lod, 3, 1))
 		cone.translate(0, y, 0)
-		return part(cone, COLORS.needles, { lumps: 0.05, lumpScale: 1.6 })
+		return part(cone, COLORS.painted, { lumps: 0.05, lumpScale: 1.6, paint: 1 })
 	})
 
-	return [part(trunk, COLORS.trunk), ...tiers]
+	return [part(trunk, COLORS.painted), ...tiers]
 }
 
 function cactusArm(lod, side, startY, reach, rise, radius) {

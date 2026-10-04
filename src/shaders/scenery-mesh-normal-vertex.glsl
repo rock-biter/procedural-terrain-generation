@@ -46,7 +46,19 @@ float levelShare = meshFade - lodFade;
 vSceneryLocalPosition = position;
 vSceneryLocalNormal = normal;
 vSphereNormal = normalize(mat3(viewMatrix) * sphereNormal);
-vTint = getSceneryTint(aInstanceB.z, sceneryBase.xz, sceneryType);
+vSceneryDetail = uSceneryDetail[sceneryType];
+// The same tints as impostor-vertex.glsl.
+vec3 sceneryTint = getSceneryTint(aInstanceB.z, sceneryBase.xz, sceneryType);
+#ifdef SCENERY_PALETTE
+vec3 sceneryTrunkTint;
+vec3 sceneryCrownTint;
+getSceneryPaletteTints(sceneryTint, sceneryBase.xz, sceneryYaw, sceneryType, sceneryTrunkTint, sceneryCrownTint);
+vTint = sceneryTrunkTint;
+vPaintTint = sceneryCrownTint;
+vSceneryPaint = paint;
+#else
+vTint = sceneryTint;
+#endif
 
 // Normals transform with the inverse transpose of the stretch.
 vec3 objectNormal = rotateAroundAxis(

@@ -135,11 +135,9 @@ function getTint(type, biome, random) {
 			? packTint(1.02 * brightness, 0.86 * brightness, 0.7 * brightness)
 			: packTint(0.8 * brightness, 0.82 * brightness, 0.84 * brightness)
 	}
-	if (type === IMPOSTOR_TYPE.ROUND_TREE) {
-		// Warmer tones on brighter trees.
-		const warm = random * 0.18
-		return packTint(brightness * (1 + warm), brightness, brightness * (1 - warm))
-	}
+	// Trees take their hue from the crown palette in the shaders
+	// (src/sceneryPalettePolicy.js), so they vary in brightness only, like
+	// the cacti and layered rocks.
 	return packTint(brightness, brightness, brightness)
 }
 

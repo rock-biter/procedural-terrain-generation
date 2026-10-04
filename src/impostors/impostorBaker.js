@@ -7,6 +7,7 @@ import {
 	NearestFilter,
 	OrthographicCamera,
 	PlaneGeometry,
+	RedFormat,
 	Scene,
 	ShaderMaterial,
 	Vector2,
@@ -48,6 +49,7 @@ function getResolvePass() {
 			uniforms: {
 				tAlbedo: { value: null },
 				tNormal: { value: null },
+				tPaint: { value: null },
 				uFrameSize: { value: 1 },
 				uBlockOrigin: { value: new Vector2() },
 			},
@@ -66,12 +68,15 @@ function getResolvePass() {
 }
 
 // Renders every type of an impostor `catalog` (impostorCatalogs.js) from the
-// grid directions of a view layout (`views`, octahedral.js) into one albedo
-// and one normal/depth atlas. Without `views`, the layout is a frames x frames
-// hemi-octahedral grid of the catalog's hemisphere. `detail` optionally
-// multiplies the albedo by a tileable color texture: { texture, scale (repeats
-// per unit), color (strength) }. `frameSize` shrinks when the atlas would
-// exceed the GPU limit.
+// grid directions of a view layout (`views`, octahedral.js) into one albedo,
+// one normal/depth, and one single-channel crown-mask atlas (the sources'
+// `paint` attribute with SCENERY_PALETTE, 0 otherwise). Without `views`, the
+// layout is a frames x frames hemi-octahedral grid of the catalog's
+// hemisphere. `detail` optionally multiplies the albedo by a tileable color
+// texture: { texture, types }, where types[type] is that type's { scale
+// (repeats per unit), color (strength), normalized } (see applyDetail() in
+// scenery-detail-pars-fragment.glsl). `frameSize` shrinks when the atlas
+// would exceed the GPU limit.
 export function bakeImpostorAtlas(
 	renderer,
 	{
@@ -93,18 +98,22 @@ export function bakeImpostorAtlas(
 	const bakeWidth = blockWidth * SUPERSAMPLE
 	const bakeHeight = blockHeight * SUPERSAMPLE
 	const bakeTarget = new WebGLRenderTarget(bakeWidth, bakeHeight, {
-		count: 2,
+		count: 3,
 		minFilter: NearestFilter,
 		magFilter: NearestFilter,
 		generateMipmaps: false,
 	})
 	const atlasTarget = new WebGLRenderTarget(width, height, {
-		count: 2,
+		count: 3,
 		depthBuffer: false,
 		minFilter: LinearMipmapLinearFilter,
 		magFilter: LinearFilter,
 		generateMipmaps: true,
 	})
+	// The crown mask needs one channel; three sets every attachment up from
+	// its own texture's format.
+	bakeTarget.textures[2].format = RedFormat
+	atlasTarget.textures[2].format = RedFormat
 
 	const previousTarget = renderer.getRenderTarget()
 	const previousClearColor = renderer.getClearColor(new Color())
@@ -124,8 +133,7 @@ export function bakeImpostorAtlas(
 			uCenter: { value: new Vector3() },
 			uFrameRadius: { value: 1 },
 			uDetail: { value: detail?.texture ?? null },
-			uDetailScale: { value: detail?.scale ?? 1 },
-			uDetailColor: { value: detail?.color ?? 0 },
+			uDetailSettings: { value: new Vector3() },
 		},
 		vertexShader: bakeVertexShader,
 		// The near meshes sample the same detail function (sceneryMeshes.js).
@@ -136,6 +144,7 @@ export function bakeImpostorAtlas(
 	const { material: resolveMaterial, scene: resolveScene } = getResolvePass()
 	resolveMaterial.uniforms.tAlbedo.value = bakeTarget.textures[0]
 	resolveMaterial.uniforms.tNormal.value = bakeTarget.textures[1]
+	resolveMaterial.uniforms.tPaint.value = bakeTarget.textures[2]
 	resolveMaterial.uniforms.uFrameSize.value = frameSize
 	const bakeScene = new Scene()
 	const camera = new OrthographicCamera()
@@ -162,6 +171,18 @@ export function bakeImpostorAtlas(
 
 		bakeMaterial.uniforms.uCenter.value.copy(center)
 		bakeMaterial.uniforms.uFrameRadius.value = frameRadius
+		// Every render() re-uploads the material's uniforms, so the type's wood
+		// settings reach all of its frames.
+		const typeDetail = detail?.types?.[type]
+		if (typeDetail) {
+			bakeMaterial.uniforms.uDetailSettings.value.set(
+				typeDetail.scale,
+				typeDetail.color,
+				typeDetail.normalized ? 1 : 0,
+			)
+		} else {
+			bakeMaterial.uniforms.uDetailSettings.value.set(1, 0, 0)
+		}
 
 		bakeTarget.viewport.set(0, 0, bakeWidth, bakeHeight)
 		bakeTarget.scissorTest = false
@@ -216,6 +237,7 @@ export function bakeImpostorAtlas(
 
 	resolveMaterial.uniforms.tAlbedo.value = null
 	resolveMaterial.uniforms.tNormal.value = null
+	resolveMaterial.uniforms.tPaint.value = null
 	bakeMaterial.dispose()
 	bakeTarget.dispose()
 
@@ -223,6 +245,7 @@ export function bakeImpostorAtlas(
 		target: atlasTarget,
 		albedo: atlasTarget.textures[0],
 		normal: atlasTarget.textures[1],
+		paint: atlasTarget.textures[2],
 		catalog,
 		views,
 		frameSize,

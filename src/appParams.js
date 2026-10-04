@@ -8,6 +8,7 @@ import {
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
 } from './sceneryMeshPolicy'
+import { createTreePaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
@@ -81,12 +82,23 @@ export function createAppParams({ urlParams, isMobile }) {
 		},
 		// Placement settings sent to the chunk workers; see createScenerySettings().
 		scenery: createScenerySettings({ isMobile }),
-		// Shader-side, applied live: brightness change per type in stops (1 = half
-		// to double brightness) and the world frequency of the noise that drives it.
-		// Wood color baked into every impostor: repeats per world unit and color
-		// strength (0 = vertex color only, 1 = vertex color × texture). Changing
-		// them re-bakes the atlas.
-		impostorDetail: { scale: 0.01, color: 0.1 },
+		// Wood color baked into every impostor, per type (keyed like
+		// SCENERY_TYPE_KEYS): repeats per object unit, color strength (0 = vertex
+		// color only, 1 = vertex color × texture), and `normalized`, which divides
+		// the grain by the texture's mean color so it keeps the base color (as on
+		// the clouds). The trees get the clouds' strong, normalized grain at about
+		// one repeat per tree. Changing them re-bakes the atlas.
+		impostorDetail: {
+			roundTree: { scale: 0.15, color: 0.6, normalized: true },
+			conifer: { scale: 0.15, color: 0.6, normalized: true },
+			cactusOneArm: { scale: 0.01, color: 0.1, normalized: false },
+			cactusTwoArms: { scale: 0.01, color: 0.1, normalized: false },
+			boulder: { scale: 0.01, color: 0.1, normalized: false },
+			layeredRock: { scale: 0.01, color: 0.1, normalized: false },
+		},
+		// Shader-side, applied live: the trees' trunk colors and crown palettes,
+		// picked per tree from world-space noise; see createTreePaletteSettings().
+		treePalette: createTreePaletteSettings(),
 		// Near scenery meshes, in units from the eye: full-detail meshes below
 		// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
 		// beyond `end`, with dithered cross-fades inside each band.
@@ -97,9 +109,16 @@ export function createAppParams({ urlParams, isMobile }) {
 		// Soft shadows of scenery and the airplane on terrain and scenery, in two
 		// cascades that fade out with distance; see createSceneryShadowSettings().
 		shadows: createSceneryShadowSettings({ isMobile }),
+		// Shader-side, applied live: brightness change per type in stops (1 = half
+		// to double brightness) and the world frequency of the noise that drives it.
+		// The trees vary less, so their palette colors stay recognizable.
 		impostorVariation: {
 			frequency: 0.01,
-			amount: Object.fromEntries(Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8])),
+			amount: {
+				...Object.fromEntries(Object.values(SCENERY_TYPE_KEYS).map((key) => [key, 0.8])),
+				roundTree: 0.35,
+				conifer: 0.35,
+			},
 		},
 		// World-level cloud field (src/clouds.js): deterministic placement (see
 		// createCloudSettings()), near-mesh bands like sceneryMeshes, the wood

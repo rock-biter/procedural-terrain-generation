@@ -1,5 +1,10 @@
 uniform sampler2D uImpostorAlbedo;
 uniform sampler2D uImpostorNormal;
+#ifdef SCENERY_PALETTE
+// Baked crown mask (single channel), see src/impostors/impostorBaker.js.
+uniform sampler2D uImpostorPaint;
+varying vec3 vPaintTint;
+#endif
 varying vec4 vFrame0;
 varying vec4 vFrame1;
 varying vec4 vFrame2;
@@ -20,13 +25,15 @@ const vec2 IMPOSTOR_ATLAS_FRAMES = vec2(
 
 // Accumulates one frame weighted by its coverage, so empty texels and rays
 // that leave the frame do not darken the blend. depthSum gathers the baked
-// depth (alpha of the normal atlas, 0.5 at the image plane).
+// depth (alpha of the normal atlas, 0.5 at the image plane), paintSum the
+// crown mask (only with SCENERY_PALETTE).
 void sampleImpostorFrame(
 	vec4 frame,
 	float weight,
 	inout vec4 albedoSum,
 	inout vec3 normalSum,
-	inout float depthSum
+	inout float depthSum,
+	inout float paintSum
 ) {
 	vec2 inside = step(vec2(0.0), frame.zw) * step(frame.zw, vec2(1.0));
 	vec2 atlasUv = (frame.xy + clamp(frame.zw, 0.0, 1.0)) / IMPOSTOR_ATLAS_FRAMES;
@@ -36,5 +43,8 @@ void sampleImpostorFrame(
 	albedoSum += vec4(albedo.rgb * coverage, coverage);
 	normalSum += (normalDepth.xyz * 2.0 - 1.0) * coverage;
 	depthSum += normalDepth.a * coverage;
+#ifdef SCENERY_PALETTE
+	paintSum += texture2D(uImpostorPaint, atlasUv).r * coverage;
+#endif
 }
 

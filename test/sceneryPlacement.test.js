@@ -139,6 +139,23 @@ test('packs tint channels as bytes', () => {
 	assert.ok(Number.isInteger(Math.fround(packTint(2, 2, 2))))
 })
 
+test('trees vary in brightness only: their hue comes from the crown palette', () => {
+	const trees = new Set([IMPOSTOR_TYPE.ROUND_TREE, IMPOSTOR_TYPE.CONIFER])
+	let count = 0
+	for (const [, , data] of chunks) {
+		for (let k = 0; k < data.length; k += IMPOSTOR_INSTANCE_STRIDE) {
+			if (!trees.has(data[k + 5])) continue
+			const tint = data[k + 6]
+			const r = tint % 256
+			const g = Math.floor(tint / 256) % 256
+			const b = Math.floor(tint / 65536)
+			assert.ok(r === g && g === b, `gray tint, got ${r} ${g} ${b}`)
+			count++
+		}
+	}
+	assert.ok(count > 0)
+})
+
 function countByType(data) {
 	const counts = new Map()
 	for (let k = 5; k < data.length; k += IMPOSTOR_INSTANCE_STRIDE) {

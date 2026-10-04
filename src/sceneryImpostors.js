@@ -1,21 +1,32 @@
-import { Group } from 'three'
+import { Group, Vector3 } from 'three'
 import { bakeImpostorAtlas } from './impostors/impostorBaker'
 import {
 	createImpostorMaterial,
 	createImpostorWireframeMaterial,
+	createSceneryPaletteUniforms,
 	setImpostorAtlas,
 } from './impostors/impostorMaterial'
-import { IMPOSTOR_FRAMES_DESKTOP, IMPOSTOR_FRAMES_MOBILE } from './impostors/impostorTypes'
+import {
+	IMPOSTOR_FRAMES_DESKTOP,
+	IMPOSTOR_FRAMES_MOBILE,
+	IMPOSTOR_TYPE_COUNT,
+} from './impostors/impostorTypes'
 import SceneryMeshes from './impostors/sceneryMeshes'
 import { setSceneryWireframe } from './impostors/sceneryWireframe'
+import {
+	SCENERY_PAINT_BASE,
+	SCENERY_PALETTE_SIZE,
+	getSceneryPaletteLayout,
+} from './sceneryPalettePolicy'
 import { SCENERY_TYPE_KEYS } from './sceneryPlacement'
 
 // The scenery's impostors and near meshes, as Clouds owns the cloud field's:
 // the atlas bake with the wood detail, the impostor material and its
 // wireframe twin (every chunk draws its instances with them, src/chunk.js),
-// the near meshes (SceneryMeshes, a child), and the live variation and detail
-// uniforms. `params` is createAppParams(); impostorDetail, impostorVariation,
-// sceneryMeshes, sceneryWireframe, and shadows.taps are read from it.
+// the near meshes (SceneryMeshes, a child), and the live variation, palette,
+// and detail uniforms. `params` is createAppParams(); impostorDetail,
+// impostorVariation, treePalette, sceneryMeshes, sceneryWireframe, and
+// shadows.taps are read from it.
 export default class SceneryImpostors extends Group {
 	constructor({ renderer, uniforms, params, woodTexture, isMobile = false }) {
 		super()
@@ -30,16 +41,21 @@ export default class SceneryImpostors extends Group {
 			frequency: { value: params.impostorVariation.frequency },
 		}
 		this.applyVariation()
-		// The near meshes sample the same wood detail the bake applies.
+		// Shared with the near meshes: the trees' trunk colors and crown palettes.
+		this.palette = createSceneryPaletteUniforms(IMPOSTOR_TYPE_COUNT)
+		this.applyPalette()
+		// The near meshes sample the same wood detail the bake applies, one
+		// setting per type.
 		this.detail = {
 			uDetail: { value: woodTexture },
-			uDetailScale: { value: params.impostorDetail.scale },
-			uDetailColor: { value: params.impostorDetail.color },
+			uSceneryDetail: { value: Array.from({ length: IMPOSTOR_TYPE_COUNT }, () => new Vector3()) },
 		}
+		this.applyDetail()
 
 		this.material = createImpostorMaterial(this.bake(), uniforms, {
 			singleFrame: isMobile,
 			variation: this.variation,
+			palette: this.palette,
 			shadowTaps: params.shadows.taps.impostor,
 		})
 		this.wireframeMaterial = createImpostorWireframeMaterial(
@@ -50,6 +66,7 @@ export default class SceneryImpostors extends Group {
 			uniforms,
 			variation: this.variation,
 			detail: this.detail,
+			palette: this.palette,
 			settings: params.sceneryMeshes,
 			wireframe: params.sceneryWireframe,
 			shadowTaps: params.shadows.taps.mesh,
@@ -63,15 +80,50 @@ export default class SceneryImpostors extends Group {
 		return bakeImpostorAtlas(this.renderer, {
 			frames: this.isMobile ? IMPOSTOR_FRAMES_MOBILE : IMPOSTOR_FRAMES_DESKTOP,
 			frameSize: 64,
-			detail: { texture: this.woodTexture, ...this.params.impostorDetail },
+			detail: {
+				texture: this.woodTexture,
+				types: Array.from(
+					{ length: IMPOSTOR_TYPE_COUNT },
+					(_, type) => this.params.impostorDetail[SCENERY_TYPE_KEYS[type]],
+				),
+			},
 		})
 	}
 
 	// After a wood detail change: the near meshes follow live, the atlas bakes again.
 	rebake() {
-		this.detail.uDetailScale.value = this.params.impostorDetail.scale
-		this.detail.uDetailColor.value = this.params.impostorDetail.color
+		this.applyDetail()
 		setImpostorAtlas(this.material, this.bake())
+	}
+
+	// Copies the per-type wood detail settings into the near meshes' uniforms.
+	applyDetail() {
+		this.detail.uSceneryDetail.value.forEach((settings, type) => {
+			const { scale, color, normalized } = this.params.impostorDetail[SCENERY_TYPE_KEYS[type]]
+			settings.set(scale, color, normalized ? 1 : 0)
+		})
+	}
+
+	// Writes the tree palettes into the shared uniforms, live: colors become
+	// linear (Color.set() converts the sRGB hex) and are divided by the gray
+	// the painted types are baked in; unused entries stay white.
+	applyPalette() {
+		const layout = getSceneryPaletteLayout(
+			this.params.treePalette,
+			SCENERY_TYPE_KEYS,
+			IMPOSTOR_TYPE_COUNT,
+		)
+		const setPaint = (color, hex) => {
+			if (hex === null) color.setRGB(1, 1, 1)
+			else color.set(hex).multiplyScalar(1 / SCENERY_PAINT_BASE)
+		}
+		const { uSceneryPaletteColors, uSceneryPaletteWeights, uSceneryTrunkColors } = this.palette
+		uSceneryPaletteColors.value.forEach((color, index) => setPaint(color, layout.colors[index]))
+		uSceneryTrunkColors.value.forEach((color, type) => setPaint(color, layout.trunks[type]))
+		uSceneryPaletteWeights.value.forEach((weights, type) =>
+			weights.fromArray(layout.weights, type * SCENERY_PALETTE_SIZE),
+		)
+		this.palette.uSceneryPaletteNoise.value.set(layout.frequency, layout.mix)
 	}
 
 	applyVariation() {

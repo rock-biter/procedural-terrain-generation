@@ -56,6 +56,7 @@ function fakeAtlas(catalog, views) {
 		views,
 		albedo: null,
 		normal: null,
+		paint: null,
 		types: Array.from({ length: catalog.typeCount }, () => ({ frameRadius: 1, centerY: 0 })),
 	}
 }
@@ -91,12 +92,19 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		fakeAtlas(SCENERY_IMPOSTORS, createHemiOctViews(IMPOSTOR_FRAMES_DESKTOP, 1)),
 		uniforms,
 	)
-	assert.match(
-		patch(scenery, 'physical').fragmentShader,
-		/getSceneryShadow\(impostorShadowPosition/,
-	)
+	const sceneryShader = patch(scenery, 'physical')
+	assert.match(sceneryShader.fragmentShader, /getSceneryShadow\(impostorShadowPosition/)
+	// Only the scenery paints crowns; the palette uniforms always exist.
+	assert.ok('SCENERY_PALETTE' in scenery.defines)
+	assert.match(sceneryShader.vertexShader, /getSceneryPaletteTints\(/)
+	assert.match(sceneryShader.fragmentShader, /uImpostorPaint/)
+	for (const name of ['uImpostorPaint', 'uSceneryPaletteColors', 'uSceneryPaletteWeights']) {
+		assert.ok(name in sceneryShader.uniforms, name)
+	}
 	const wireframe = createImpostorWireframeMaterial(scenery, 0x3fd5ff)
-	assert.match(patch(wireframe, 'physical').fragmentShader, /uSceneryWireframeColor/)
+	const wireframeShader = patch(wireframe, 'physical')
+	assert.match(wireframeShader.fragmentShader, /uSceneryWireframeColor/)
+	assert.ok('uSceneryTrunkColors' in wireframeShader.uniforms)
 
 	const clouds = createImpostorMaterial(
 		fakeAtlas(CLOUD_IMPOSTORS, CLOUD_IMPOSTOR_VIEWS),
@@ -111,13 +119,14 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		patch(clouds, 'physical').fragmentShader,
 		/getSceneryShadow\(impostorShadowPosition/,
 	)
+	assert.ok(!('SCENERY_PALETTE' in clouds.defines))
 })
 
 test('the near scenery and cloud mesh patches fit the standard material', () => {
 	const shared = {
 		uniforms: { ...uniforms, uSceneryMeshRange: { value: new Vector2() } },
 		variation: { amount: { value: [0, 0, 0, 0, 0, 0] }, frequency: { value: 1 } },
-		detail: {},
+		detail: { uDetail: { value: null }, uSceneryDetail: { value: [] } },
 		wireframe: createSceneryWireframeSettings(),
 	}
 	const scenery = new SceneryMeshes({ ...shared, settings: createSceneryMeshSettings() })
@@ -130,10 +139,16 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 	})
 	for (const meshes of [scenery, clouds]) {
 		for (const level of meshes.levels) {
-			patch(level.material, 'physical')
+			const shader = patch(level.material, 'physical')
+			assert.ok('uSceneryDetail' in shader.uniforms)
+			assert.ok('uSceneryPaletteNoise' in shader.uniforms)
 			patch(level.wireframeMaterial, 'physical')
 		}
 	}
+	// The crown mask reaches the scenery meshes only; cloud sources have none.
+	assert.ok(scenery.levels[0].types[0].geometry.getAttribute('paint'))
+	assert.equal(clouds.levels[0].types[0].geometry.getAttribute('paint'), undefined)
+	assert.match(patch(scenery.levels[0].material, 'physical').vertexShader, /vSceneryPaint = paint/)
 })
 
 test('the trail, propeller, and debug marker patches fit their materials', () => {
@@ -165,4 +180,11 @@ test('the impostor bake shader keeps its detail placeholder', () => {
 		'utf8',
 	)
 	assert.ok(bake.includes('#include <scenery_detail_pars_fragment>'))
+})
+
+test('the bake and resolve passes write the crown mask as a third target', () => {
+	for (const file of ['impostor-bake-fragment.glsl', 'impostor-resolve-fragment.glsl']) {
+		const source = readFileSync(new URL(`../src/shaders/${file}`, import.meta.url), 'utf8')
+		assert.match(source, /layout\(location = 2\) out vec4 gPaint;/, file)
+	}
 })

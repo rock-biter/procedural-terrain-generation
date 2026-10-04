@@ -10,3 +10,13 @@ varying float vSceneryLodFade;
 // impostor bake.
 varying vec3 vSceneryLocalPosition;
 varying vec3 vSceneryLocalNormal;
+// Wood detail settings per type (see applyDetail() in
+// scenery-detail-pars-fragment.glsl), passed on for the instance's type.
+uniform vec3 uSceneryDetail[IMPOSTOR_TYPE_COUNT];
+varying vec3 vSceneryDetail;
+#ifdef SCENERY_PALETTE
+// Crown mask of the source vertex (1 on crowns, src/impostors/impostorArchetypes.js),
+// the share of the palette tint over the trunk tint.
+attribute float paint;
+varying float vSceneryPaint;
+#endif

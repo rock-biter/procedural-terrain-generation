@@ -1,4 +1,4 @@
-import { Group, Vector2 } from 'three'
+import { Group, Vector2, Vector3 } from 'three'
 import { bakeImpostorAtlas } from './impostors/impostorBaker'
 import { CLOUD_IMPOSTORS } from './impostors/impostorCatalogs'
 import {
@@ -64,11 +64,13 @@ export default class Clouds extends Group {
 			amount: { value: new Array(CLOUD_TYPE_COUNT).fill(0) },
 			frequency: { value: settings.variation.frequency },
 		}
+		// One wood setting for every cloud type, always normalized so the grain
+		// keeps the light cloud color.
 		this.detail = {
 			uDetail: { value: woodTexture },
-			uDetailScale: { value: settings.detail.scale },
-			uDetailColor: { value: settings.detail.color },
+			uSceneryDetail: { value: Array.from({ length: CLOUD_TYPE_COUNT }, () => new Vector3()) },
 		}
+		this.applyDetail()
 		// The near meshes write this range; the impostor reads it.
 		this.uniforms = {
 			...uniforms,
@@ -106,14 +108,25 @@ export default class Clouds extends Group {
 			frameSize: this.isMobile
 				? CLOUD_IMPOSTOR_FRAME_SIZE_MOBILE
 				: CLOUD_IMPOSTOR_FRAME_SIZE_DESKTOP,
-			detail: { texture: this.woodTexture, ...this.settings.detail },
+			detail: {
+				texture: this.woodTexture,
+				types: Array.from({ length: CLOUD_TYPE_COUNT }, () => ({
+					...this.settings.detail,
+					normalized: true,
+				})),
+			},
 		})
+	}
+
+	// Copies the wood detail settings into the near meshes' uniforms.
+	applyDetail() {
+		const { scale, color } = this.settings.detail
+		for (const settings of this.detail.uSceneryDetail.value) settings.set(scale, color, 1)
 	}
 
 	// Re-bakes the atlas after a wood detail change.
 	rebake() {
-		this.detail.uDetailScale.value = this.settings.detail.scale
-		this.detail.uDetailColor.value = this.settings.detail.color
+		this.applyDetail()
 		setImpostorAtlas(this.material, this.bake())
 	}
 

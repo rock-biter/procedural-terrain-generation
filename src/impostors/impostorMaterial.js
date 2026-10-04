@@ -1,5 +1,6 @@
 import {
 	BufferAttribute,
+	Color,
 	InstancedBufferGeometry,
 	InstancedInterleavedBuffer,
 	InterleavedBufferAttribute,
@@ -8,6 +9,7 @@ import {
 	Sphere,
 	Vector2,
 	Vector3,
+	Vector4,
 } from 'three'
 import common from '../shaders/common.glsl'
 import impostorOctahedral from '../shaders/impostor-octahedral.glsl'
@@ -24,10 +26,27 @@ import { getCatalogDefines } from './impostorCatalogs'
 import { getViewDefines, isSameViews } from './octahedral'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import { makeSceneryWireframeMaterial, patchSceneryWireframeShader } from './sceneryWireframe'
+import { SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy'
 
 // Far fade of the scenery impostors: they shrink into the fog between these
 // eye distances, before the scenery LOD limit removes their chunk.
 export const SCENERY_IMPOSTOR_FAR_FADE = Object.freeze([800, 950])
+
+// Crown palette uniforms read by SCENERY_PALETTE shaders
+// (getSceneryPaletteTints() in scenery-instance-pars-vertex.glsl), keyed by
+// uniform name. The defaults (white colors, zero weights) leave every type
+// with its plain tint; src/sceneryImpostors.js writes the GUI palette into
+// them in place.
+export function createSceneryPaletteUniforms(typeCount) {
+	return {
+		uSceneryPaletteColors: {
+			value: Array.from({ length: typeCount * SCENERY_PALETTE_SIZE }, () => new Color(1, 1, 1)),
+		},
+		uSceneryPaletteWeights: { value: Array.from({ length: typeCount }, () => new Vector4()) },
+		uSceneryTrunkColors: { value: Array.from({ length: typeCount }, () => new Color(1, 1, 1)) },
+		uSceneryPaletteNoise: { value: new Vector2() },
+	}
+}
 
 // One shared material for every instance of the atlas's catalog
 // (impostorCatalogs.js), e.g. every scenery chunk. It owns the atlas uniforms
@@ -36,7 +55,9 @@ export const SCENERY_IMPOSTOR_FAR_FADE = Object.freeze([800, 950])
 // (sceneryMeshes.js). `variation` holds { amount, frequency } uniforms owned
 // by the caller so the GUI can tune them live: `amount.value` is one float per
 // type index. `farFade` is a Vector2 uniform (start, end) of the shrink into
-// the fog.
+// the fog. `palette` (createSceneryPaletteUniforms()) holds the crown palette
+// uniforms of a SCENERY_PALETTE catalog, owned by the caller; without it the
+// material makes neutral ones.
 //
 // With `receiveShadows` (scenery), `uniforms` must also hold the scenery and
 // cloud shadow uniforms (src/sceneryShadows.js, src/cloudShadows.js);
@@ -53,9 +74,11 @@ export function createImpostorMaterial(
 		receiveShadows = true,
 		farFade = null,
 		ambientScale = null,
+		palette = null,
 	} = {},
 ) {
 	const impostorUniforms = {
+		...(palette ?? createSceneryPaletteUniforms(atlas.catalog.typeCount)),
 		uImpostorVariationAmount: variation?.amount ?? {
 			value: new Array(atlas.catalog.typeCount).fill(0),
 		},
@@ -63,6 +86,7 @@ export function createImpostorMaterial(
 		uImpostorFarFade: farFade ?? { value: new Vector2(...SCENERY_IMPOSTOR_FAR_FADE) },
 		uImpostorAlbedo: { value: atlas.albedo },
 		uImpostorNormal: { value: atlas.normal },
+		uImpostorPaint: { value: atlas.paint },
 		uImpostorTypes: {
 			value: atlas.types.map(({ frameRadius, centerY }) => new Vector2(frameRadius, centerY)),
 		},
@@ -168,6 +192,7 @@ export function setImpostorAtlas(material, atlas) {
 	}
 	uniforms.uImpostorAlbedo.value = atlas.albedo
 	uniforms.uImpostorNormal.value = atlas.normal
+	uniforms.uImpostorPaint.value = atlas.paint
 	atlas.types.forEach(({ frameRadius, centerY }, type) =>
 		uniforms.uImpostorTypes.value[type].set(frameRadius, centerY),
 	)
