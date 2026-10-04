@@ -7,18 +7,20 @@ export const IMPOSTOR_TYPE = Object.freeze({
 	CACTUS_TWO_ARMS: 3,
 	BOULDER: 4,
 	LAYERED_ROCK: 5,
+	SEA_ROCK: 6,
 })
 
-export const IMPOSTOR_TYPE_COUNT = 6
+export const IMPOSTOR_TYPE_COUNT = 7
 
 // Atlas layout: one block of frames x frames views per type. The frame count
 // is chosen per device (src/sceneryImpostors.js) and must be even so no frame looks straight
 // down (see getFrameBasis()). Desktop impostors only appear beyond the near
 // meshes (sceneryMeshes.js), so they share the mobile grid; the shadow casters
-// read the same atlas.
+// read the same atlas. Seven types fill a 4 x 2 grid of blocks, leaving one
+// slot free.
 export const IMPOSTOR_FRAMES_DESKTOP = 12
 export const IMPOSTOR_FRAMES_MOBILE = 12
-export const IMPOSTOR_ATLAS_COLUMNS = 3
+export const IMPOSTOR_ATLAS_COLUMNS = 4
 export const IMPOSTOR_ATLAS_ROWS = 2
 
 // Floats per instance in placement buffers: x, y, z (chunk-local base), scale,

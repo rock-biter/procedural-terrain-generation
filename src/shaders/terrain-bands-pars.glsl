@@ -9,6 +9,18 @@ float getBiomeValue(vec2 biomeXZ) {
 		+ snoise(biomeXZ * BIOME_NOISE_LAYER_2.x) * BIOME_NOISE_LAYER_2.y;
 }
 
+// Sand brightness on fully rocky coast (params.coastSand.shade).
+uniform float uCoastSandShade;
+
+// Rocky coast mask in [0, 1] at biomeXZ (already shifted by uBiomeOffset);
+// getCoastRockMask() in src/coast.js mirrors it, with the same layer order.
+float getCoastRockMask(vec2 biomeXZ) {
+	vec2 coastXZ = biomeXZ + COAST_ROCK_OFFSET;
+	float value = snoise(coastXZ * COAST_ROCK_LAYER_0.x) * COAST_ROCK_LAYER_0.y
+		+ snoise(coastXZ * COAST_ROCK_LAYER_1.x) * COAST_ROCK_LAYER_1.y;
+	return smoothstep(COAST_ROCK_THRESHOLD - COAST_ROCK_SOFTNESS, COAST_ROCK_THRESHOLD + COAST_ROCK_SOFTNESS, value);
+}
+
 // The height plus a band's wave (x = frequency, y = amplitude), compared with
 // the band's line and level; getBandHeight() in src/terrainBands.js.
 float getTerrainBandHeight(vec3 position, vec2 wave) {

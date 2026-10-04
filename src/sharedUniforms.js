@@ -2,6 +2,7 @@ import { Color, Vector2, Vector3 } from 'three'
 import { createBiomeOffset } from './biome'
 import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
+import { createSeaFoamUniforms } from './seaFoam'
 import { createTerrainNormalUniforms } from './terrainNormals'
 import { CURVATURE } from './worldConstants'
 
@@ -24,6 +25,7 @@ export function createSharedUniforms(params, seed) {
 		uColorNoiseThreshold: { value: params.terrainColorNoise.threshold },
 		uColorNoiseSoftness: { value: params.terrainColorNoise.softness },
 		uColorNoiseSpeed: { value: params.terrainColorNoise.speed },
+		uCoastSandShade: { value: params.coastSand.shade },
 		...createTerrainNormalUniforms(params.terrainNormals),
 		// Impostor-to-mesh band; written by SceneryMeshes.applySettings().
 		uSceneryMeshRange: { value: new Vector2(-2, -1) },
@@ -31,5 +33,7 @@ export function createSharedUniforms(params, seed) {
 		...createSceneryShadowUniforms(params.shadows),
 		// Cloud shadow map, matrix, and strength; written by CloudShadows.
 		...createCloudShadowUniforms(),
+		// Sea rock distance map and ripple shape; written by SeaFoam.
+		...createSeaFoamUniforms(),
 	}
 }

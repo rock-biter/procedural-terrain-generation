@@ -81,6 +81,12 @@ test('the terrain and boat patches fit the standard material', () => {
 	)
 	const terrain = patch(chunk.material, 'physical')
 	assert.match(terrain.fragmentShader, /getSceneryShadow\(vShadowPosition, 0\.0\)/)
+	// The coast and the sea rocks share one sea height for the ripples.
+	assert.match(
+		terrain.fragmentShader,
+		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz\)/,
+	)
+	assert.match(terrain.fragmentShader, /getCoastRockMask\(biomeXZ\)/)
 
 	chunk.boat = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
 	const boat = chunk.createBoat(0, 0)

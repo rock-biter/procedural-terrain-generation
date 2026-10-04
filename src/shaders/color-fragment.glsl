@@ -51,6 +51,11 @@ if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	vec3 currentSnow = vec3(0.4, 0.8, 0.9);
 
 	vec3 sandBiomes = mix(vec3(0.92, 0.72, 0.42), currentSand, biomeBlend);
+	// Rocky coast (src/coast.js) darkens the sand gradually. The mask is only
+	// evaluated where the grass band, wave included, may not yet cover it.
+	if (wPosition.y < TERRAIN_GRASS_LEVEL + 2.0 * TERRAIN_GRASS_WAVE.y) {
+		sandBiomes *= mix(1.0, uCoastSandShade, getCoastRockMask(biomeXZ));
+	}
 	vec3 grassBiomes = mix(vec3(0.76, 0.48, 0.2), currentGrass, biomeBlend);
 	vec3 landBiomes = mix(vec3(0.68, 0.3, 0.1), currentLand, biomeBlend);
 	vec3 rocksBiomes = mix(vec3(0.35, 0.16, 0.07), currentRocks, biomeBlend);
@@ -100,11 +105,9 @@ if (pct2 < 0.5) terrainBand = TERRAIN_BAND_LAND;
 if (pctRock < 0.5) terrainBand = TERRAIN_BAND_ROCKS;
 if (pct3 < 0.5) terrainBand = TERRAIN_BAND_SNOW;
 
-float onda = sin(wPosition.y * 8. - uTime * 4. + sin(wPosition.x * 0.5) + sin(wPosition.z * 0.5)) * 0.5 + 0.5;
-onda *= onda * onda * onda;
-float d = - 3.5;
-onda *= smoothstep(d, d - 1.5, wPosition.y) - smoothstep(d - 3., d - 4., wPosition.y);
-onda = mix(onda * 0.5, 0., sin(wPosition.y + wPosition.x * 0.2));
+// Sea ripples (sea-ripple-pars-fragment.glsl) on one sea height: the raw
+// height fused with the sea rocks' virtual height from the foam map.
+float onda = getSeaRipple(getSeaFoamHeight(wPosition.y, wPosition.xz), wPosition.xz);
 diffuseColor.rgb = mix(vec3(onda), diffuseColor.rgb, 1. - onda);
 
 // Distant terrain is capped by the day/night atmosphere color.

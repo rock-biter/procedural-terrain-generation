@@ -12,6 +12,19 @@ export const BIOME_NOISE_LAYERS = Object.freeze([
 	Object.freeze([0.012, 0.06]),
 ])
 
+// Rocky stretches of coast: a low-frequency field, the sum of these simplex
+// layers ([frequency per world unit, weight]) at the seeded biome coordinates
+// plus `offset`, which decorrelates it from the biome field. The mask is
+// smoothstep(threshold - softness, threshold + softness, value): 1 on rocky
+// coast, 0 elsewhere. It raises the coastal relief (src/coast.js), darkens the
+// sand (color-fragment.glsl), and gathers the sea rocks (sceneryPlacement.js).
+export const COAST_ROCK_NOISE = Object.freeze({
+	layers: Object.freeze([Object.freeze([0.003, 1]), Object.freeze([0.011, 0.35])]),
+	offset: Object.freeze([-5217.3, 8841.6]),
+	threshold: 0.15,
+	softness: 0.25,
+})
+
 // Terrain layers in shader order: the sea, then the elevation bands from
 // lowest to highest. `terrainBand` in color-fragment.glsl and the
 // per-layer normal maps (src/terrainNormals.js) use these indices.
@@ -73,6 +86,13 @@ function createShaderDefines() {
 	BIOME_NOISE_LAYERS.forEach(([frequency, weight], index) => {
 		defines[`BIOME_NOISE_LAYER_${index}`] = `vec2(${glslFloat(frequency)}, ${glslFloat(weight)})`
 	})
+	COAST_ROCK_NOISE.layers.forEach(([frequency, weight], index) => {
+		defines[`COAST_ROCK_LAYER_${index}`] = `vec2(${glslFloat(frequency)}, ${glslFloat(weight)})`
+	})
+	const [offsetX, offsetZ] = COAST_ROCK_NOISE.offset
+	defines.COAST_ROCK_OFFSET = `vec2(${glslFloat(offsetX)}, ${glslFloat(offsetZ)})`
+	defines.COAST_ROCK_THRESHOLD = glslFloat(COAST_ROCK_NOISE.threshold)
+	defines.COAST_ROCK_SOFTNESS = glslFloat(COAST_ROCK_NOISE.softness)
 	return Object.freeze(defines)
 }
 

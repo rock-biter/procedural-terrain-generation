@@ -1,7 +1,8 @@
 import { BIOME, BIOME_BORDER_MARGIN, getBiome, getBiomeValue } from './biome.js'
 import { snoise } from './noise.js'
 import { cellRandom, hashSeed, pickWeighted } from './random.js'
-import { getHeight, getSurfaceNormal } from './chunkGeometry.js'
+import { SEA_SURFACE_Y, getHeight, getSurfaceNormal } from './chunkGeometry.js'
+import { getCoastRockMask } from './coast.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from './terrainBands.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 
@@ -11,7 +12,8 @@ import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTyp
 // output uses the IMPOSTOR_INSTANCE_STRIDE layout from impostorTypes.js.
 
 // Scenery grows from the grass band up to the rocks band (src/terrainBands.js,
-// the borders the terrain shader colors): never on sand, the sea, or snow.
+// the borders the terrain shader colors): never on snow. The sand and the
+// shallow sea carry only sea rocks (`coast`).
 export const SCENERY_CONFIG = Object.freeze({
 	// Vertical offset into the ground, in units of instance scale, so bases do
 	// not float where coarse terrain LODs cut below the exact height.
@@ -47,6 +49,29 @@ export const SCENERY_CONFIG = Object.freeze({
 			[IMPOSTOR_TYPE.LAYERED_ROCK, 0.14],
 		],
 	},
+	// Sea rocks on the sand and the shallow sea of every biome, gathered on
+	// rocky coast (getCoastRockMask() in src/coast.js). Acceptance grows from
+	// `baseDensity` (isolated rocks on any coast) to `maxDensity` where the mask
+	// is 1. The base sits `sink` (in scale units) below the ground, or below the
+	// sea surface over deeper water, so every rock rises above the sea. The
+	// scale is drawn as random ** scaleBias across the shape's wide range, so
+	// small rocks are common and large ones rare.
+	coast: {
+		type: IMPOSTOR_TYPE.SEA_ROCK,
+		minHeight: -5,
+		baseDensity: 0.03,
+		maxDensity: 0.3,
+		sink: 0.2,
+		scaleBias: 1.6,
+		// Each rock brings up to `satellites` smaller ones around it, at
+		// `satelliteDistance` (× footprint × scale) from it and `satelliteScale`
+		// of its scale. `footprint` is the source's horizontal radius at scale 1
+		// (src/impostors/impostorArchetypes.js).
+		satellites: 2,
+		satelliteDistance: [1.1, 1.8],
+		satelliteScale: [0.4, 0.7],
+		footprint: 2.5,
+	},
 	// [min scale, max scale, min stretch, max stretch]
 	shape: {
 		[IMPOSTOR_TYPE.ROUND_TREE]: [0.8, 1.3, 0.9, 1.2],
@@ -55,6 +80,7 @@ export const SCENERY_CONFIG = Object.freeze({
 		[IMPOSTOR_TYPE.CACTUS_TWO_ARMS]: [0.7, 1.15, 0.85, 1.2],
 		[IMPOSTOR_TYPE.BOULDER]: [0.6, 1.6, 0.8, 1.1],
 		[IMPOSTOR_TYPE.LAYERED_ROCK]: [0.8, 1.8, 0.7, 1.4],
+		[IMPOSTOR_TYPE.SEA_ROCK]: [0.35, 2.1, 0.8, 1.35],
 	},
 })
 
@@ -66,6 +92,7 @@ export const SCENERY_TYPE_KEYS = Object.freeze({
 	[IMPOSTOR_TYPE.CACTUS_TWO_ARMS]: 'cactusTwoArms',
 	[IMPOSTOR_TYPE.BOULDER]: 'boulder',
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: 'layeredRock',
+	[IMPOSTOR_TYPE.SEA_ROCK]: 'seaRock',
 })
 
 // Density is set per category; each type belongs to one.
@@ -73,6 +100,7 @@ export const SCENERY_CATEGORIES = Object.freeze({
 	trees: [IMPOSTOR_TYPE.ROUND_TREE, IMPOSTOR_TYPE.CONIFER],
 	cacti: [IMPOSTOR_TYPE.CACTUS_ONE_ARM, IMPOSTOR_TYPE.CACTUS_TWO_ARMS],
 	rocks: [IMPOSTOR_TYPE.BOULDER, IMPOSTOR_TYPE.LAYERED_ROCK],
+	seaRocks: [IMPOSTOR_TYPE.SEA_ROCK],
 })
 
 const TYPE_CATEGORY = Object.fromEntries(
@@ -93,6 +121,7 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	cactusTwoArms: 1.68,
 	boulder: 0.6,
 	layeredRock: 0.85,
+	seaRock: 1.15,
 })
 
 // Runtime settings sent with every placement request. Density and size are
@@ -102,7 +131,7 @@ export function createScenerySettings({ isMobile = false } = {}) {
 	return {
 		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.75, cacti: 0.2, rocks: 0.65 },
+		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 1 },
 		size: { ...SCENERY_DEFAULT_SIZES },
 	}
 }
@@ -121,6 +150,11 @@ export function isSceneryBand(band) {
 	return band >= TERRAIN_BAND.grass && band < TERRAIN_BAND.snow
 }
 
+// Whether sea rocks may stand on terrain band `band`: the sand and the sea.
+export function isCoastBand(band) {
+	return band === TERRAIN_BAND.sea || band === TERRAIN_BAND.sand
+}
+
 function getClusterDensity(x, z, biomeOffset) {
 	const cx = x + biomeOffset[0] + CLUSTER_OFFSET[0]
 	const cz = z + biomeOffset[1] + CLUSTER_OFFSET[1]
@@ -135,10 +169,88 @@ function getTint(type, biome, random) {
 			? packTint(1.02 * brightness, 0.86 * brightness, 0.7 * brightness)
 			: packTint(0.8 * brightness, 0.82 * brightness, 0.84 * brightness)
 	}
+	if (type === IMPOSTOR_TYPE.SEA_ROCK) {
+		return biome === BIOME.DESERT
+			? packTint(1.05 * brightness, 0.84 * brightness, 0.7 * brightness)
+			: packTint(0.86 * brightness, 0.82 * brightness, 0.82 * brightness)
+	}
 	// Trees take their hue from the crown palette in the shaders
 	// (src/sceneryPalettePolicy.js), so they vary in brightness only, like
 	// the cacti and layered rocks.
 	return packTint(brightness, brightness, brightness)
+}
+
+// The instance values of a sea rock with base (x, z) over ground `height`.
+function getSeaRockValues(x, z, height, scale, yaw, tint, stretch, context) {
+	const { config, worldX, worldZ } = context
+	const baseY = Math.max(height, SEA_SURFACE_Y) - config.coast.sink * scale
+	return [x - worldX, baseY, z - worldZ, scale, yaw, config.coast.type, tint, stretch]
+}
+
+// Places the sea rock of one coastal candidate, if accepted, and its smaller
+// satellites. Every value comes from the candidate's cell (salts 2 to 8 like
+// other scenery, then 9 and up for the satellites), so the group is
+// deterministic and belongs to the candidate's chunk even where a satellite
+// crosses its border.
+function placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context) {
+	const { seedHash, noises, params, biomeOffset, settings, config } = context
+	const coast = config.coast
+	const type = coast.type
+	const random = (salt) => cellRandom(seedHash, cellX, cellZ, salt)
+
+	const mask = getCoastRockMask(x, z, biomeOffset)
+	const density =
+		(coast.baseDensity + (coast.maxDensity - coast.baseDensity) * mask) *
+		settings.density[TYPE_CATEGORY[type]]
+	if (random(2) >= density) return
+
+	const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
+	const scale =
+		(minScale + (maxScale - minScale) * random(4) ** coast.scaleBias) *
+		settings.size[SCENERY_TYPE_KEYS[type]]
+	if (scale <= 0) return
+	const biome = getBiome(getBiomeValue(x, z, biomeOffset))
+	instances.push({
+		priority: random(8),
+		values: getSeaRockValues(
+			x,
+			z,
+			height,
+			scale,
+			random(6) * Math.PI * 2,
+			getTint(type, biome, random(7)),
+			minStretch + (maxStretch - minStretch) * random(5),
+			context,
+		),
+	})
+
+	const satellites = Math.floor(random(9) * (coast.satellites + 1))
+	const [minDistance, maxDistance] = coast.satelliteDistance
+	const [minShare, maxShare] = coast.satelliteScale
+	for (let index = 0; index < satellites; index++) {
+		const salt = 10 + index * 8
+		const angle = random(salt) * Math.PI * 2
+		const distance =
+			(minDistance + (maxDistance - minDistance) * random(salt + 1)) * coast.footprint * scale
+		const satelliteX = x + Math.cos(angle) * distance
+		const satelliteZ = z + Math.sin(angle) * distance
+		const satelliteHeight = getHeight(satelliteX, satelliteZ, noises, params, biomeOffset)
+		if (satelliteHeight < coast.minHeight) continue
+		const satelliteScale = scale * (minShare + (maxShare - minShare) * random(salt + 2))
+		instances.push({
+			priority: random(salt + 6),
+			values: getSeaRockValues(
+				satelliteX,
+				satelliteZ,
+				satelliteHeight,
+				satelliteScale,
+				random(salt + 3) * Math.PI * 2,
+				getTint(type, biome, random(salt + 4)),
+				minStretch + (maxStretch - minStretch) * random(salt + 5),
+				context,
+			),
+		})
+	}
 }
 
 export function generateSceneryInstances({
@@ -165,6 +277,7 @@ export function generateSceneryInstances({
 	const seedHash = hashSeed(seed)
 	const normal = [0, 0, 0]
 	const instances = []
+	const context = { seedHash, noises, params, biomeOffset, settings, config, worldX, worldZ }
 
 	for (let k = 0; k < cellsPerSide; k++) {
 		for (let w = 0; w < cellsPerSide; w++) {
@@ -175,7 +288,12 @@ export function generateSceneryInstances({
 
 			const height = getHeight(x, z, noises, params, biomeOffset)
 			const band = getTerrainBand(x, height, z)
-			if (!isSceneryBand(band)) continue
+			if (!isSceneryBand(band)) {
+				if (isCoastBand(band) && height >= config.coast.minHeight) {
+					placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context)
+				}
+				continue
+			}
 
 			const biomeValue = getBiomeValue(x, z, biomeOffset)
 			if (Math.abs(biomeValue) < BIOME_BORDER_MARGIN) continue

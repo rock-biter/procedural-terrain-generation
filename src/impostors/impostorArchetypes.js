@@ -28,6 +28,9 @@ const COLORS = {
 	boulder: '#dcc29a',
 	rockLight: '#e3c9a0',
 	rockDark: '#cfa878',
+	// Sea rocks are darker, as wet stone at the waterline.
+	seaRock: '#7d5a43',
+	seaRockDark: '#664835',
 }
 
 // `paint` (0 or 1) fills the part's `paint` attribute: 1 marks a painted part
@@ -197,6 +200,34 @@ function layeredRock(lod) {
 	})
 }
 
+// A group of three stones for the coast: tapered cones, wide at the base and
+// narrower at the blunt top, leaning slightly and roughened by the lumps so
+// their faces stay irregular. Placement sinks the base below the water
+// surface (src/sceneryPlacement.js), so the stones rise from the sea; their
+// bottoms reach slightly below y = 0.
+function seaRock(lod) {
+	// [base radius, height, x, z, lean around x, lean around z, color]
+	const stones = [
+		[1.5, 2.0, 0, 0, 0.06, -0.08, COLORS.seaRock],
+		[1.05, 1.35, 1.65, -0.5, -0.05, -0.18, COLORS.seaRockDark],
+		[0.8, 1.05, -1.15, 1.1, 0.16, 0.1, COLORS.seaRock],
+	]
+	return stones.map(([radius, height, x, z, leanX, leanZ, color]) => {
+		const stone = new CylinderGeometry(
+			radius * 0.42,
+			radius,
+			height,
+			detail(lod, 10, 6),
+			detail(lod, 5, 2),
+		)
+		stone.translate(0, height / 2 - 0.03, 0)
+		stone.rotateX(leanX)
+		stone.rotateZ(leanZ)
+		stone.translate(x, 0, z)
+		return part(stone, color, { lumps: 0.2, lumpScale: 0.85 })
+	})
+}
+
 const BUILDERS = {
 	[IMPOSTOR_TYPE.ROUND_TREE]: roundTree,
 	[IMPOSTOR_TYPE.CONIFER]: conifer,
@@ -204,6 +235,7 @@ const BUILDERS = {
 	[IMPOSTOR_TYPE.CACTUS_TWO_ARMS]: cactusTwoArms,
 	[IMPOSTOR_TYPE.BOULDER]: boulder,
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: layeredRock,
+	[IMPOSTOR_TYPE.SEA_ROCK]: seaRock,
 }
 
 function buildSource(type, lod) {

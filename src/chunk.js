@@ -7,6 +7,7 @@ import normalFragmentMap from './shaders/normal-fragment-map.glsl'
 import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
 import terrainBandsPars from './shaders/terrain-bands-pars.glsl'
 import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
+import seaRipplePars from './shaders/sea-ripple-pars-fragment.glsl'
 import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
 import { TERRAIN_SHADER_DEFINES } from './terrainBands'
 import { createSceneryLighting } from './curvedLights'
@@ -121,6 +122,8 @@ export default class Chunk extends Mesh {
 					terrainNormalPars +
 					'\n' +
 					terrainColorNoisePars +
+					'\n' +
+					seaRipplePars +
 					'\n' +
 					lighting.parsFragment +
 					`

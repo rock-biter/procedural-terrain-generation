@@ -111,6 +111,47 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.name('Reduction depth')
 		.onFinishChange(regenerateTerrain)
 
+	const coastFolder = terrainFolder.addFolder('Coast')
+	coastFolder
+		.add(params.coast, 'amplitude', 0, 6, 0.05)
+		.name('Relief height')
+		.onFinishChange(regenerateTerrain)
+	coastFolder
+		.add(params.coast, 'frequency', 0.01, 0.3, 0.005)
+		.name('Relief frequency')
+		.onFinishChange(regenerateTerrain)
+	coastFolder
+		.add(params.coastSand, 'shade', 0, 1, 0.01)
+		.name('Sand shade')
+		.onChange((value) => {
+			uniforms.uCoastSandShade.value = value
+		})
+	// Live; the reach and radius render the map again.
+	const updateSeaFoam = () => world.seaFoam?.applySettings()
+	const seaFoamFolder = coastFolder.addFolder('Sea foam')
+	seaFoamFolder.add(params.seaFoam, 'enabled').name('Enabled').onChange(updateSeaFoam)
+	seaFoamFolder.add(params.seaFoam, 'strength', 0, 1, 0.01).name('Strength').onChange(updateSeaFoam)
+	seaFoamFolder
+		.add(params.seaFoam, 'reach', 1, 30, 0.5)
+		.name('Reach (units)')
+		.onChange(updateSeaFoam)
+	seaFoamFolder
+		.add(params.seaFoam, 'edgeDepth', -8, -2, 0.05)
+		.name('Edge depth')
+		.onChange(updateSeaFoam)
+	seaFoamFolder
+		.add(params.seaFoam, 'slope', 0.05, 2, 0.01)
+		.name('Depth per unit')
+		.onChange(updateSeaFoam)
+	seaFoamFolder
+		.add(params.seaFoam, 'blend', 0, 6, 0.05)
+		.name('Blend with coast')
+		.onChange(updateSeaFoam)
+	seaFoamFolder
+		.add(params.seaFoam, 'radius', 100, 1500, 10)
+		.name('Radius (units)')
+		.onChange(updateSeaFoam)
+
 	const updateTerrainNormals = () => updateTerrainNormalUniforms(uniforms, params.terrainNormals)
 	const terrainNormalsFolder = terrainFolder.addFolder('Normal maps')
 	terrainNormalsFolder
@@ -309,7 +350,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
 		.name('Variation frequency')
 		.onChange(updateImpostorVariation)
-	const sceneryLabels = { trees: 'Trees', cacti: 'Cacti', rocks: 'Rocks' }
+	const sceneryLabels = { trees: 'Trees', cacti: 'Cacti', rocks: 'Rocks', seaRocks: 'Sea rocks' }
 	for (const [category, types] of Object.entries(SCENERY_CATEGORIES)) {
 		const folder = sceneryFolder.addFolder(sceneryLabels[category])
 		folder

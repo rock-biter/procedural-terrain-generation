@@ -1,6 +1,7 @@
 import alea from 'alea'
 import { createNoise2D } from 'simplex-noise'
 import { getBiomeValue } from './biome.js'
+import { getCoastRelief } from './coast.js'
 import { lerp, smoothstep } from './math.js'
 
 // getLandmass() always reads noises 0 and 1, so at least two are created even
@@ -24,6 +25,18 @@ export const DESERT_TERRAIN_DEFAULTS = Object.freeze({
 	depth: 0.4,
 })
 
+// Default relief of rocky coasts (src/coast.js): mound height in world units
+// and noise frequency per world unit. An amplitude of 0 leaves the coast
+// unchanged.
+export const COAST_TERRAIN_DEFAULTS = Object.freeze({
+	amplitude: 1.6,
+	frequency: 0.07,
+})
+
+// Height of the visible sea surface: the mesh clamps lower terrain to it, and
+// the raw height stays in the `height` attribute.
+export const SEA_SURFACE_Y = -1
+
 // Production terrain parameters (createAppParams() in src/appParams.js, edited by the ?gui=1
 // Terrain folder) and the tests' terrain, so both describe the same world:
 // height amplitude, base noise frequency per axis, octave count, lacunarity
@@ -36,6 +49,7 @@ export const TERRAIN_DEFAULTS = Object.freeze({
 	lacunarity: 2,
 	persistance: 0.5,
 	desert: DESERT_TERRAIN_DEFAULTS,
+	coast: COAST_TERRAIN_DEFAULTS,
 })
 
 // A mutable copy of TERRAIN_DEFAULTS.
@@ -44,6 +58,7 @@ export function createTerrainSettings() {
 		...TERRAIN_DEFAULTS,
 		frequency: { ...TERRAIN_DEFAULTS.frequency },
 		desert: { ...TERRAIN_DEFAULTS.desert },
+		coast: { ...TERRAIN_DEFAULTS.coast },
 	}
 }
 
@@ -132,6 +147,10 @@ export function getHeight(x, z, noises, params, biomeOffset) {
 	}
 	height += getLandmass(x, z, noises, params)
 
+	// Rocky coasts rise in mounds around the waterline. The relief is added
+	// before the desert flattening, which scales it with the rest of the land.
+	height += getCoastRelief(x, z, height, biomeOffset, params.coast)
+
 	// Only land is lowered, so coastlines and sea depth stay unchanged.
 	if (height > 0) height *= 1 - getDesertFlattening(biomeValue, params)
 
@@ -143,7 +162,7 @@ export function getHeight(x, z, noises, params, biomeOffset) {
 export const NORMAL_EPSILON = 1
 
 function getSurfaceHeight(x, z, noises, params, biomeOffset) {
-	return Math.max(getHeight(x, z, noises, params, biomeOffset), -1)
+	return Math.max(getHeight(x, z, noises, params, biomeOffset), SEA_SURFACE_Y)
 }
 
 export function getSurfaceNormal(x, z, noises, params, biomeOffset, target = [0, 0, 0]) {
@@ -240,7 +259,7 @@ export function generateChunkGeometryData({
 			const x = xs[column]
 			const index = row * columns + column
 			const sampledHeight = getHeight(x, z, noises, params, biomeOffset)
-			const y = Math.max(sampledHeight, -1)
+			const y = Math.max(sampledHeight, SEA_SURFACE_Y)
 			height[index] = sampledHeight
 			position[index * 3] = local[column]
 			position[index * 3 + 1] = y

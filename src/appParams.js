@@ -10,6 +10,7 @@ import {
 } from './sceneryMeshPolicy'
 import { createSceneryPaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
+import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
 
@@ -34,7 +35,7 @@ export function createAppParams({ urlParams, isMobile }) {
 		// Radial fog range in world units from the eye; DayNight applies it.
 		fog: { near: 200, far: 2100 },
 		// Terrain generation (amplitude, frequency, octaves, lacunarity,
-		// persistance, desert topography); see TERRAIN_DEFAULTS.
+		// persistance, desert topography, coastal relief); see TERRAIN_DEFAULTS.
 		...createTerrainSettings(),
 		colors: {
 			uGrass: '#6d976d',
@@ -52,6 +53,9 @@ export function createAppParams({ urlParams, isMobile }) {
 			softness: 0.3,
 			speed: 0.25,
 		},
+		// Shader-side, applied live: the sand's brightness on fully rocky coast
+		// (src/coast.js mask); 1 leaves it unchanged.
+		coastSand: { shade: 0.82 },
 		// Normal map, tile size (world units), and strength per terrain layer;
 		// defaults and texture assignment live in TERRAIN_NORMAL_LAYERS.
 		terrainNormals: createTerrainNormalSettings(),
@@ -97,6 +101,7 @@ export function createAppParams({ urlParams, isMobile }) {
 			cactusTwoArms: { scale: 0.01, color: 0.1, normalized: false },
 			boulder: { scale: 0.01, color: 0.1, normalized: false },
 			layeredRock: { scale: 0.01, color: 0.1, normalized: false },
+			seaRock: { scale: 0.01, color: 0.1, normalized: false },
 		},
 		// Shader-side, applied live: the trees' trunk colors and crown palettes and
 		// the cacti's palette, picked per instance from world-space noise; see
@@ -112,6 +117,9 @@ export function createAppParams({ urlParams, isMobile }) {
 		// Soft shadows of scenery and the airplane on terrain and scenery, in two
 		// cascades that fade out with distance; see createSceneryShadowSettings().
 		shadows: createSceneryShadowSettings({ isMobile }),
+		// The coast's ripples around the sea rocks, from a top-down map of the
+		// distance to the nearest rock; see createSeaFoamSettings().
+		seaFoam: createSeaFoamSettings({ isMobile }),
 		// Shader-side, applied live: brightness change per type in stops (1 = half
 		// to double brightness) and the world frequency of the noise that drives it.
 		// The trees and cacti vary less, so their palette colors stay recognizable.

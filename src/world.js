@@ -8,6 +8,7 @@ import DayNight from './dayNight'
 import Plane from './plane'
 import SceneryImpostors from './sceneryImpostors'
 import SceneryShadows from './sceneryShadows'
+import SeaFoam from './seaFoam'
 import TerrainSampleDebug from './terrainSampleDebug'
 import { CHUNK_SIZE } from './worldConstants'
 
@@ -18,7 +19,8 @@ const SPAWN_CLEARANCE = 60
 // Everything the frame loop updates: the day/night cycle (from construction,
 // so the loading screen already has its colors), then, once the startup
 // assets have loaded (init()), the airplane, scenery impostors and shadows,
-// clouds, terrain chunks, and the debug helpers. It owns the frame loop and
+// the sea foam around the sea rocks, clouds, terrain chunks, and the debug
+// helpers. It owns the frame loop and
 // its update order, the world seed, and the runtime terrain actions the
 // ?gui=1 panel calls.
 //
@@ -31,6 +33,7 @@ export default class World {
 	chunkManager = null
 	sceneryImpostors = null
 	sceneryShadows = null
+	seaFoam = null
 	clouds = null
 	cloudShadows = null
 	terrainSampleDebug = null
@@ -96,6 +99,8 @@ export default class World {
 				isMobile,
 			})
 			scene.add(this.sceneryImpostors)
+			// Ripples around the sea rocks, which are scenery instances.
+			this.seaFoam = new SeaFoam({ renderer, uniforms, settings: params.seaFoam })
 		}
 
 		// Without scenery only the airplane casts shadows.
@@ -233,6 +238,7 @@ export default class World {
 		renderer.setRenderTarget(postProcessing.composer.inputBuffer)
 		const compiles = [renderer.compileAsync(scene, this.camera)]
 		if (this.cloudShadows) compiles.push(this.cloudShadows.compileAsync())
+		if (this.seaFoam) compiles.push(this.seaFoam.compileAsync())
 		renderer.setRenderTarget(target)
 		return Promise.all(compiles)
 	}
@@ -267,6 +273,8 @@ export default class World {
 		frameStats.mark('chunks')
 		// After this frame's scenery commits, with the camera that renders it.
 		this.sceneryImpostors?.update(this.chunkManager.chunks, CHUNK_SIZE, this.camera)
+		// The sea rock map, with this frame's scenery, before the main pass.
+		this.seaFoam?.update(this.chunkManager.chunks, CHUNK_SIZE, plane)
 		frameStats.mark('scenery')
 		this.clouds?.update(plane.position, this.camera)
 		frameStats.mark('clouds')
@@ -301,6 +309,7 @@ export default class World {
 			getShadowStats: () => this.sceneryShadows?.getStats() ?? null,
 			getCloudStats: () => this.clouds?.getStats() ?? null,
 			getCloudShadowStats: () => this.cloudShadows?.getStats() ?? null,
+			getSeaFoamStats: () => this.seaFoam?.getStats() ?? null,
 			getRenderStats: () => this.setup.getStats(),
 		})
 	}

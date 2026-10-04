@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createBiomeOffset, getBiomeValue } from '../src/biome.js'
+import { COAST_RELIEF_WINDOW } from '../src/coast.js'
 import { PlaneGeometry } from 'three'
 import {
 	DESERT_TERRAIN_DEFAULTS,
@@ -203,6 +204,23 @@ test('blends desert and temperate heights continuously across the border', () =>
 		assert.ok(Math.abs(height - previous) < 0.5, `jump at x=${x}`)
 		previous = height
 	}
+})
+
+test('raises rocky coasts only around the waterline', () => {
+	const flat = { ...params, coast: { ...params.coast, amplitude: 0 } }
+	let raised = 0
+	for (let index = 0; index < 4000; index++) {
+		const x = ((index * 7919) % 20000) - 10000
+		const z = ((index * 104729) % 20000) - 10000
+		const height = getHeight(x, z, noises, params, biomeOffset)
+		const withoutRelief = getHeight(x, z, noises, flat, biomeOffset)
+		assert.ok(height >= withoutRelief)
+		if (withoutRelief <= COAST_RELIEF_WINDOW.min || withoutRelief >= COAST_RELIEF_WINDOW.max) {
+			assert.equal(height, withoutRelief)
+		}
+		if (height > withoutRelief) raised++
+	}
+	assert.ok(raised > 0)
 })
 
 test('samples a single octave with the same landmass noises', () => {

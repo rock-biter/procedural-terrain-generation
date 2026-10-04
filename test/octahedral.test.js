@@ -22,6 +22,8 @@ import {
 	CLOUD_ATLAS_COLUMNS,
 	CLOUD_ATLAS_ROWS,
 	CLOUD_IMPOSTOR_VIEWS,
+	IMPOSTOR_ATLAS_COLUMNS,
+	IMPOSTOR_ATLAS_ROWS,
 } from '../src/impostors/impostorTypes.js'
 
 const close = (a, b, epsilon = 1e-9) => Math.abs(a - b) < epsilon
@@ -244,18 +246,19 @@ test('sizes atlases per layout and fits the texture limit', () => {
 		width: 864,
 		height: 960,
 	})
-	assert.deepEqual(getAtlasLayout(createHemiOctViews(12), { columns: 3, rows: 2 }, 64), {
+	// The scenery atlas: seven types in 4 x 2 blocks.
+	const SCENERY_ATLAS = { columns: IMPOSTOR_ATLAS_COLUMNS, rows: IMPOSTOR_ATLAS_ROWS }
+	assert.deepEqual(getAtlasLayout(createHemiOctViews(12), SCENERY_ATLAS, 64), {
 		blockWidth: 768,
 		blockHeight: 768,
-		width: 2304,
+		width: 3072,
 		height: 1536,
 	})
 	// The supersampled bake block of the tall frontal grid is the limit here.
 	assert.equal(getMaxImpostorFrameSize(2048, CLOUD_VIEWS, CLOUD_ATLAS, 2), 102)
-	assert.equal(
-		getMaxImpostorFrameSize(4096, createHemiOctViews(12), { columns: 3, rows: 2 }, 2),
-		113,
-	)
+	// 64 px frames fit a 4096 texture limit; a 2048 one shrinks them.
+	assert.equal(getMaxImpostorFrameSize(4096, createHemiOctViews(12), SCENERY_ATLAS, 2), 85)
+	assert.equal(getMaxImpostorFrameSize(2048, createHemiOctViews(12), SCENERY_ATLAS, 2), 42)
 })
 
 test('turns layouts into shader defines', () => {

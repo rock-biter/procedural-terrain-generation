@@ -19,11 +19,12 @@ Keep CPU sampling, chunk placement, instance placement, and shader world coordin
 
 `getHeight(x, z, noises, params, biomeOffset)` in [`src/chunkGeometry.js`](../src/chunkGeometry.js) is the shared CPU height function. `biomeOffset` is the seeded offset from `createBiomeOffset(seed)`; every caller must pass the same one the shader uses as `uBiomeOffset`.
 
-The production parameters are `TERRAIN_DEFAULTS` in the same module (amplitude `32`, frequency `0.5` on both axes, `3` octaves, lacunarity `2`, persistance `0.5`, and `DESERT_TERRAIN_DEFAULTS`); `createAppParams()` spreads a mutable copy (`createTerrainSettings()`) into `params`, and the terrain and scenery tests use the same values.
+The production parameters are `TERRAIN_DEFAULTS` in the same module (amplitude `32`, frequency `0.5` on both axes, `3` octaves, lacunarity `2`, persistance `0.5`, `DESERT_TERRAIN_DEFAULTS`, and `COAST_TERRAIN_DEFAULTS`); `createAppParams()` spreads a mutable copy (`createTerrainSettings()`) into `params`, and the terrain and scenery tests use the same values.
 
 1. For every configured octave, sample simplex noise using `frequency`, `lacunarity`, and world coordinates.
 2. Square each sample and scale it by `amplitude * persistance ** octave`.
 3. Add a lower-frequency landmass term blended through Three.js `smoothstep` and `lerp` helpers.
+4. Add the [coastal relief](#rocky-coast), then apply the desert flattening.
 
 ### Biome Topography
 
@@ -37,6 +38,16 @@ The desert is lower and softer than the temperate biome, while the large-scale s
 - Defaults live in `DESERT_TERRAIN_DEFAULTS`; `createAppParams()` copies them into `params.desert`, and `ChunkManager` snapshots them into every worker request. The **Terrain > Desert topography** GUI edits them and regenerates the chunks when a control is released.
 - **Cost:** each height sample also evaluates the biome field (three `snoise` calls). In Node, a LOD `0` chunk at density `1` went from about `86` to `130`–`140` ms. The work runs in the workers.
 
+### Rocky Coast
+
+Some stretches of coast are rocky: their relief is a little rougher, their sand a little darker, and the sea rocks gather there (see [Placement](#placement)).
+
+- **Mask:** `getCoastRockMask(x, z, biomeOffset)` in [`src/coast.js`](../src/coast.js) is `1` on rocky coast and `0` elsewhere. It sums the simplex layers of `COAST_ROCK_NOISE` in [`src/terrainBands.js`](../src/terrainBands.js) (frequency and weight: `0.003` × `1`, `0.011` × `0.35`) at the seeded biome coordinates plus a fixed offset, then maps the sum through `smoothstep(threshold - softness, threshold + softness)` (`0.15`, `0.25`). Rocky stretches are a few hundred units long. The shader twin is `getCoastRockMask()` in [`terrain-bands-pars.glsl`](../src/shaders/terrain-bands-pars.glsl), with the same layers as defines (`COAST_ROCK_*`) and the same summation order. The shader uses it only to darken the sand ([Rendering](RENDERING.md#terrain)); the relief reaches it through the `height` attribute.
+- **Relief:** `getCoastRelief()` adds flat-topped mounds: two octaves of `snoise()` at `params.coast.frequency` (`0.07` per unit, features of about 10 to 15 units), mapped through `smoothstep(0, 0.8)`. They are scaled by `params.coast.amplitude` (`1.6` units), the mask, and a height window. The window is `1` from `-5` to `1` and fades to `0` at `-8` and `4` (`COAST_RELIEF_WINDOW`), measured on the height before the relief. The mounds therefore roughen the beach, the first rise of land, and the shallow sea, where the tallest become small sand islets. Away from the window or the mask no extra noise is evaluated.
+- **Order:** the relief is never negative, and it is added before the desert flattening, so the desert scales it with the rest of the land. With amplitude `0` heights are exactly the previous ones.
+- **Settings:** `COAST_TERRAIN_DEFAULTS` holds `amplitude` and `frequency`, copied into `params.coast` and snapshotted into every worker request. The **Terrain > Coast** GUI edits them and regenerates the chunks when a control is released.
+- **Cost:** in Node, a LOD `0` chunk at density `1` on a rocky coast (`seed=rock288`) went from about `154` to `163` ms; chunks without coast in the window evaluate nothing more.
+
 `ChunkManager` and each worker create one `simplex-noise` function per octave using Alea and the same world seed, and never fewer than two, because the landmass always reads noises `0` and `1` (`createTerrainNoises()`); a single octave therefore keeps the same landmass. Pass `?seed=<value>` for a reproducible world; without it, `main.js` creates a random eight-character base-36 seed (`createRandomSeed()` in [`src/worldSeed.js`](../src/worldSeed.js)). One seed drives topology (`seed:octave` noises), biomes (`seed:biome` offset), scenery placement, and the cloud field. Each worker caches its noise functions until the seed or octave count changes.
 
 With `?gui=1`, the **World** folder shows the current seed and changes it at runtime. Text is trimmed, and a blank value restores the current seed. **Random seed** picks a new one. The address bar is not updated. `ChunkManager.setSeed()` then:
@@ -48,7 +59,7 @@ With `?gui=1`, the **World** folder shows the current seed and changes it at run
 
 `World` also gives `Plane` a sampler backed by this same seeded `getHeight()` path, with `chunkManager.biomeOffset`. Flight safety therefore reads terrain in world coordinates and agrees with the generated chunks without synchronously creating geometry.
 
-For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least `-1`. Shaders use the raw attribute for effects and coloring, so do not remove it.
+For every terrain vertex, `generateChunkGeometryData()` stores the raw height in the custom `height` buffer and clamps visible Y to at least the sea surface, `SEA_SURFACE_Y` (`-1`). Shaders use the raw attribute for effects and coloring, so do not remove it.
 
 Normals come from the height function, not from mesh triangles. `getSurfaceNormal()` takes central differences of the clamped surface height `max(getHeight(), -1)` at `±NORMAL_EPSILON` (`1` world unit) along X and Z. The step is a fixed world-space constant, independent of LOD and density, so a vertex shared by neighboring chunks gets the same normal even when the chunks have different LODs, and chunk borders show no lighting seams. Each vertex costs up to four extra `getHeight()` calls. Where the grid step is exactly `2 × NORMAL_EPSILON` (desktop LOD 0), the `+ε` sample of one vertex is the `-ε` sample of the next one along X and along Z, so `generateChunkGeometryData()` reuses it (about three calls per vertex instead of five, `-50%` per desktop LOD 0 job). A sample is reused only where both world coordinates are exactly equal, so every normal is bit-identical to sampling each vertex on its own. Keep the epsilon fixed; do not derive it from grid spacing.
 
@@ -71,7 +82,7 @@ Normals come from the height function, not from mesh triangles. `getSurfaceNorma
 - Entering a new chunk or a new heading sector increments the desired-set revision and diffs every live chunk against the new set.
 - Out-of-range chunks are immediately disposed and deleted from the live `Map`; pending jobs outside the set are deleted as well.
 - Missing chunks and changed LODs become keyed jobs in a pending `Map`, so each coordinate has at most one queued operation.
-- Jobs carry key, desired-set revision, LOD, scenery range, seed, biome offset, and a snapshot of terrain parameters (including `desert`). Workers echo key and the revision the job was dispatched with; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
+- Jobs carry key, desired-set revision, LOD, scenery range, seed, biome offset, and a snapshot of terrain parameters (including `desert` and `coast`). Workers echo key and the revision the job was dispatched with; mismatched or obsolete responses are discarded before `BufferGeometry` allocation.
 - On a reconcile, an in-flight job from the previous revision is adopted when it still produces exactly what the new target asks for: a `create` or `updateLOD` with the same LOD and scenery range, or a `regenerate` or `scenery` job on a chunk whose LOD is unchanged. Its revision moves to the new one and its result is committed. Other in-flight results become stale. Jobs from before a parameter or scenery change are never adopted.
 - A `regenerate` job, queued or in flight, is queued again after a reconcile, so a parameter change is not lost when the plane crosses a chunk or turns.
 - `dispatchJobs()` sends the most urgent pending jobs to every idle worker, every frame and again whenever a worker finishes, so workers never wait for the next frame. Pending jobs are sorted by `priority`, the LOD distance described below, so chunks ahead run before chunks equally far behind.
@@ -107,6 +118,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 [`src/terrainBands.js`](../src/terrainBands.js) is the single source of the terrain's elevation bands; the terrain shader receives every constant as a material define (`TERRAIN_SHADER_DEFINES`), and scenery placement calls `getTerrainBand()`.
 
+- The module also holds the rocky coast mask's layers (`COAST_ROCK_NOISE`, see [Rocky Coast](#rocky-coast)).
 - The layers are `TERRAIN_BANDS`: `sea`, `sand`, `grass`, `land`, `rocks`, `snow`. Their indices are `terrainBand` in `color-fragment.glsl` and the per-layer normal maps ([Rendering](RENDERING.md#terrain)).
 - The sea fills everything up to `SAND_LEVEL` (`0.1`); sand begins above it.
 - Each higher band begins where the height plus a wave, `sin(x · frequency) · amplitude + cos(z · frequency) · amplitude`, exceeds its `level`, with a black ink line from `line` to `level` below it: grass `0.3`/`0.6`, level `1.7`; land `0.1`/`1.6`, level `14.1`; rocks `0.15`/`2.5`, level `22.2`; snow `0.15`/`5`, level `40.2` (frequency/amplitude). A higher band wins wherever its border is passed, as in the shader.
@@ -114,7 +126,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ## Per-Chunk Scenery
 
-`WORLD_FEATURES` ([`src/worldConstants.js`](../src/worldConstants.js)) sets `scenery` and `clouds` to `true` and `boats` to `false`. Scenery means trees, cacti, and rocks. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)). Boats keep their dormant implementation behind their flag.
+`WORLD_FEATURES` ([`src/worldConstants.js`](../src/worldConstants.js)) sets `scenery` and `clouds` to `true` and `boats` to `false`. Scenery means trees, cacti, rocks, and the sea rocks of the coast. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)). Boats keep their dormant implementation behind their flag.
 
 ### Biome Field
 
@@ -124,7 +136,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 - `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `createSharedUniforms()` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers in both the terrain and the scenery part of each request, so the seed moves biomes and their topography.
 - A negative value is desert and a non-negative value is temperate.
 - In a headless SwiftShader comparison over 16,384 points, JS and GLSL differed by at most `8e-6`, with no sign mismatch.
-- Placement skips candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border.
+- Placement skips land candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border; sea rocks grow in both biomes and ignore it.
 
 ### Placement
 
@@ -134,7 +146,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 - **Grid:** a jittered world-space grid whose cell size is `settings.cellSize`: `8` units on desktop and `16` on mobile by default, and it must divide the chunk size.
 - **Randomness:** each cell draws its values from a stateless integer hash of the seed and the cell coordinates (`cellRandom()` in [`src/random.js`](../src/random.js)). The result does not depend on generation order or LOD, and revisiting a coordinate reproduces the same instances.
 - **Rejected candidates:** a candidate is skipped when any of these hold:
-  - its terrain band at the exact height (`getTerrainBand()`, see [Terrain Bands](#terrain-bands)) is not grass, land, or rocks: the sea, the sand band, and snow carry no scenery, wherever the shader draws their wavy borders;
+  - its terrain band at the exact height (`getTerrainBand()`, see [Terrain Bands](#terrain-bands)) is not grass, land, or rocks: snow carries no scenery, wherever the shader draws its wavy border, and the sea and the sand band carry only sea rocks (see **Sea rocks** below);
   - it is within the biome-border margin;
   - it fails the density test;
   - the surface normal's Y is below `0.8` (temperate) or `0.75` (desert).
@@ -143,15 +155,16 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
   - temperate land band: mostly conifers;
   - temperate rocks band: conifers and boulders;
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
+- **Sea rocks:** a candidate on the sea or sand band (`isCoastBand()`) with an exact height of at least `SCENERY_CONFIG.coast.minHeight` (`-5`) can only become a sea rock (`IMPOSTOR_TYPE.SEA_ROCK`), in either biome and up to the biome border. It is accepted with probability `(baseDensity + (maxDensity - baseDensity) × mask) × settings.density.seaRocks`, from `0.03` on plain coast to `0.3` per cell where the [rocky coast](#rocky-coast) mask is `1`, with no slope test. Its scale spans a wide range, `0.35`–`2.1` × the `seaRock` size, drawn as `random ** coast.scaleBias` (`1.6`), so small rocks are common and large ones rare. Its base sits `coast.sink` (`0.2`) × scale below the ground, or below the sea surface (`SEA_SURFACE_Y`) over deeper water, so every rock rises above the sea; the opaque sea hides the part below. Each accepted rock brings up to `coast.satellites` (`2`) smaller ones, at `1.1`–`1.8` × the footprint (`2.5` units) × its scale from it, at `0.4`–`0.7` of its scale. Each satellite has its own exact height and is dropped below the minimum height. Satellites use salts from `9` on, so the group is deterministic and belongs to the candidate's chunk even where a satellite crosses its border. The tint is a dark brown in temperate areas and a reddish one in the desert.
 
   Scale, vertical stretch, yaw, and tint vary per instance. The tint is a brightness for every type; boulders are also grey in temperate areas and sandy in the desert. Trees and cacti take their hue from the scenery palettes in the shaders, from world-space noise at the instance's base, not from placement (see [Rendering](RENDERING.md#scenery-palettes)).
 - **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category.
 - **Size:** `settings.size[typeKey]` multiplies the instance scale drawn from the `SCENERY_CONFIG` range.
-- **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface.
+- **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface. Sea rocks use their own rule (above).
 - **Cap:** when a chunk has more than `settings.maxPerChunk` instances (default `1000`), it keeps those with the lowest per-cell random priority. The subset is deterministic and spatially uniform.
 - **Output:** a transferable `Float32Array` with `IMPOSTOR_INSTANCE_STRIDE = 8` floats per instance: chunk-local `x, y, z`, scale, yaw, type, packed RGB tint, stretch.
 
-With the default settings, placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node. Instance counts reach about 550 and 120 per land chunk.
+With the default settings, placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node. Sea rocks add no measurable cost: about `0.9` ms per desktop chunk with and without them along a rocky coast (`seed=rock288`). Instance counts reach about 550 and 120 per land chunk.
 
 ### Scenery LOD And Jobs
 
@@ -168,14 +181,15 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 - `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `8` on desktop and `16` on mobile;
 - `maxPerChunk`, default `1000`;
-- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, and `density.rocks = 0.65`;
+- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, `density.rocks = 0.65`, and `density.seaRocks = 1`;
 - size multipliers, copied from the `SCENERY_DEFAULT_SIZES` configuration object:
   - `roundTree`: `1.35`;
   - `conifer`: `1.7`;
   - `cactusOneArm`: `1.29`;
   - `cactusTwoArms`: `1.68`;
   - `boulder`: `0.6`;
-  - `layeredRock`: `0.85`.
+  - `layeredRock`: `0.85`;
+  - `seaRock`: `1.15`.
 
 Edit `SCENERY_DEFAULT_SIZES` and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.
 
@@ -242,7 +256,7 @@ Record and test ownership before changing disposal; shared resources must not be
 - Keep expensive creation and LOD work bounded per frame.
 - Test negative world coordinates because chunk indexing uses `Math.floor()`.
 - Validate desktop and narrow/mobile paths because density and streaming radius differ.
-- Change band and biome constants only in `src/terrainBands.js`: placement and the terrain shader both read them. Check terrain, scenery, clouds, and boats after changing them. Keep the `snoise` port in `src/noise.js` identical to the GLSL, and the summation order of `getBiomeValue()` the same on both sides. If the biome field can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
+- Change band, biome, and rocky coast constants only in `src/terrainBands.js`: placement and the terrain shader both read them. Check terrain, scenery, clouds, and boats after changing them. Keep the `snoise` port in `src/noise.js` identical to the GLSL, and the summation order of `getBiomeValue()` the same on both sides. If the biome field can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
 - Treat changes to `params.octaves` as changes to both the height loop and the number of available noise functions; `createTerrainNoises()` keeps at least the two the landmass needs.
 
 ## Open Questions

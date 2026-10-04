@@ -23,7 +23,7 @@ test('the material defines every band and biome constant the terrain shaders rea
 	for (const name of terrainShaders) {
 		const source = code(name)
 		const local = new Set([...source.matchAll(/#define\s+(\w+)/g)].map((match) => match[1]))
-		const used = source.match(/\b(?:TERRAIN|BIOME_NOISE)_[A-Z0-9_]+\b/g) ?? []
+		const used = source.match(/\b(?:TERRAIN|BIOME_NOISE|COAST_ROCK)_[A-Z0-9_]+\b/g) ?? []
 		for (const identifier of used) {
 			if (local.has(identifier)) continue
 			assert.ok(identifier in TERRAIN_SHADER_DEFINES, `${name} reads undefined ${identifier}`)
@@ -35,7 +35,7 @@ test('defines are GLSL literals', () => {
 	const float = '-?\\d+\\.\\d*(?:e-?\\d+)?'
 	for (const [name, value] of Object.entries(TERRAIN_SHADER_DEFINES)) {
 		if (/^TERRAIN_BAND_/.test(name)) assert.match(value, /^\d+$/, name)
-		else if (/_WAVE$|^BIOME_NOISE_LAYER_/.test(name))
+		else if (/_WAVE$|^BIOME_NOISE_LAYER_|^COAST_ROCK_(?:LAYER_|OFFSET$)/.test(name))
 			assert.match(value, new RegExp(`^vec2\\(${float}, ${float}\\)$`), name)
 		else assert.match(value, new RegExp(`^${float}$`), name)
 	}

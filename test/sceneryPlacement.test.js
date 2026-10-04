@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import { BIOME_BORDER_MARGIN, createBiomeOffset, getBiomeValue } from '../src/biome.js'
-import { TERRAIN_DEFAULTS, createTerrainNoises, getHeight } from '../src/chunkGeometry.js'
+import {
+	SEA_SURFACE_Y,
+	TERRAIN_DEFAULTS,
+	createTerrainNoises,
+	getHeight,
+} from '../src/chunkGeometry.js'
+import { getCoastRockMask } from '../src/coast.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from '../src/impostors/impostorTypes.js'
 import {
 	SCENERY_CATEGORIES,
@@ -10,6 +16,7 @@ import {
 	SCENERY_TYPE_KEYS,
 	createScenerySettings,
 	generateSceneryInstances,
+	isCoastBand,
 	isSceneryBand,
 	packTint,
 } from '../src/sceneryPlacement.js'
@@ -61,12 +68,22 @@ test('produces deterministic output independent of generation order', () => {
 	assert.ok(chunks.some(([, , chunk]) => chunk.length > 0))
 })
 
+// Farthest a sea rock satellite can stand from its candidate.
+const coast = SCENERY_CONFIG.coast
+const satelliteReach =
+	coast.satelliteDistance[1] *
+	coast.footprint *
+	SCENERY_CONFIG.shape[IMPOSTOR_TYPE.SEA_ROCK][1] *
+	SCENERY_DEFAULT_SIZES.seaRock
+
 test('keeps every instance inside its own chunk without duplicates', () => {
 	const seen = new Set()
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
-			assert.ok(instance.localX >= -size / 2 && instance.localX < size / 2)
-			assert.ok(instance.localZ >= -size / 2 && instance.localZ < size / 2)
+			// Sea rock satellites belong to their candidate's chunk, even across its border.
+			const reach = instance.type === IMPOSTOR_TYPE.SEA_ROCK ? satelliteReach : 0
+			assert.ok(instance.localX >= -size / 2 - reach && instance.localX < size / 2 + reach)
+			assert.ok(instance.localZ >= -size / 2 - reach && instance.localZ < size / 2 + reach)
 			const key = `${instance.x.toFixed(3)}|${instance.z.toFixed(3)}`
 			assert.equal(seen.has(key), false)
 			seen.add(key)
@@ -81,10 +98,44 @@ test('scenery grows only on the grass, land, and rocks bands', () => {
 	)
 })
 
-test('never places scenery in water, on beaches, or on snow', () => {
+test('sea rocks stand on sand and the shallow sea, rising above the surface', () => {
+	assert.deepEqual(
+		TERRAIN_BANDS.filter((_, band) => isCoastBand(band)),
+		['sea', 'sand'],
+	)
+	let count = 0
+	for (const [i, j, data] of chunks) {
+		for (const instance of instances(data, i, j)) {
+			if (instance.type !== IMPOSTOR_TYPE.SEA_ROCK) continue
+			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
+			assert.ok(height >= coast.minHeight)
+			const base = Math.max(height, SEA_SURFACE_Y) - coast.sink * instance.scale
+			assert.ok(Math.abs(instance.y - base) < 1e-3)
+			count++
+		}
+	}
+	assert.ok(count > 0)
+})
+
+test('gathers sea rocks on rocky coast', () => {
+	let rocky = 0
+	let plain = 0
+	for (const [i, j, data] of chunks) {
+		for (const instance of instances(data, i, j)) {
+			if (instance.type !== IMPOSTOR_TYPE.SEA_ROCK) continue
+			const mask = getCoastRockMask(instance.x, instance.z, biomeOffset)
+			if (mask > 0.5) rocky++
+			else plain++
+		}
+	}
+	assert.ok(rocky > plain, `${rocky} rocks on rocky coast, ${plain} elsewhere`)
+})
+
+test('places only sea rocks in water or on beaches, and nothing on snow', () => {
 	const bands = new Set()
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
+			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK) continue
 			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
 			const band = getTerrainBand(instance.x, height, instance.z)
 			assert.ok(band >= TERRAIN_BAND.grass && band <= TERRAIN_BAND.rocks)
@@ -112,6 +163,8 @@ test('keeps desert and temperate types in their biome', () => {
 
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
+			// Sea rocks grow in both biomes, up to the border.
+			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK) continue
 			const biomeValue = getBiomeValue(instance.x, instance.z, biomeOffset)
 			assert.ok(Math.abs(biomeValue) >= BIOME_BORDER_MARGIN)
 			if (desertOnly.has(instance.type)) {
@@ -191,7 +244,11 @@ test('changes only the density of the edited category', () => {
 	assert.ok(countCategory(denser, 'trees') > countCategory(baseline, 'trees'))
 	assert.equal(countCategory(denser, 'cacti'), countCategory(baseline, 'cacti'))
 	assert.equal(countCategory(denser, 'rocks'), countCategory(baseline, 'rocks'))
+	assert.equal(countCategory(denser, 'seaRocks'), countCategory(baseline, 'seaRocks'))
 	assert.equal(countCategory(noCacti, 'cacti'), 0)
+	const noSeaRocks = generateAll({ density: { ...defaults.density, seaRocks: 0 } })
+	assert.equal(countCategory(noSeaRocks, 'seaRocks'), 0)
+	assert.equal(countCategory(noSeaRocks, 'trees'), countCategory(baseline, 'trees'))
 	assert.equal(countCategory(noCacti, 'trees'), countCategory(baseline, 'trees'))
 })
 
