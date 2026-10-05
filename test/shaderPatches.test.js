@@ -66,19 +66,9 @@ test('replaceChunks replaces includes and throws on a missing one', () => {
 	assert.throws(() => replaceChunks('#include <x>', { y: '' }), /#include <y>/)
 })
 
-test('the terrain and boat patches fit the standard material', () => {
+test('the terrain patches fit the standard material', () => {
 	const params = { shadows: createSceneryShadowSettings() }
-	const chunk = new Chunk(
-		256,
-		null,
-		params,
-		0,
-		new Vector3(),
-		uniforms,
-		{},
-		undefined,
-		new BufferGeometry(),
-	)
+	const chunk = new Chunk(256, params, 0, new Vector3(), uniforms, {}, new BufferGeometry())
 	const terrain = patch(chunk.material, 'physical')
 	assert.match(terrain.fragmentShader, /getSceneryShadow\(vShadowPosition, 0\.0\)/)
 	// The coast and the sea rocks share one sea height for the ripples.
@@ -87,10 +77,6 @@ test('the terrain and boat patches fit the standard material', () => {
 		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz\)/,
 	)
 	assert.match(terrain.fragmentShader, /getCoastRockMask\(biomeXZ\)/)
-
-	chunk.boat = new Mesh(new BoxGeometry(), new MeshStandardMaterial())
-	const boat = chunk.createBoat(0, 0)
-	assert.match(patch(boat.material, 'physical').vertexShader, /attribute float height;/)
 })
 
 test('the scenery and cloud impostor patches fit the standard material', () => {

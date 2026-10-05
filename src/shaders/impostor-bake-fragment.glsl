@@ -7,6 +7,12 @@ varying vec3 vPosition;
 varying float vDepth;
 varying float vPaint;
 
+#ifdef USE_SOURCE_MAP
+// A model source's color map: sRGB, so samples arrive linear.
+uniform sampler2D uSourceMap;
+varying vec2 vSourceUv;
+#endif
+
 #ifdef USE_DETAIL
 // Replaced in impostorBaker.js by scenery-detail-pars-fragment.glsl.
 #include <scenery_detail_pars_fragment>
@@ -18,6 +24,10 @@ uniform vec3 uDetailSettings;
 void main() {
 	vec3 color = vColor;
 	vec3 normal = normalize(vNormal);
+
+#ifdef USE_SOURCE_MAP
+	color *= texture(uSourceMap, vSourceUv).rgb;
+#endif
 
 #ifdef USE_DETAIL
 	color = applyDetail(color, vPosition, normal, uDetailSettings);

@@ -23,7 +23,7 @@ import {
 // different families never share a compiled program (their onBeforeCompile
 // source is the same).
 
-// Trees, cacti, and rocks, placed per chunk by the workers. SCENERY_PALETTE
+// Trees, cacti, rocks, and boats, placed per chunk by the workers. SCENERY_PALETTE
 // paints the trees' crowns, the cacti, and the sea rocks per instance from
 // their baked paint mask (src/sceneryPalettePolicy.js); the biome layers let a
 // palette pick its color by biome.
@@ -72,6 +72,22 @@ export function getCatalogSources(catalog, type) {
 		sources.set(key, levels)
 	}
 	return levels
+}
+
+// Gives a type its source levels from a loaded model (the boat,
+// src/impostors/boatSources.js) instead of catalog.createSources(). It must
+// run before anything reads the type's sources: the atlas and the near meshes
+// would otherwise keep the built ones. Same contract as the built sources:
+// SCENERY_MESH_LOD_COUNT indexed levels in one local frame, base on y = 0,
+// kept for the page. A level may carry `userData.map`, a color map its uv
+// sample in the bake and the near meshes.
+export function setCatalogSources(catalog, type, levels) {
+	const key = `${catalog.name}:${type}`
+	if (sources.has(key)) throw new Error(`${key} sources already built`)
+	if (levels.length !== SCENERY_MESH_LOD_COUNT) {
+		throw new Error(`${key} needs ${SCENERY_MESH_LOD_COUNT} levels, got ${levels.length}`)
+	}
+	sources.set(key, levels)
 }
 
 // Layout defines shared by every impostor shader of the catalog.

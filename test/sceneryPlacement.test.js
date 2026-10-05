@@ -10,6 +10,7 @@ import {
 import { getCoastRockMask } from '../src/coast.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from '../src/impostors/impostorTypes.js'
 import {
+	BOAT_DEFAULTS,
 	SCENERY_CATEGORIES,
 	SCENERY_CONFIG,
 	SCENERY_DEFAULT_SIZES,
@@ -52,6 +53,7 @@ function* instances(data, i, j) {
 			localX: data[k],
 			localZ: data[k + 2],
 			scale: data[k + 3],
+			yaw: data[k + 4],
 			type: data[k + 5],
 		}
 	}
@@ -171,10 +173,12 @@ test('places sea rocks by their depth, scale, and satellite settings', () => {
 		assert.ok(rock.scale >= scale.min * size - 1e-5 && rock.scale <= scale.max * size + 1e-5)
 	}
 
-	// Sea rock settings leave the other scenery unchanged.
+	// Sea rock settings leave the other scenery unchanged; the boats avoid the
+	// rocks, so they may move.
 	const others = (results) =>
 		results.reduce((count, data) => count + data.length, 0) / IMPOSTOR_INSTANCE_STRIDE -
-		seaRocksOf(results).length
+		seaRocksOf(results).length -
+		countCategory(results, 'boats')
 	assert.equal(
 		others(generateAll(seaRocks({ maxDepth: 1.5 }))),
 		others(chunks.map(([, , data]) => data)),
@@ -189,11 +193,11 @@ test('follows the rocky coast mask settings', () => {
 	assert.ok(rocks.length < baseline.length, `${rocks.length} rocks, ${baseline.length} before`)
 })
 
-test('places only sea rocks in water or on beaches, and nothing on snow', () => {
+test('places only sea rocks and boats in water or on beaches, and nothing on snow', () => {
 	const bands = new Set()
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
-			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK) continue
+			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK || instance.type === IMPOSTOR_TYPE.BOAT) continue
 			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
 			const band = getTerrainBand(instance.x, height, instance.z)
 			assert.ok(band >= TERRAIN_BAND.grass && band <= TERRAIN_BAND.rocks)
@@ -221,8 +225,8 @@ test('keeps desert and temperate types in their biome', () => {
 
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
-			// Sea rocks grow in both biomes, up to the border.
-			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK) continue
+			// Sea rocks and boats float in both biomes, up to the border.
+			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK || instance.type === IMPOSTOR_TYPE.BOAT) continue
 			const biomeValue = getBiomeValue(instance.x, instance.z, biomeOffset)
 			assert.ok(Math.abs(biomeValue) >= BIOME_BORDER_MARGIN)
 			if (desertOnly.has(instance.type)) {
@@ -336,11 +340,13 @@ test('caps instances per chunk with a deterministic subset', () => {
 	const [i, j, baseline] = chunks.reduce((best, chunk) =>
 		chunk[2].length > best[2].length ? chunk : best,
 	)
-	const total = baseline.length / IMPOSTOR_INSTANCE_STRIDE
+	// The boats have their own cap (settings.boats.maxPerChunk).
+	const boats = countCategory([baseline], 'boats')
+	const total = baseline.length / IMPOSTOR_INSTANCE_STRIDE - boats
 	const cap = Math.floor(total / 3)
 	const capped = generate(i, j, {}, { maxPerChunk: cap })
 
-	assert.equal(capped.length / IMPOSTOR_INSTANCE_STRIDE, cap)
+	assert.equal(capped.length / IMPOSTOR_INSTANCE_STRIDE, cap + boats)
 	assert.deepEqual(generate(i, j, {}, { maxPerChunk: cap }), capped)
 	const kept = new Set()
 	for (let k = 0; k < baseline.length; k += IMPOSTOR_INSTANCE_STRIDE) {
@@ -349,5 +355,150 @@ test('caps instances per chunk with a deterministic subset', () => {
 	for (let k = 0; k < capped.length; k += IMPOSTOR_INSTANCE_STRIDE) {
 		assert.ok(kept.has(`${capped[k]}|${capped[k + 2]}`))
 	}
-	assert.equal(generate(i, j, {}, { maxPerChunk: 0 }).length, 0)
+	assert.equal(generate(i, j, {}, { maxPerChunk: 0 }).length / IMPOSTOR_INSTANCE_STRIDE, boats)
+})
+
+// Boats, as instances with world-space bases, of every chunk of `results`.
+function boatsOf(results) {
+	return results.flatMap((data, index) => {
+		const [i, j] = chunks[index]
+		return [...instances(data, i, j)].filter((instance) => instance.type === IMPOSTOR_TYPE.BOAT)
+	})
+}
+
+const boat = SCENERY_CONFIG.boat
+const depthAt = (x, z) => -getHeight(x, z, noises, params, biomeOffset)
+// Every candidate spot active, so the rules see many boats whatever the
+// default density.
+const boatDensity = { density: { ...createScenerySettings().density, boats: 1 } }
+const boatChunks = generateAll(boatDensity)
+
+test('places boats in the sea depth band, afloat, inside their chunk', () => {
+	const { depth, draft, maxPerChunk, rockClearance } = BOAT_DEFAULTS
+	let count = 0
+	for (const [index, [i, j]] of chunks.entries()) {
+		const data = boatChunks[index]
+		const boats = boatsOf([data]).length
+		assert.ok(boats <= maxPerChunk, `${boats} boats in chunk ${i}, ${j}`)
+		for (const instance of instances(data, i, j)) {
+			if (instance.type !== IMPOSTOR_TYPE.BOAT) continue
+			const { x, z, yaw, scale } = instance
+			// Stored as a 32-bit float.
+			assert.equal(scale, Math.fround(SCENERY_DEFAULT_SIZES.boat))
+			const centerDepth = depthAt(x, z)
+			assert.ok(centerDepth >= depth.min && centerDepth <= depth.max, `depth ${centerDepth}`)
+			// Bow and stern along the yaw, as rotateYaw() turns local +Z.
+			const half = (boat.length / 2) * scale
+			for (const sign of [-1, 1]) {
+				const endDepth = depthAt(x + sign * Math.sin(yaw) * half, z + sign * Math.cos(yaw) * half)
+				assert.ok(endDepth >= depth.min, `hull end depth ${endDepth}`)
+			}
+			assert.ok(Math.abs(instance.y - (SEA_SURFACE_Y - draft * scale)) < 1e-3)
+			// Half a boat and half the clearance from the chunk's border.
+			const limit = size / 2 - half - rockClearance / 2 + 1e-3
+			assert.ok(Math.abs(instance.localX) <= limit && Math.abs(instance.localZ) <= limit)
+			count++
+		}
+	}
+	assert.ok(count > 0)
+})
+
+// Distance from (px, pz) to the segment from (ax, az) to (bx, bz).
+function segmentDistance(px, pz, ax, az, bx, bz) {
+	const dx = bx - ax
+	const dz = bz - az
+	const t = Math.min(Math.max(((px - ax) * dx + (pz - az) * dz) / (dx * dx + dz * dz), 0), 1)
+	return Math.hypot(px - (ax + dx * t), pz - (az + dz * t))
+}
+
+// Every boat's hull capsule keeps the clearance from every rock (of any chunk)
+// and every other boat.
+function assertBoatsClear(results, clearance) {
+	const boats = boatsOf(results)
+	const rocks = seaRocksOf(results)
+	for (const { x, z, yaw, scale } of boats) {
+		const half = ((boat.length - boat.beam) / 2) * scale
+		const [ax, az, bx, bz] = [
+			x - Math.sin(yaw) * half,
+			z - Math.cos(yaw) * half,
+			x + Math.sin(yaw) * half,
+			z + Math.cos(yaw) * half,
+		]
+		for (const rock of rocks) {
+			const distance = segmentDistance(rock.x, rock.z, ax, az, bx, bz)
+			const needed = coast.footprint * rock.scale + (boat.beam / 2) * scale + clearance
+			assert.ok(distance >= needed - 1e-3, `rock ${distance.toFixed(2)} < ${needed.toFixed(2)}`)
+		}
+	}
+	for (let a = 0; a < boats.length; a++) {
+		for (let b = a + 1; b < boats.length; b++) {
+			const distance = Math.hypot(boats[a].x - boats[b].x, boats[a].z - boats[b].z)
+			const needed = (boat.length / 2) * (boats[a].scale + boats[b].scale) + clearance
+			assert.ok(distance >= needed - 1e-3, `boats ${distance.toFixed(2)} apart`)
+		}
+	}
+	return boats.length
+}
+
+test('keeps boats clear of every sea rock and of each other, across chunk borders', () => {
+	assert.ok(
+		assertBoatsClear(
+			chunks.map(([, , data]) => data),
+			BOAT_DEFAULTS.rockClearance,
+		) > 0,
+	)
+	assert.ok(assertBoatsClear(boatChunks, BOAT_DEFAULTS.rockClearance) > 0)
+	// A wider clearance and larger rocks with far satellites still hold.
+	const defaults = createScenerySettings()
+	const settings = {
+		...boatDensity,
+		size: { ...defaults.size, seaRock: 3 },
+		seaRocks: {
+			...defaults.seaRocks,
+			satellites: { ...defaults.seaRocks.satellites, count: 4, distance: { min: 2, max: 3 } },
+		},
+		boats: { ...defaults.boats, rockClearance: 10 },
+	}
+	assert.ok(assertBoatsClear(generateAll(settings), 10) > 0)
+})
+
+test('follows the boat settings: density, size, count, and depth band', () => {
+	const defaults = createScenerySettings()
+	const baseline = chunks.map(([, , data]) => data)
+	const withoutBoats = (results) =>
+		results.map((data) => {
+			const kept = []
+			for (let k = 0; k < data.length; k += IMPOSTOR_INSTANCE_STRIDE) {
+				if (data[k + 5] !== IMPOSTOR_TYPE.BOAT) {
+					kept.push(...data.subarray(k, k + IMPOSTOR_INSTANCE_STRIDE))
+				}
+			}
+			return kept
+		})
+
+	const none = generateAll({ density: { ...defaults.density, boats: 0 } })
+	assert.equal(countCategory(none, 'boats'), 0)
+	assert.deepEqual(withoutBoats(none), withoutBoats(baseline))
+
+	// One size for every boat, set by the boat size alone.
+	const larger = generateAll({ ...boatDensity, size: { ...defaults.size, boat: 1.5 } })
+	assert.deepEqual(withoutBoats(larger), withoutBoats(baseline))
+	assert.deepEqual(withoutBoats(boatChunks), withoutBoats(baseline))
+	assert.ok(boatsOf(larger).every(({ scale }) => scale === 1.5))
+	assert.ok(boatsOf(larger).length > 0)
+
+	assert.ok(boatChunks.some((data) => boatsOf([data]).length > 1))
+	const single = generateAll({ ...boatDensity, boats: { ...defaults.boats, maxPerChunk: 1 } })
+	assert.ok(single.every((data) => boatsOf([data]).length <= 1))
+	assert.ok(boatsOf(single).length > 0)
+	const noneAllowed = generateAll({ ...boatDensity, boats: { ...defaults.boats, maxPerChunk: 0 } })
+	assert.equal(countCategory(noneAllowed, 'boats'), 0)
+
+	const depth = { min: 10, max: 14 }
+	const band = boatsOf(generateAll({ ...boatDensity, boats: { ...defaults.boats, depth } }))
+	assert.ok(band.length > 0)
+	for (const { x, z } of band) {
+		const centerDepth = depthAt(x, z)
+		assert.ok(centerDepth >= depth.min && centerDepth <= depth.max)
+	}
 })

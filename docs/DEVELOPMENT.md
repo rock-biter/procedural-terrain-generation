@@ -33,7 +33,7 @@ pnpm bench
 - `pnpm format` rewrites the code with Prettier ([`.prettierrc.json`](../.prettierrc.json): tabs, no semicolons, single quotes, trailing commas, `100` columns; JSON with two spaces); `pnpm format:check` only checks. Markdown, generated output, and assets are excluded ([`.prettierignore`](../.prettierignore)): Prettier would pad every cell of the guides' long tables.
 - `pnpm build` creates the production bundle in `dist/`.
 - `pnpm preview` serves the production bundle locally.
-- `pnpm assets:encode` re-encodes the masters in `assets-src/` into the KTX2 textures in `src/textures/`, the airplane GLBs in `public/plane-toy/`, and their simplified shadow casters (`*-shadow.glb`) (see [Assets](ASSETS.md#encoding-pipeline)). It needs `basisu` from Basis Universal 2.x on `PATH` (`brew install basis_universal`); commit its outputs. The app itself needs no extra tool.
+- `pnpm assets:encode` re-encodes the masters in `assets-src/` into the KTX2 textures in `src/textures/`, the airplane GLBs in `public/plane-toy/` and their simplified shadow casters (`*-shadow.glb`), and the boat's two simplified levels in `public/boat-toy/boat.glb` (see [Assets](ASSETS.md#encoding-pipeline)). It needs `basisu` from Basis Universal 2.x on `PATH` (`brew install basis_universal`); commit its outputs. The app itself needs no extra tool.
 - `pnpm bench` builds the working tree (and, with `--compare <git-ref>`, that ref in a temporary worktree), serves each build, and measures it in headless Chrome with a deterministic flight; `--shots <dir>` also saves held captures and prints the PSNR between builds. It needs Node 22 or later and Chrome (`--chrome` or `CHROME_PATH` elsewhere than the default install path); `pnpm bench --help` lists the options. See [Comparing Builds](QUALITY.md#comparing-builds).
 - Use the URL printed by Vite; the default port may change when it is already occupied.
 
@@ -45,7 +45,7 @@ Do not edit or commit generated files under `dist/`.
 - `vite-plugin-glsl` makes GLSL files importable by JavaScript.
 - `postprocessing` (pmndrs) provides the effect composer; its `three` peer range must include the installed Three.js version.
 - Tailwind CSS is processed through `@tailwindcss/postcss`.
-- Textures and the airplane GLB textures are KTX2 (Basis ETC1S). three's `KTX2Loader` transcodes them with its own `basis_transcoder.js` and `.wasm`, which Vite bundles. `@gltf-transform/core`, `@gltf-transform/extensions`, and `meshoptimizer` are dev dependencies used only by `scripts/encode-assets.mjs`.
+- Textures and the airplane and boat GLB textures are KTX2 (Basis ETC1S). three's `KTX2Loader` transcodes them with its own `basis_transcoder.js` and `.wasm`, which Vite bundles. `@gltf-transform/core`, `@gltf-transform/extensions`, and `meshoptimizer` are dev dependencies used only by `scripts/encode-assets.mjs`.
 - The application is plain JavaScript. There is no TypeScript compilation step.
 - Node's built-in test runner runs `test/*.test.js`; [Quality](QUALITY.md#required-checks-by-change) lists what each suite covers.
 - Vite bundles `src/chunkGeometry.worker.js` as a module worker; no separate worker build command is required.

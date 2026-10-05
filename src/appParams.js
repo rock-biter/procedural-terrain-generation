@@ -93,7 +93,8 @@ export function createAppParams({ urlParams, isMobile }) {
 		// color only, 1 = vertex color × texture), and `normalized`, which divides
 		// the grain by the texture's mean color so it keeps the base color (as on
 		// the clouds). The trees get the clouds' strong, normalized grain at about
-		// one repeat per tree. Changing them re-bakes the atlas.
+		// one repeat per tree; the boat keeps its model's colors, without grain.
+		// Changing them re-bakes the atlas.
 		impostorDetail: {
 			roundTree: { scale: 0.15, color: 0.6, normalized: true },
 			conifer: { scale: 0.15, color: 0.6, normalized: true },
@@ -102,6 +103,7 @@ export function createAppParams({ urlParams, isMobile }) {
 			boulder: { scale: 0.01, color: 0.1, normalized: false },
 			layeredRock: { scale: 0.01, color: 0.1, normalized: false },
 			seaRock: { scale: 0.01, color: 0.1, normalized: false },
+			boat: { scale: 0.01, color: 0, normalized: false },
 		},
 		// Shader-side, applied live: the trees' trunk colors and crown palettes and
 		// the cacti's palette, picked per instance from world-space noise; see
@@ -122,7 +124,8 @@ export function createAppParams({ urlParams, isMobile }) {
 		seaFoam: createSeaFoamSettings({ isMobile }),
 		// Shader-side, applied live: brightness change per type in stops (1 = half
 		// to double brightness) and the world frequency of the noise that drives it.
-		// The trees and cacti vary less, so their palette colors stay recognizable.
+		// The trees and cacti vary less, so their palette colors stay recognizable;
+		// the boat keeps its model's colors.
 		impostorVariation: {
 			frequency: 0.01,
 			amount: {
@@ -131,6 +134,7 @@ export function createAppParams({ urlParams, isMobile }) {
 				conifer: 0.35,
 				cactusOneArm: 0.35,
 				cactusTwoArms: 0.35,
+				boat: 0,
 			},
 		},
 		// World-level cloud field (src/clouds.js): deterministic placement (see

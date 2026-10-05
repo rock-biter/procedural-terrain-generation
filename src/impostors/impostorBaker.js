@@ -71,9 +71,10 @@ function getResolvePass() {
 // grid directions of a view layout (`views`, octahedral.js) into one albedo,
 // one normal/depth, and one single-channel paint-mask atlas (the sources'
 // `paint` attribute with SCENERY_PALETTE, 0 otherwise, premultiplied by
-// coverage). Without `views`, the
-// layout is a frames x frames hemi-octahedral grid of the catalog's
-// hemisphere. `detail` optionally multiplies the albedo by a tileable color
+// coverage). A source with `userData.map` (a model's color map, see
+// setCatalogSources()) multiplies its vertex color by the map at its uv.
+// Without `views`, the layout is a frames x frames hemi-octahedral grid of the
+// catalog's hemisphere. `detail` optionally multiplies the albedo by a tileable color
 // texture: { texture, types }, where types[type] is that type's { scale
 // (repeats per unit), color (strength), normalized } (see applyDetail() in
 // scenery-detail-pars-fragment.glsl). `frameSize` shrinks when the atlas
@@ -121,27 +122,36 @@ export function bakeImpostorAtlas(
 	const previousClearAlpha = renderer.getClearAlpha()
 	const previousAutoClear = renderer.autoClear
 
-	const bakeMaterial = new ShaderMaterial({
-		glslVersion: GLSL3,
-		vertexColors: true,
-		// The catalog defines select the detail projection the near meshes use.
-		defines: {
-			...catalog.defines,
-			...(detail?.texture ? { USE_DETAIL: '' } : {}),
-		},
-		uniforms: {
-			uForward: { value: new Vector3() },
-			uCenter: { value: new Vector3() },
-			uFrameRadius: { value: 1 },
-			uDetail: { value: detail?.texture ?? null },
-			uDetailSettings: { value: new Vector3() },
-		},
-		vertexShader: bakeVertexShader,
-		// The near meshes sample the same detail function (sceneryMeshes.js).
-		fragmentShader: replaceChunks(bakeFragmentShader, {
-			scenery_detail_pars_fragment: sceneryDetailParsFragment,
-		}),
-	})
+	// One uniform object for both bake materials, so the per-type and per-frame
+	// values reach whichever draws the type.
+	const bakeUniforms = {
+		uForward: { value: new Vector3() },
+		uCenter: { value: new Vector3() },
+		uFrameRadius: { value: 1 },
+		uDetail: { value: detail?.texture ?? null },
+		uDetailSettings: { value: new Vector3() },
+		uSourceMap: { value: null },
+	}
+	const createBakeMaterial = (defines = {}) =>
+		new ShaderMaterial({
+			glslVersion: GLSL3,
+			vertexColors: true,
+			// The catalog defines select the detail projection the near meshes use.
+			defines: {
+				...catalog.defines,
+				...(detail?.texture ? { USE_DETAIL: '' } : {}),
+				...defines,
+			},
+			uniforms: bakeUniforms,
+			vertexShader: bakeVertexShader,
+			// The near meshes sample the same detail function (sceneryMeshes.js).
+			fragmentShader: replaceChunks(bakeFragmentShader, {
+				scenery_detail_pars_fragment: sceneryDetailParsFragment,
+			}),
+		})
+	const bakeMaterial = createBakeMaterial()
+	// Created for the first source with a color map.
+	let mapBakeMaterial = null
 	const { material: resolveMaterial, scene: resolveScene } = getResolvePass()
 	resolveMaterial.uniforms.tAlbedo.value = bakeTarget.textures[0]
 	resolveMaterial.uniforms.tNormal.value = bakeTarget.textures[1]
@@ -159,7 +169,10 @@ export function bakeImpostorAtlas(
 		const geometry = getCatalogSources(catalog, type)[0]
 		const { center, radius } = geometry.boundingSphere
 		const frameRadius = radius * FRAME_MARGIN
-		const mesh = new Mesh(geometry, bakeMaterial)
+		const map = geometry.userData.map ?? null
+		if (map && !mapBakeMaterial) mapBakeMaterial = createBakeMaterial({ USE_SOURCE_MAP: '' })
+		bakeUniforms.uSourceMap.value = map
+		const mesh = new Mesh(geometry, map ? mapBakeMaterial : bakeMaterial)
 		bakeScene.add(mesh)
 
 		camera.left = -frameRadius
@@ -170,19 +183,19 @@ export function bakeImpostorAtlas(
 		camera.far = frameRadius * 4
 		camera.updateProjectionMatrix()
 
-		bakeMaterial.uniforms.uCenter.value.copy(center)
-		bakeMaterial.uniforms.uFrameRadius.value = frameRadius
+		bakeUniforms.uCenter.value.copy(center)
+		bakeUniforms.uFrameRadius.value = frameRadius
 		// Every render() re-uploads the material's uniforms, so the type's wood
 		// settings reach all of its frames.
 		const typeDetail = detail?.types?.[type]
 		if (typeDetail) {
-			bakeMaterial.uniforms.uDetailSettings.value.set(
+			bakeUniforms.uDetailSettings.value.set(
 				typeDetail.scale,
 				typeDetail.color,
 				typeDetail.normalized ? 1 : 0,
 			)
 		} else {
-			bakeMaterial.uniforms.uDetailSettings.value.set(1, 0, 0)
+			bakeUniforms.uDetailSettings.value.set(1, 0, 0)
 		}
 
 		bakeTarget.viewport.set(0, 0, bakeWidth, bakeHeight)
@@ -195,7 +208,7 @@ export function bakeImpostorAtlas(
 		for (let frameY = 0; frameY < views.framesY; frameY++) {
 			for (let frameX = 0; frameX < views.framesX; frameX++) {
 				const direction = getViewFrameDirection(frameX, frameY, views)
-				bakeMaterial.uniforms.uForward.value.set(...direction)
+				bakeUniforms.uForward.value.set(...direction)
 				// lookAt() with world up builds the same basis as getFrameBasis().
 				camera.position
 					.set(...direction)
@@ -239,7 +252,9 @@ export function bakeImpostorAtlas(
 	resolveMaterial.uniforms.tAlbedo.value = null
 	resolveMaterial.uniforms.tNormal.value = null
 	resolveMaterial.uniforms.tPaint.value = null
+	bakeUniforms.uSourceMap.value = null
 	bakeMaterial.dispose()
+	mapBakeMaterial?.dispose()
 	bakeTarget.dispose()
 
 	return {

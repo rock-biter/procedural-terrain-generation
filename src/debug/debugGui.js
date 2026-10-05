@@ -371,7 +371,13 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
 		.name('Variation frequency')
 		.onChange(updateImpostorVariation)
-	const sceneryLabels = { trees: 'Trees', cacti: 'Cacti', rocks: 'Rocks', seaRocks: 'Sea rocks' }
+	const sceneryLabels = {
+		trees: 'Trees',
+		cacti: 'Cacti',
+		rocks: 'Rocks',
+		seaRocks: 'Sea rocks',
+		boats: 'Boats',
+	}
 	for (const [category, types] of Object.entries(SCENERY_CATEGORIES)) {
 		const folder = sceneryFolder.addFolder(sceneryLabels[category])
 		folder
@@ -392,6 +398,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		const painted = Object.values(SCENERY_PALETTE_TYPES).some((entry) => entry.group === category)
 		if (painted) addPalette(folder, category)
 		if (category === 'seaRocks') addSeaRockControls(folder)
+		if (category === 'boats') addBoatControls(folder)
 	}
 
 	// The sea rocks' depth, scale range, and satellites (settings.seaRocks);
@@ -425,6 +432,20 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		satellites
 			.add(seaRocks.satellites.scale, 'max', 0.1, 1, 0.01)
 			.name('Max size ×')
+			.onFinishChange(updateScenery)
+	}
+
+	// The boats' depth band, count, draft, and rock clearance
+	// (settings.boats); the release re-places the scenery.
+	function addBoatControls(folder) {
+		const { boats } = params.scenery
+		folder.add(boats.depth, 'min', 0, 40, 0.5).name('Min depth').onFinishChange(updateScenery)
+		folder.add(boats.depth, 'max', 1, 60, 0.5).name('Max depth').onFinishChange(updateScenery)
+		folder.add(boats, 'maxPerChunk', 0, 4, 1).name('Max per chunk').onFinishChange(updateScenery)
+		folder.add(boats, 'draft', 0, 3, 0.05).name('Draft').onFinishChange(updateScenery)
+		folder
+			.add(boats, 'rockClearance', 0, 20, 0.5)
+			.name('Rock clearance')
 			.onFinishChange(updateScenery)
 	}
 

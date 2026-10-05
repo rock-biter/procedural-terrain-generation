@@ -126,7 +126,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 
 ## Per-Chunk Scenery
 
-`WORLD_FEATURES` ([`src/worldConstants.js`](../src/worldConstants.js)) sets `scenery` and `clouds` to `true` and `boats` to `false`. Scenery means trees, cacti, rocks, and the sea rocks of the coast. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)). Boats keep their dormant implementation behind their flag.
+`WORLD_FEATURES` ([`src/worldConstants.js`](../src/worldConstants.js)) sets `scenery` and `clouds` to `true`. Scenery means trees, cacti, rocks, the sea rocks of the coast, and boats. Each one is drawn as an octahedral impostor, and as its real mesh near the eye; the rendering side is in [Rendering](RENDERING.md#impostor-scenery) and [Near Scenery Meshes](RENDERING.md#near-scenery-meshes). Clouds are not per-chunk content: they form a world-level field (see [Clouds](#clouds)).
 
 ### Biome Field
 
@@ -136,7 +136,7 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
 - `createBiomeOffset(seed)` derives a seeded world offset in `±10000`. `createSharedUniforms()` passes that offset to the shader as `uBiomeOffset`, and `ChunkManager` passes it to workers in both the terrain and the scenery part of each request, so the seed moves biomes and their topography.
 - A negative value is desert and a non-negative value is temperate.
 - In a headless SwiftShader comparison over 16,384 points, JS and GLSL differed by at most `8e-6`, with no sign mismatch.
-- Placement skips land candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border; sea rocks grow in both biomes and ignore it.
+- Placement skips land candidates within `BIOME_BORDER_MARGIN` (`0.04`) of the border; sea rocks and boats appear in both biomes and ignore it.
 
 ### Placement
 
@@ -155,16 +155,23 @@ The manager does not enqueue an LOD job when the target matches the live chunk. 
   - temperate land band: mostly conifers;
   - temperate rocks band: conifers and boulders;
   - desert: one-arm and two-arm cacti, boulders, and layered rocks.
-- **Sea rocks:** a candidate on the sea or sand band (`isCoastBand()`) where the sea is at most `settings.seaRocks.maxDepth` (`8.5`) deep (an exact height of at least `-8.5`) can only become a sea rock (`IMPOSTOR_TYPE.SEA_ROCK`), in either biome and up to the biome border. It is accepted with probability `(baseDensity + (maxDensity - baseDensity) × mask) × settings.density.seaRocks`, from `0.03` on plain coast to `0.3` per cell where the [rocky coast](#rocky-coast) mask is `1`, with no slope test. Its scale spans a wide range, `seaRocks.scale.min`–`max` (`0.35`–`2.1`) × the `seaRock` size, drawn as `random ** seaRocks.scale.bias` (`1.6`), so small rocks are common and large ones rare. Its base sits `coast.sink` (`0.2`) × scale below the ground, or below the sea surface (`SEA_SURFACE_Y`) over deeper water, so every rock rises above the sea; the opaque sea hides the part below. Each accepted rock brings up to `seaRocks.satellites.count` (`2`) smaller ones, at `satellites.distance` (`1.1`–`1.8`) × the footprint (`coast.footprint`, `2.5` units) × its scale from it, at `satellites.scale` (`0.4`–`0.7`) of its scale. Each satellite has its own exact height and is dropped where the sea is deeper than `maxDepth`. Satellites use salts from `9` on, so the group is deterministic and belongs to the candidate's chunk even where a satellite crosses its border. Their tint is a brightness only: the hue comes from the sea rock palette in the shaders, one color for the temperate biome and one for the desert, picked from the biome under each rock's base ([Rendering](RENDERING.md#scenery-palettes)).
+- **Sea rocks:** a candidate on the sea or sand band (`isCoastBand()`) where the sea is at most `settings.seaRocks.maxDepth` (`8.5`) deep (an exact height of at least `-8.5`) can only become a sea rock (`IMPOSTOR_TYPE.SEA_ROCK`), in either biome and up to the biome border. It is accepted with probability `(baseDensity + (maxDensity - baseDensity) × mask) × settings.density.seaRocks`, from `0.03` on plain coast to `0.3` per cell where the [rocky coast](#rocky-coast) mask is `1`, with no slope test. Its scale spans a wide range, `seaRocks.scale.min`–`max` (`0.35`–`2.1`) × the `seaRock` size, drawn as `random ** seaRocks.scale.bias` (`1.6`), so small rocks are common and large ones rare. Its base sits `coast.sink` (`0.2`) × scale below the ground, or below the sea surface (`SEA_SURFACE_Y`) over deeper water, so every rock rises above the sea; the opaque sea hides the part below. Each accepted rock brings up to `seaRocks.satellites.count` (`2`) smaller ones, at `satellites.distance` (`1.1`–`1.8`) × the footprint (`coast.footprint`, `2.5` units) × its scale from it, at `satellites.scale` (`0.4`–`0.7`) of its scale. Each satellite has its own exact height and is dropped where the sea is deeper than `maxDepth`. Satellites use salts from `9` on, so the group is deterministic and belongs to the candidate's chunk even where a satellite crosses its border. `getSeaRockGroup()` computes a candidate's group, and `getCellSeaRocks()` recomputes the group of any grid cell, inside the chunk or not, for the boats. Their tint is a brightness only: the hue comes from the sea rock palette in the shaders, one color for the temperate biome and one for the desert, picked from the biome under each rock's base ([Rendering](RENDERING.md#scenery-palettes)).
+
+- **Boats:** `placeBoats()` places at most `settings.boats.maxPerChunk` (`2`) boats (`IMPOSTOR_TYPE.BOAT`) per chunk, outside the grid. The chunk offers `SCENERY_CONFIG.boat.candidates` (`8`) spots, drawn from a hash of the seed (`` `${seed}:boats` ``) and the chunk coordinates, so they never correlate with the cells' values. A spot is active with probability `settings.density.boats` (`0.13`, so about one spot per chunk), lies inside the chunk by half a boat plus half the clearance, so boats of neighbouring chunks never meet, and has a random yaw. In priority order, a spot keeps its boat when:
+  - the sea at its center is between `boats.depth.min` and `boats.depth.max` deep (`6`–`18`, measured from y `0` like the sea rocks' depth; with the default terrain, about `70` to `170` units from the shore), and its bow, stern, and sides are at least `depth.min` deep and below its keel;
+  - no boat kept before is within a boat length plus `boats.rockClearance` (`4`);
+  - its hull, a capsule along the bow axis (`SCENERY_CONFIG.boat.length` `12` long and `beam` `7.2` wide at scale `1`; the bow points along `(sin yaw, cos yaw)`, as `rotateYaw()` turns local +Z), keeps `rockClearance` from the footprint circle of every sea rock. The rocks come from `getCellSeaRocks()` for every grid cell whose rocks can reach the hull under the current settings, neighbouring chunks' cells included, so the result does not depend on generation order.
+
+  Every boat has the same scale, `settings.size.boat` (its `SCENERY_CONFIG.shape` is `[1, 1, 1, 1]`), a white tint (it keeps the model's colors), and its keel at `SEA_SURFACE_Y - boats.draft × scale` (`draft` `0.3`). Boats do not bob with the sea waves, and the sea foam map ignores them.
 
   Scale, vertical stretch, yaw, and tint vary per instance. The tint is a brightness for every type; boulders are also grey in temperate areas and sandy in the desert. Trees and cacti take their hue from the scenery palettes in the shaders, from world-space noise at the instance's base, not from placement (see [Rendering](RENDERING.md#scenery-palettes)).
 - **Density:** the candidate is then accepted with probability `baseDensity × settings.density[category]`. `baseDensity` follows a low-frequency cluster noise in temperate areas (maximum `0.55` per cell), which produces woods and clearings, and is a flat `0.16` in the desert. Type and acceptance use independent random values, so changing one category's density adds or removes only that category.
 - **Size:** `settings.size[typeKey]` multiplies the instance scale drawn from the `SCENERY_CONFIG` range.
-- **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface. Sea rocks use their own rule (above).
-- **Cap:** when a chunk has more than `settings.maxPerChunk` instances (default `1000`), it keeps those with the lowest per-cell random priority. The subset is deterministic and spatially uniform.
+- **Height:** the base sits at the exact `getHeight()` value minus `0.35 × scale`, so it does not float where coarse terrain LODs cut below the true surface. Sea rocks and boats use their own rules (above).
+- **Cap:** when a chunk has more than `settings.maxPerChunk` instances (default `1000`), it keeps those with the lowest per-cell random priority. The subset is deterministic and spatially uniform. Boats come after the cap, bounded by their own `boats.maxPerChunk`.
 - **Output:** a transferable `Float32Array` with `IMPOSTOR_INSTANCE_STRIDE = 8` floats per instance: chunk-local `x, y, z`, scale, yaw, type, packed RGB tint, stretch.
 
-With the default settings, placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node. Sea rocks add no measurable cost: about `0.9` ms per desktop chunk with and without them along a rocky coast (`seed=rock288`). Instance counts reach about 550 and 120 per land chunk.
+With the default settings, placement costs about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node. Sea rocks and boats add no measurable cost: about `0.9` ms per desktop chunk with and without them along a rocky coast (`seed=rock288`). With the defaults, over 17 × 17 chunks of that seed, about one chunk in thirteen holds a boat and two in one chunk are rare (`1` in `289`); land chunks and sea deeper than the band hold none. Instance counts reach about 550 and 120 per land chunk.
 
 ### Scenery LOD And Jobs
 
@@ -181,7 +188,7 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
 
 - `cellSize`, one of `SCENERY_CELL_SIZES` (`4`, `8`, `16`, or `32`); the default is `8` on desktop and `16` on mobile;
 - `maxPerChunk`, default `1000`;
-- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, `density.rocks = 0.65`, and `density.seaRocks = 0.7`;
+- density multipliers, with defaults `density.trees = 0.75`, `density.cacti = 0.2`, `density.rocks = 0.65`, `density.seaRocks = 0.7`, and `density.boats = 0.13`;
 - size multipliers, copied from the `SCENERY_DEFAULT_SIZES` configuration object:
   - `roundTree`: `1.35`;
   - `conifer`: `1.7`;
@@ -190,9 +197,11 @@ With the default settings, placement costs about `1.35` ms per chunk on desktop 
   - `boulder`: `0.6`;
   - `layeredRock`: `0.85`;
   - `seaRock`: `1.6`;
-- `seaRocks`, the sea rocks' `maxDepth`, `scale` (`min`, `max`, `bias`), and `satellites` (`count`, `distance` and `scale` ranges), copied from `SEA_ROCK_DEFAULTS` (see **Sea rocks** under [Placement](#placement)). **Scenery > Sea rocks** edits them (**Max depth**, **Min scale**, **Max scale**, **Small rock bias**, and **Satellites > Max count**, **Min/Max distance ×**, **Min/Max size ×**); like every scenery setting, a change re-places scenery without rebuilding terrain.
+  - `boat`: `1.65` (**Scenery > Boats > boat size**, the size of every boat: about `19.8` units long);
+- `seaRocks`, the sea rocks' `maxDepth`, `scale` (`min`, `max`, `bias`), and `satellites` (`count`, `distance` and `scale` ranges), copied from `SEA_ROCK_DEFAULTS` (see **Sea rocks** under [Placement](#placement)). **Scenery > Sea rocks** edits them (**Max depth**, **Min scale**, **Max scale**, **Small rock bias**, and **Satellites > Max count**, **Min/Max distance ×**, **Min/Max size ×**); like every scenery setting, a change re-places scenery without rebuilding terrain;
+- `boats`, the boats' `maxPerChunk`, `depth` (`min`, `max`), `draft`, and `rockClearance`, copied from `BOAT_DEFAULTS` (see **Boats** under [Placement](#placement)). **Scenery > Boats** edits them (**Min depth**, **Max depth**, **Max per chunk**, **Draft**, **Rock clearance**) with the density and the boat size.
 
-Edit `SCENERY_DEFAULT_SIZES`, `SEA_ROCK_DEFAULTS`, and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.
+Edit `SCENERY_DEFAULT_SIZES`, `SEA_ROCK_DEFAULTS`, `BOAT_DEFAULTS`, and `createScenerySettings()` in `src/sceneryPlacement.js` to change the starting values. The GUI changes only the current session.
 
 `SCENERY_CATEGORIES` maps each type to its category.
 
@@ -204,15 +213,6 @@ Edit `SCENERY_DEFAULT_SIZES`, `SEA_ROCK_DEFAULTS`, and `createScenerySettings()`
 - Terrain is never regenerated.
 
 `reconcileChunks()` keeps pending or in-flight scenery refreshes across a chunk-boundary crossing or heading change, so a change made just before it is not lost. A cell of `4` gives 4,096 candidates per chunk, four times as many as the desktop default of `8`; measure before using it on mobile.
-
-### Boats (Dormant)
-
-- When enabled, each chunk attempts to place between zero and three boats.
-- Each boat gets at most `20` random placement attempts.
-- Accepted terrain height must be between `-10` and `-2`.
-- The loaded boat model is cloned, randomly rotated, positioned at Y `0.8`, and given the boat vertex-shader replacement.
-
-Boat placement still uses `Math.random()`, so re-enabling boats would not be reproducible between sessions.
 
 ## Clouds
 
@@ -238,13 +238,13 @@ Clouds are a world-level field around the airplane, independent of terrain chunk
 
 ## Resource Lifecycle
 
-`Chunk.dispose()` removes the chunk from its parent, disposes the terrain geometry, clears the scenery, and removes boat clones. Review all owned GPU resources when adding new per-chunk content.
+`Chunk.dispose()` removes the chunk from its parent, disposes the terrain geometry, and clears the scenery. Review all owned GPU resources when adding new per-chunk content.
 
 - `Chunk.setScenery()` builds one `InstancedBufferGeometry` per chunk: a 4-vertex quad plus the instance buffer. The chunk owns it, and `clearScenery()` disposes it. The scenery mesh has one child, the debug wireframe overlay, which shares that geometry and the impostor wireframe material.
 - The impostor material, its wireframe twin, and the atlas textures belong to `SceneryImpostors`, which hands them to `ChunkManager`; chunks never dispose them.
 - `SceneryMeshes` reads each live chunk's instance array (`chunk.scenery.geometry.attributes.aInstanceA.data.array`) every frame and copies the near instances into its own buffers. It never keeps a reference to a chunk or its arrays across frames, so `clearScenery()` and `dispose()` need no coordination with it.
 - `SceneryShadows` points pooled caster proxies at live chunks' scenery geometries. It re-syncs them in every update before rendering any cascade, so proxies of removed chunks are hidden before they could draw. A hidden proxy may still hold a disposed geometry, but it is never rendered and never disposes it.
-- `Chunk.dispose()` does not dispose shared materials or cloned boat resources.
+- `Chunk.dispose()` does not dispose shared materials.
 - Clouds own no per-chunk resources. `Clouds` disposes its previous impostor geometry on every regeneration, and its atlas, materials, and near meshes in `dispose()`. `CloudShadows` borrows the current impostor geometry for its caster proxy every render and never disposes it.
 
 Record and test ownership before changing disposal; shared resources must not be destroyed while another chunk still uses them.
@@ -257,7 +257,7 @@ Record and test ownership before changing disposal; shared resources must not be
 - Keep expensive creation and LOD work bounded per frame.
 - Test negative world coordinates because chunk indexing uses `Math.floor()`.
 - Validate desktop and narrow/mobile paths because density and streaming radius differ.
-- Change band, biome, and rocky coast constants only in `src/terrainBands.js`: placement and the terrain shader both read them. Check terrain, scenery, clouds, and boats after changing them. Keep the `snoise` port in `src/noise.js` identical to the GLSL, and the summation order of `getBiomeValue()` the same on both sides. If the biome field can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
+- Change band, biome, and rocky coast constants only in `src/terrainBands.js`: placement and the terrain shader both read them. Check terrain, scenery (boats included), and clouds after changing them. Keep the `snoise` port in `src/noise.js` identical to the GLSL, and the summation order of `getBiomeValue()` the same on both sides. If the biome field can grow steeper, raise `BIOME_MAX_GRADIENT` in `color-fragment.glsl`, or the separator can be clipped.
 - Treat changes to `params.octaves` as changes to both the height loop and the number of available noise functions; `createTerrainNoises()` keeps at least the two the landmass needs.
 
 ## Open Questions

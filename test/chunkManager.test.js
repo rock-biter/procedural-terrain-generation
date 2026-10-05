@@ -45,7 +45,7 @@ function createManager({ failures } = {}) {
 		scene,
 		{ uBiomeOffset: { value: new Vector2() }, uCurvature: { value: CURVATURE } },
 		{},
-		{ scenery: false, boats: false },
+		{ scenery: false },
 		'reconcile-test',
 		{ isMobile: true, createWorker: () => createJobWorker(failures) },
 	)

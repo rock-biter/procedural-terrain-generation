@@ -9,13 +9,17 @@ import woodGrainSrc from './textures/white_oak/white_oak_veneer_diff_1k.ktx2?url
 // asset the app cannot run without, fails to load.
 export const AIRPLANE_LOAD_ERROR = 'The airplane could not be loaded.'
 
+// The boat model, from scripts/encode-assets.mjs.
+const BOAT_MODEL_PATH = '/boat-toy/boat.glb'
+
 // Requests every startup asset through one LoadingManager, whose callbacks
 // drive the loading bar: `onStart()`, `onProgress(loaded, total)`, and
 // `onLoad(assets, error)` once every request has settled. `error` is null
 // unless the airplane failed. The other assets degrade instead: without the
 // wood texture a white one keeps the impostors and near meshes matching,
-// without a normal map its flat placeholder stays, and without the simplified
-// shadow caster the shadow pass draws the full airplane.
+// without a normal map its flat placeholder stays, without the simplified
+// shadow caster the shadow pass draws the full airplane, and without the boat
+// model a stand-in boat is baked.
 //
 // `renderer` must exist first: the KTX2 loader picks its GPU format from it.
 // `airplaneModel` is the entry of AIRPLANE_MODELS (src/airplaneModels.js) to
@@ -36,6 +40,7 @@ export function loadStartupAssets({
 		// shadow caster geometry (null if it failed to load).
 		planeCenter: null,
 		planeShadowGeometry: null,
+		// The boat's glTF scene (null without scenery or if it failed to load).
 		boatModel: null,
 		woodTexture: null,
 	}
@@ -53,8 +58,8 @@ export function loadStartupAssets({
 	}
 
 	const ktx2Loader = initKTX2Loader(renderer, manager)
-	// The airplane GLBs carry meshopt geometry (EXT_meshopt_compression) and KTX2
-	// textures (KHR_texture_basisu), both from scripts/encode-assets.mjs.
+	// The airplane and boat GLBs carry meshopt geometry (EXT_meshopt_compression)
+	// and KTX2 textures (KHR_texture_basisu), both from scripts/encode-assets.mjs.
 	const gltfLoader = new GLTFLoader(manager)
 		.setMeshoptDecoder(MeshoptDecoder)
 		.setKTX2Loader(ktx2Loader)
@@ -72,14 +77,18 @@ export function loadStartupAssets({
 		})
 	}
 
-	if (features.boats) {
-		gltfLoader.load('/boat/scene.gltf', (gltf) => {
-			const model = gltf.scene.children[0].children[0]
-			model.scale.setScalar(1.3)
-			model.rotation.x = 0
-
-			assets.boatModel = model
-		})
+	if (features.scenery) {
+		// The boat's two near-mesh levels and color map (meshopt, KTX2), turned
+		// into scenery sources by World.init() (src/impostors/boatSources.js).
+		// Without it the stand-in boat of impostorArchetypes.js is baked.
+		gltfLoader.load(
+			BOAT_MODEL_PATH,
+			(gltf) => {
+				assets.boatModel = gltf.scene
+			},
+			undefined,
+			(error) => console.warn(`Boat not loaded (${BOAT_MODEL_PATH})`, error),
+		)
 	}
 
 	// `?plane=toy` loads the monoplane; the biplane is the default. The geometry

@@ -1,4 +1,5 @@
 import {
+	BoxGeometry,
 	BufferAttribute,
 	CapsuleGeometry,
 	Color,
@@ -31,6 +32,9 @@ const COLORS = {
 	boulder: '#dcc29a',
 	rockLight: '#e3c9a0',
 	rockDark: '#cfa878',
+	// The stand-in boat (boat()).
+	boatHull: '#b5462f',
+	boatCabin: '#efe3c8',
 }
 
 // `paint` (0 or 1) fills the part's `paint` attribute: 1 marks a painted part
@@ -229,6 +233,20 @@ function seaRock(lod) {
 	})
 }
 
+// A stand-in toy boat with the model's length and beam (SCENERY_CONFIG.boat in
+// src/sceneryPlacement.js): an oval tub and a cabin. The boat is drawn from its
+// model (src/impostors/boatSources.js, set with setCatalogSources()); this one
+// is baked only if the model fails to load, and lets the Node tests build
+// every type.
+function boat(lod) {
+	const hull = new CylinderGeometry(1, 0.8, 2.6, detail(lod, 16, 8), 1)
+	hull.scale(3.6, 1, 6)
+	hull.translate(0, 1.3, 0)
+	const cabin = new BoxGeometry(3.2, 2, 4)
+	cabin.translate(0, 3.6, -0.8)
+	return [part(hull, COLORS.boatHull), part(cabin, COLORS.boatCabin)]
+}
+
 const BUILDERS = {
 	[IMPOSTOR_TYPE.ROUND_TREE]: roundTree,
 	[IMPOSTOR_TYPE.CONIFER]: conifer,
@@ -237,6 +255,7 @@ const BUILDERS = {
 	[IMPOSTOR_TYPE.BOULDER]: boulder,
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: layeredRock,
 	[IMPOSTOR_TYPE.SEA_ROCK]: seaRock,
+	[IMPOSTOR_TYPE.BOAT]: boat,
 }
 
 function buildSource(type, lod) {

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { Document, NodeIO } from '@gltf-transform/core'
-import { ALL_EXTENSIONS, KHRTextureBasisu } from '@gltf-transform/extensions'
+import { ALL_EXTENSIONS, EXTMeshoptCompression, KHRTextureBasisu } from '@gltf-transform/extensions'
 import { MeshoptDecoder, MeshoptEncoder, MeshoptSimplifier } from 'meshoptimizer'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -109,6 +109,112 @@ function createShadowCaster(document) {
 	return { caster, triangles: simplified.length / 3, vertices: vertexCount, error }
 }
 
+// The boat, a scenery type drawn as an impostor and two near-mesh levels
+// (src/impostors/boatSources.js): each level is the master simplified to about
+// `triangles`, keeping its uv (the simplifier only collapses along the uv
+// seams), with the base color alone, resampled to 1024 px. The master's
+// metallic-roughness and normal maps are dropped: the scenery is matte. The
+// node names are the contract with boatSources.js.
+const BOAT = {
+	path: 'boat-toy/boat.glb',
+	levels: [
+		{ name: 'boat-lod0', triangles: 16000 },
+		{ name: 'boat-lod1', triangles: 3000 },
+	],
+	error: 0.01,
+	color: [...COLOR, '-resample', '1024', '1024'],
+}
+
+// One attribute of `primitive` as floats (normalized integers decoded),
+// moved into its node's space by `matrix` for `w` 1 (points) or turned by it
+// for `w` 0 (directions, renormalized).
+function readAttribute(primitive, semantic, matrix = null, w = 1) {
+	const accessor = primitive.getAttribute(semantic)
+	const size = accessor.getElementSize()
+	const array = new Float32Array(accessor.getCount() * size)
+	const element = []
+	for (let i = 0; i < accessor.getCount(); i++) {
+		accessor.getElement(i, element)
+		if (matrix) {
+			const [x, y, z] = element
+			for (let axis = 0; axis < 3; axis++) {
+				element[axis] =
+					matrix[axis] * x + matrix[4 + axis] * y + matrix[8 + axis] * z + matrix[12 + axis] * w
+			}
+			if (w === 0) {
+				const length = Math.hypot(element[0], element[1], element[2]) || 1
+				for (let axis = 0; axis < 3; axis++) element[axis] /= length
+			}
+		}
+		array.set(element.slice(0, size), i * size)
+	}
+	return array
+}
+
+// The boat's levels from the master `source`, with `image` (KTX2 bytes) as the
+// base color they share.
+function createBoatLevels(source, image) {
+	const node = source
+		.getRoot()
+		.listNodes()
+		.find((candidate) => candidate.getMesh())
+	const primitive = node.getMesh().listPrimitives()[0]
+	const matrix = node.getWorldMatrix()
+	const positions = readAttribute(primitive, 'POSITION', matrix, 1)
+	const normals = readAttribute(primitive, 'NORMAL', matrix, 0)
+	const uvs = readAttribute(primitive, 'TEXCOORD_0')
+	const indices = Uint32Array.from(primitive.getIndices().getArray())
+
+	const boat = new Document()
+	const buffer = boat.createBuffer()
+	const texture = boat.createTexture('boat-color').setImage(image).setMimeType('image/ktx2')
+	const material = boat
+		.createMaterial('boat')
+		.setBaseColorTexture(texture)
+		.setMetallicFactor(0)
+		.setRoughnessFactor(1)
+	const scene = boat.createScene()
+	const stats = []
+	for (const { name, triangles } of BOAT.levels) {
+		const [simplified, error] = MeshoptSimplifier.simplify(
+			indices,
+			positions,
+			3,
+			triangles * 3,
+			BOAT.error,
+		)
+		const [vertexRemap, vertexCount] = MeshoptSimplifier.compactMesh(simplified)
+		const compact = (values, size) => {
+			const array = new Float32Array(vertexCount * size)
+			vertexRemap.forEach((target, index) => {
+				if (target < vertexCount) {
+					array.set(values.subarray(index * size, index * size + size), target * size)
+				}
+			})
+			return boat.createAccessor().setType(`VEC${size}`).setArray(array).setBuffer(buffer)
+		}
+		const levelPrimitive = boat
+			.createPrimitive()
+			.setAttribute('POSITION', compact(positions, 3))
+			.setAttribute('NORMAL', compact(normals, 3))
+			.setAttribute('TEXCOORD_0', compact(uvs, 2))
+			.setIndices(
+				boat
+					.createAccessor()
+					.setType('SCALAR')
+					.setArray(vertexCount > 65535 ? simplified : Uint16Array.from(simplified))
+					.setBuffer(buffer),
+			)
+			.setMaterial(material)
+		const mesh = boat.createMesh(name).addPrimitive(levelPrimitive)
+		scene.addChild(boat.createNode(name).setMesh(mesh))
+		stats.push({ name, triangles: simplified.length / 3, vertices: vertexCount, error })
+	}
+	boat.createExtension(KHRTextureBasisu).setRequired(true)
+	boat.createExtension(EXTMeshoptCompression).setRequired(true)
+	return { boat, stats }
+}
+
 function encode(source, target, args) {
 	mkdirSync(dirname(target), { recursive: true })
 	execFileSync('basisu', [...args, '-mipmap', '-ktx2', '-output_file', target, source], {
@@ -171,6 +277,23 @@ try {
 		await io.write(join(root, 'public', shadowPath), caster)
 		console.log(
 			`${path} -> public/${shadowPath} (${triangles} triangles, ${vertices} vertices, error ${error.toFixed(4)})`,
+		)
+	}
+
+	const boatSource = await io.read(join(root, 'assets-src', BOAT.path))
+	const boatColor = boatSource.getRoot().listMaterials()[0].getBaseColorTexture()
+	const boatImage = join(
+		work,
+		`boat-color.${boatColor.getMimeType() === 'image/png' ? 'png' : 'jpg'}`,
+	)
+	const boatEncoded = join(work, 'boat-color.ktx2')
+	writeFileSync(boatImage, boatColor.getImage())
+	encode(boatImage, boatEncoded, BOAT.color)
+	const { boat, stats } = createBoatLevels(boatSource, readFileSync(boatEncoded))
+	await io.write(join(root, 'public', BOAT.path), boat)
+	for (const { name, triangles, vertices, error } of stats) {
+		console.log(
+			`${BOAT.path} -> public/${BOAT.path} ${name} (${triangles} triangles, ${vertices} vertices, error ${error.toFixed(4)})`,
 		)
 	}
 } finally {

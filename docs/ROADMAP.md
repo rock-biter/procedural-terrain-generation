@@ -8,7 +8,7 @@ The first analysis focuses on terrain generation and streaming because they domi
 
 Last baseline review: **2026-09-26**. The full-project review of **2026-10-02** ([Project Review](reviews/2026-10-02-project-review.md)) lists its findings by area, a phased plan, and which items are done; promote an item into this register when it becomes part of a milestone.
 
-Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, and rocks as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`), and still disables boats. The dormant boat implementation remains for later reintroduction; the historical cost analysis of the former per-chunk clouds stays in this document for reference.
+Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, rocks, sea rocks, and boats as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`). The historical cost analysis of the former per-chunk clouds stays in this document for reference.
 
 Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
 
@@ -68,8 +68,7 @@ World.tic() (src/world.js)
                  -> wrap buffers in BufferGeometry with the per-LOD shared index and uv
                  -> create Chunk or replace its geometry
                  -> scenery placement within the radial range (transferred Float32Array)
-            -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk
-                 -> [disabled] boats
+            -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk (boats included)
   -> SceneryMeshes.update(): select near instances per level -> one instanced mesh per type and LOD
   -> Clouds.update(): re-place the cloud field on a new cloud cell -> one impostor mesh + near cloud meshes
   -> SceneryShadows.update() / CloudShadows.update(): depth cascades / blurred coverage map
@@ -149,21 +148,21 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `STRM-001`  | P0       | Done        | Pending work must be keyed consistently and reject stale operations.                    | One `Map` entry per key plus desired-set revisions prevent duplicate and obsolete jobs.                                                          |
 | `STRM-002`  | P0       | Done        | Desired-set reconciliation must inspect all live chunks.                                | A pure symmetric desired set is diffed against every live and pending key on each chunk transition.                                              |
 | `PERF-001`  | P0       | Done        | Dormant cloud placement scanned all 65,536 integer positions in every chunk at every LOD. | Replaced by the world-level cloud field (`FEAT-006`): a `160`-unit grid, at most 841 cells per rebuild with the default sizes, once per cell of travel.                 |
-| `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; clouds are no longer per-chunk. Boat clones and their shared resources remain undisposed.        |
+| `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; clouds are no longer per-chunk, and since 2026-10-05 boats are scenery instances, so no per-chunk clones remain. Stale work can still retain detached chunks. |
 | `PERF-002`  | P1       | In progress | Main-thread commits were limited by job count rather than a frame-time budget.          | Since 2026-10-02 workers take their next job on completion and results commit nearest first within `CHUNK_STREAMING.commitBytes` and `commitMs`; desktop startup converges in `0.46` s instead of `1.55` s (Apple M1). GPU upload time is still unmeasured (`OBS-001`). |
 | `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Each transition still recomputes heights and normals and transfers new position, normal, and height buffers; index and uv are shared per LOD, desktop LOD 0 jobs cost half (shared normal samples), and CPU copies are freed after upload. There is no height cache. |
 | `PERF-004`  | P1       | Done        | Identical cloud base geometries were recreated per chunk.                               | Cloud sources are built once per near-mesh level and baked into one atlas; the field draws one impostor mesh (`FEAT-006`).                        |
 | `STATE-001` | P1       | Done        | Chunk registries must delete historical keys and remain bounded.                        | Live and pending state use keyed `Map` instances; disposal deletes entries. Browser traversal kept `created - disposed = live`.                  |
 | `CORR-001`  | P1       | Done        | Cloud candidates were offset by a full chunk instead of half a chunk.                   | The per-chunk cloud loop was removed; the cloud field places world-space bases on its own grid (`FEAT-006`).                                     |
-| `CORR-002`  | P1       | Observed    | Boat world coordinates are assigned as local coordinates on a chunk child.              | `createBoat()` receives world X/Z, sets them on the clone, then adds it to the positioned chunk.                                                 |
-| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter and GUI seed changes revision jobs, rebuild seeded noises and the biome offset, and regenerate scenery; a seed change re-places the clouds; dormant boats would retain old placement. |
-| `DET-001`   | P1       | In progress | Dormant boat placement is not deterministic.                                            | `?seed=` drives terrain, biomes, hashed scenery placement, and the cloud field; dormant boats still use `Math.random()`.                          |
+| `CORR-002`  | P1       | Done        | Boat world coordinates were assigned as local coordinates on a chunk child.             | The boat clones were removed (2026-10-05); boats are scenery instances with chunk-local bases from the worker, like every other type.            |
+| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter and GUI seed changes revision jobs, rebuild seeded noises and the biome offset, and regenerate scenery; a seed change re-places the clouds; boats are re-placed with the scenery. |
+| `DET-001`   | P1       | Done        | Dormant boat placement was not deterministic.                                           | `?seed=` drives terrain, biomes, hashed scenery placement (boats included since 2026-10-05), and the cloud field; nothing uses `Math.random()` for placement. |
 | `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity, and since 2026-10-04 the reconcile state machine end to end (fake workers running the real job: streaming, disposal across borders, stale results, retries) and the worker pool's restarts. GPU upload and rendering remain browser-only. |
 | `STRM-003`  | P2       | In progress | Priority is biased by heading only and LOD has no hysteresis.                           | The set and LOD follow a quantized heading with sector hysteresis; camera visibility and recent LOD state are ignored, so turns re-generate many chunks. |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
 | `FRAME-001` | P2       | Observed    | Delta clamping slows traversal during stalls and can hide streaming pressure.           | Movement receives at most `0.016` seconds even when a frame takes longer.                                                                        |
 | `LOAD-001`  | P3       | Done        | Re-enabling trees loaded the normal map through two independent paths.                  | The tree path was removed; terrain normal maps load once through `getTerrainNormalTexture()` in `terrainNormals.js`.                              |
-| `MAINT-001` | P3       | In progress | Dead paths and misleading names still obscure some lifecycle behavior.                  | `camera` is the plane and the dormant boat code remains. Removed: the former callback pool, an unnecessary async declaration, and (2026-10-02) `Chunk.applyCurvature()`, the forced-LOD path, unused fields and imports, and most commented-out code. |
+| `MAINT-001` | P3       | In progress | Dead paths and misleading names still obscure some lifecycle behavior.                  | `camera` is the plane. Removed: the former callback pool, an unnecessary async declaration, (2026-10-02) `Chunk.applyCurvature()`, the forced-LOD path, unused fields and imports, and most commented-out code, and (2026-10-05) the dormant boat code. |
 
 ## Detailed Findings
 
@@ -213,10 +212,10 @@ Current ownership facts:
 - Scenery geometry (a quad plus the instance buffer) is unique per chunk and disposed by `Chunk.clearScenery()`, including from `Chunk.dispose()`.
 - Clouds are no longer per-chunk content. `Clouds` owns its atlas, materials, near meshes, and one impostor geometry, replaced and disposed on every regeneration.
 - The scenery impostor material and atlas are shared resources and must not be disposed per chunk.
-- Boat clones share geometry and material references with the template by default. Blindly disposing those resources per clone would break remaining boats and the template.
+- Boats are scenery instances: their source geometries and the model's color map are catalog sources kept for the page, never disposed per chunk.
 - Stale work can retain detached chunks and their children after scene removal.
 
-Required direction: write an ownership table in code design, separate shared immutable resources from per-chunk buffers, and dispose only resources with a single owner. Boat resources either remain shared and immutable or must be cloned explicitly with reference-counted disposal.
+Required direction: write an ownership table in code design, separate shared immutable resources from per-chunk buffers, and dispose only resources with a single owner.
 
 ### `PERF-002` And `PERF-003`: Main-Thread Spikes
 
@@ -230,7 +229,7 @@ Required direction: instrument worker duration, transfer delay, main-thread wrap
 
 `CORR-001` is resolved: the former cloud loop generated local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`, so most instances were owned by a neighboring spatial region. The loop was removed; the cloud field uses world-space bases on its own grid, and scenery uses a jittered grid aligned to chunk borders.
 
-Boats sample valid world coordinates, then store those world values as the local transform of an object parented to the positioned chunk. The chunk transform is therefore applied a second time.
+`CORR-002` is resolved too: the boat clones stored world coordinates as the local transform of an object parented to the positioned chunk, so the chunk transform applied twice. They were removed (2026-10-05); boats are placed in the worker with chunk-local bases like every scenery type.
 
 These correctness fixes must precede visual-density tuning so benchmarks measure content in the intended region.
 
@@ -290,7 +289,7 @@ Tasks:
 - Diff all live chunks against a pure symmetric desired set.
 - Delete retired registry entries and bound any cache intentionally.
 - Define shared versus unique geometry, material, texture, and model ownership.
-- Correct decoration and boat coordinate spaces.
+- Correct decoration and boat coordinate spaces. Done: scenery, boats included, uses chunk-local bases from the worker.
 - Make parameter changes rebuild noise and dependent content coherently or remove unsupported live controls.
 
 Acceptance criteria:
@@ -409,12 +408,12 @@ The features below are implemented; their behavior, parameters, and costs live i
 ### `FEAT-002`: Day/Night Cycle
 
 - **Rejected:** the Three.js `Sky` addon (physically based, less stylized) and flat background colors (no celestial bodies), in favor of palette interpolation with a gradient dome.
-- **Open:** art-direction tuning of the palettes under ACES Filmic (default since 2026-10-03; it darkens the night, which the night exposure of `1.3` only partly offsets); airplane lights (a first sprite version was removed); curved lighting for the boats when they return.
+- **Open:** art-direction tuning of the palettes under ACES Filmic (default since 2026-10-03; it darkens the night, which the night exposure of `1.3` only partly offsets); airplane lights (a first sprite version was removed).
 
 ### `FEAT-003`: Biome Scenery With Octahedral Impostors
 
-- **Rejected:** real instanced meshes for every instance (too many instances; `FEAT-004` uses them near the eye only) and loaded `.glb` models (sources stay procedural). An `8 × 8` view grid used about `17` MB but ghosted between its 13–26° frames; desktop used `16 × 16` (about `67` MB) until the near meshes took over the close range.
-- **Open:** density, scale (cacti read small), and palette tuning; steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
+- **Rejected:** real instanced meshes for every instance (too many instances; `FEAT-004` uses them near the eye only) and loaded `.glb` models for the procedural types (their sources stay procedural). The boat (2026-10-05) is the one model-based type: two levels simplified offline from a Tripo model, with its color map, given to the catalog through `setCatalogSources()`. An `8 × 8` view grid used about `17` MB but ghosted between its 13–26° frames; desktop used `16 × 16` (about `67` MB) until the near meshes took over the close range.
+- **Open:** density, scale (cacti read small), and palette tuning; foam or ripples around the boats, and boats bobbing with the sea waves; steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
 
 ### `FEAT-004`: Near Scenery Meshes
 

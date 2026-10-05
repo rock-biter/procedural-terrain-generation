@@ -5,6 +5,9 @@ import ChunkManager from './chunkManager'
 import Clouds from './clouds'
 import CloudShadows from './cloudShadows'
 import DayNight from './dayNight'
+import { createBoatSources } from './impostors/boatSources'
+import { SCENERY_IMPOSTORS, setCatalogSources } from './impostors/impostorCatalogs'
+import { IMPOSTOR_TYPE } from './impostors/impostorTypes'
 import Plane from './plane'
 import SceneryImpostors from './sceneryImpostors'
 import SceneryShadows from './sceneryShadows'
@@ -18,8 +21,9 @@ const SPAWN_CLEARANCE = 60
 
 // Everything the frame loop updates: the day/night cycle (from construction,
 // so the loading screen already has its colors), then, once the startup
-// assets have loaded (init()), the airplane, scenery impostors and shadows,
-// the sea foam around the sea rocks, clouds, terrain chunks, and the debug
+// assets have loaded (init()), the airplane, scenery impostors (with the boat
+// model's sources) and shadows, the sea foam around the sea rocks, clouds,
+// terrain chunks, and the debug
 // helpers. It owns the frame loop and
 // its update order, the world seed, and the runtime terrain actions the
 // ?gui=1 panel calls.
@@ -91,6 +95,15 @@ export default class World {
 		this.plane = new Plane(assets.planeModel, params, this.camera, this.airplaneModel)
 
 		if (this.features.scenery) {
+			// The boat model replaces the stand-in boat before the bake reads the
+			// sources.
+			if (assets.boatModel) {
+				setCatalogSources(
+					SCENERY_IMPOSTORS,
+					IMPOSTOR_TYPE.BOAT,
+					createBoatSources(assets.boatModel),
+				)
+			}
 			this.sceneryImpostors = new SceneryImpostors({
 				renderer,
 				uniforms,
@@ -141,7 +154,6 @@ export default class World {
 			scene,
 			uniforms,
 			{
-				boatModel: assets.boatModel,
 				impostorMaterial: this.sceneryImpostors?.material ?? null,
 				impostorWireframeMaterial: this.sceneryImpostors?.wireframeMaterial ?? null,
 			},

@@ -52,3 +52,30 @@ test('the airplane models use KTX2 textures', () => {
 		)
 	}
 })
+
+test('the boat has two simplified levels with only a KTX2 color map', () => {
+	const glb = readFileSync(join(root, 'public/boat-toy/boat.glb'))
+	const json = JSON.parse(glb.subarray(20, 20 + glb.readUInt32LE(12)).toString())
+	assert.deepEqual(
+		json.meshes.map((mesh) => mesh.name),
+		['boat-lod0', 'boat-lod1'],
+	)
+	const triangles = json.meshes.map((mesh) => json.accessors[mesh.primitives[0].indices].count / 3)
+	assert.ok(triangles[0] > 10000 && triangles[0] <= 17000, `LOD 0: ${triangles[0]} triangles`)
+	assert.ok(triangles[1] > 1000 && triangles[1] <= 3500, `LOD 1: ${triangles[1]} triangles`)
+	for (const mesh of json.meshes) {
+		assert.deepEqual(Object.keys(mesh.primitives[0].attributes).sort(), [
+			'NORMAL',
+			'POSITION',
+			'TEXCOORD_0',
+		])
+	}
+	assert.equal(json.images.length, 1)
+	assert.equal(json.images[0].mimeType, 'image/ktx2')
+	assert.equal(json.materials.length, 1)
+	const [material] = json.materials
+	assert.ok(material.pbrMetallicRoughness.baseColorTexture)
+	assert.equal(material.pbrMetallicRoughness.metallicRoughnessTexture, undefined)
+	assert.equal(material.normalTexture, undefined)
+	assert.ok(existsSync(join(root, 'assets-src/boat-toy/boat.glb')), 'the master stays')
+})

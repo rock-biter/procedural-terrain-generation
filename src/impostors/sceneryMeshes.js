@@ -114,12 +114,15 @@ export default class SceneryMeshes extends Group {
 		// from; LOD 1 shares its local frame.
 		this.bounds = []
 		// levels[lod]: { minRadius, maxRadius, buckets, material,
-		// wireframeMaterial, types[type] }.
+		// mapMaterials, wireframeMaterial, types[type] }. mapMaterials holds
+		// the level's material per source color map (a model's, see
+		// setCatalogSources()): three samples it before the scenery color.
 		this.levels = Array.from({ length: SCENERY_MESH_LOD_COUNT }, (_, lod) => ({
 			minRadius: 0,
 			maxRadius: 0,
 			buckets: createSceneryBuckets(undefined, this.typeCount),
 			material: this.createMaterial(lod, variation, detail),
+			mapMaterials: new Map(),
 			wireframeMaterial: makeSceneryWireframeMaterial(
 				this.createMaterial(lod, variation, detail),
 				wireframe.meshColors[lod],
@@ -137,12 +140,19 @@ export default class SceneryMeshes extends Group {
 				const level = this.levels[lod]
 				const geometry = new InstancedBufferGeometry()
 				geometry.setIndex(source.index)
-				// Cloud sources carry no paint mask (`paint`).
-				for (const name of ['position', 'normal', 'color', 'paint']) {
+				// Cloud sources carry no paint mask (`paint`); only model sources
+				// carry a uv, for their color map.
+				for (const name of ['position', 'normal', 'color', 'paint', 'uv']) {
 					const attribute = source.getAttribute(name)
 					if (attribute) geometry.setAttribute(name, attribute)
 				}
-				const mesh = new Mesh(geometry, level.material)
+				const map = source.userData.map ?? null
+				if (map && !level.mapMaterials.has(map)) {
+					const material = this.createMaterial(lod, variation, detail)
+					material.map = map
+					level.mapMaterials.set(map, material)
+				}
+				const mesh = new Mesh(geometry, map ? level.mapMaterials.get(map) : level.material)
 				mesh.name = `${catalog.name}-mesh-${type}-lod${lod}`
 				// Instances are placed in the shader; selection already culls them.
 				mesh.frustumCulled = false
@@ -374,6 +384,8 @@ export default class SceneryMeshes extends Group {
 		for (const level of this.levels) {
 			for (const info of level.types) info.geometry.dispose()
 			level.material.dispose()
+			// The maps belong to the sources, kept for the page.
+			for (const material of level.mapMaterials.values()) material.dispose()
 			level.wireframeMaterial.dispose()
 		}
 	}

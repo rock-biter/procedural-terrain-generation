@@ -14,8 +14,16 @@ varying float vPaint;
 attribute float paint;
 #endif
 
+#ifdef USE_SOURCE_MAP
+// A model source's color map (impostorBaker.js).
+varying vec2 vSourceUv;
+#endif
+
 void main() {
 	vColor = color;
+#ifdef USE_SOURCE_MAP
+	vSourceUv = uv;
+#endif
 	vNormal = normal;
 	vPosition = position;
 	vDepth = dot(position - uCenter, uForward) / uFrameRadius;

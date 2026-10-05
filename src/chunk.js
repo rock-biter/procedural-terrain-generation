@@ -1,6 +1,5 @@
-import { MathUtils, Mesh, MeshStandardMaterial, Sphere, Vector3 } from 'three'
+import { Mesh, MeshStandardMaterial, Sphere, Vector3 } from 'three'
 import projectVertex from './shaders/project-vertex.glsl'
-import projectVertexBoat from './shaders/project-vertex-boat.glsl'
 import common from './shaders/common.glsl'
 import colorFragment from './shaders/color-fragment.glsl'
 import normalFragmentMap from './shaders/normal-fragment-map.glsl'
@@ -14,7 +13,6 @@ import { createSceneryLighting } from './curvedLights'
 import { getCurvedBoxSphere } from './chunkPolicy'
 import { replaceChunks } from './shaderChunks'
 import { createImpostorMesh } from './impostors/impostorMaterial'
-import { getHeight } from './chunkGeometry'
 import { disposeChunkGeometry } from './chunkTopology'
 
 // The terrain samples its per-layer maps from uTerrainNormalMaps
@@ -32,24 +30,17 @@ const WAVE_AMPLITUDE = 0.5
 // eye-facing quads (createImpostorMesh() pads its flat sphere by as much).
 const SCENERY_MARGIN = 40
 
-const DEFAULT_FEATURES = Object.freeze({
-	scenery: true,
-	boats: false,
-})
-
 export default class Chunk extends Mesh {
 	scenery = null
 	hasScenery = false
 
 	constructor(
 		size,
-		noise,
 		params = {},
 		LOD = 0,
 		position = new Vector3(0, 0, 0),
 		uniforms,
 		assets,
-		features = DEFAULT_FEATURES,
 		geometry,
 	) {
 		super(geometry, material)
@@ -61,16 +52,12 @@ export default class Chunk extends Mesh {
 		this.resetBounds()
 
 		this.position.copy(position)
-		this.noise = noise
 		this.size = size
 		this.LOD = LOD
 		this.params = params
 		this.uniforms = uniforms
-		this.boat = assets.boatModel
 		this.assets = assets
-		this.features = features
 
-		this.updateScenery()
 		this.onBeforeCompile()
 	}
 
@@ -78,9 +65,6 @@ export default class Chunk extends Mesh {
 		this.parent.remove(this)
 		disposeChunkGeometry(this.geometry)
 		this.clearScenery()
-		if (this.boats) {
-			this.boats.forEach((el) => this.remove(el))
-		}
 	}
 
 	onBeforeCompile() {
@@ -180,7 +164,6 @@ export default class Chunk extends Mesh {
 		this.geometry = geometry
 		this.resetBounds()
 		this.LOD = LOD
-		this.updateScenery()
 	}
 
 	// Instances come from the chunk worker (src/sceneryPlacement.js). The mesh
@@ -211,66 +194,5 @@ export default class Chunk extends Mesh {
 		this.remove(this.scenery)
 		this.scenery.geometry.dispose()
 		this.scenery = null
-	}
-
-	updateScenery() {
-		if (this.features.boats && !this.boats) this.addBoats()
-	}
-
-	addBoats() {
-		const boats = []
-		const n = MathUtils.randInt(0, 3)
-
-		for (let i = 0; i < n; i++) {
-			let x, z, h
-
-			let attempt = 0
-
-			do {
-				x = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.x
-				z = MathUtils.randFloat(-this.size / 2, this.size / 2) + this.position.z
-				h = getHeight(x, z, this.noise, this.params, this.uniforms.uBiomeOffset.value.toArray())
-				attempt++
-			} while ((h > -2 || h < -10) && attempt < 20)
-
-			if (attempt === 20) {
-				continue
-			}
-
-			const boat = this.createBoat(x, z)
-
-			boats.push(boat)
-		}
-		this.boats = boats
-	}
-
-	createBoat(x, z) {
-		const m = this.boat.clone()
-		m.rotation.y = Math.random() * Math.PI * 2
-		m.position.set(x, 0.8, z)
-
-		m.traverse((el) => {
-			if (el instanceof Mesh) {
-				el.material.onBeforeCompile = (shader) => {
-					shader.uniforms = {
-						...shader.uniforms,
-						...this.uniforms,
-					}
-
-					shader.vertexShader = replaceChunks(shader.vertexShader, {
-						common:
-							common +
-							`
-				attribute float height;
-				`,
-						project_vertex: projectVertexBoat,
-					})
-				}
-			}
-		})
-
-		this.add(m)
-
-		return m
 	}
 }

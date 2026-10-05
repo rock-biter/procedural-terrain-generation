@@ -176,13 +176,11 @@ export default class ChunkManager {
 		position.multiplyScalar(this.chunkSize)
 		const chunk = new Chunk(
 			this.chunkSize,
-			this.noise,
 			this.params,
 			job.LOD,
 			position,
 			this.uniforms,
 			this.assets,
-			this.features,
 			geometry,
 		)
 		chunk.coords = [i, j]

@@ -13,7 +13,8 @@ import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTyp
 
 // Scenery grows from the grass band up to the rocks band (src/terrainBands.js,
 // the borders the terrain shader colors): never on snow. The sand and the
-// shallow sea carry only sea rocks (`coast`).
+// shallow sea carry only sea rocks (`coast`), and a band of deeper sea the
+// boats (`boat`).
 export const SCENERY_CONFIG = Object.freeze({
 	// Vertical offset into the ground, in units of instance scale, so bases do
 	// not float where coarse terrain LODs cut below the exact height.
@@ -65,6 +66,17 @@ export const SCENERY_CONFIG = Object.freeze({
 		sink: 0.2,
 		footprint: 2.5,
 	},
+	// Boats on the sea (placeBoats()). The model is scaled to `length` at scale
+	// 1 (src/impostors/boatSources.js), its bow along local +Z; `beam` is its
+	// width at that length. Each chunk offers `candidates` spots. Depth band,
+	// count, draft, and clearance are runtime settings (settings.boats,
+	// BOAT_DEFAULTS).
+	boat: {
+		type: IMPOSTOR_TYPE.BOAT,
+		candidates: 8,
+		length: 12,
+		beam: 7.2,
+	},
 	// [min scale, max scale, min stretch, max stretch]
 	shape: {
 		[IMPOSTOR_TYPE.ROUND_TREE]: [0.8, 1.3, 0.9, 1.2],
@@ -75,6 +87,8 @@ export const SCENERY_CONFIG = Object.freeze({
 		[IMPOSTOR_TYPE.LAYERED_ROCK]: [0.8, 1.8, 0.7, 1.4],
 		// Its scale range is only the default of settings.seaRocks.scale.
 		[IMPOSTOR_TYPE.SEA_ROCK]: [0.35, 2.1, 0.8, 1.35],
+		// One size for every boat: the boat size setting alone scales it.
+		[IMPOSTOR_TYPE.BOAT]: [1, 1, 1, 1],
 	},
 })
 
@@ -87,6 +101,7 @@ export const SCENERY_TYPE_KEYS = Object.freeze({
 	[IMPOSTOR_TYPE.BOULDER]: 'boulder',
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: 'layeredRock',
 	[IMPOSTOR_TYPE.SEA_ROCK]: 'seaRock',
+	[IMPOSTOR_TYPE.BOAT]: 'boat',
 })
 
 // Density is set per category; each type belongs to one.
@@ -95,6 +110,7 @@ export const SCENERY_CATEGORIES = Object.freeze({
 	cacti: [IMPOSTOR_TYPE.CACTUS_ONE_ARM, IMPOSTOR_TYPE.CACTUS_TWO_ARMS],
 	rocks: [IMPOSTOR_TYPE.BOULDER, IMPOSTOR_TYPE.LAYERED_ROCK],
 	seaRocks: [IMPOSTOR_TYPE.SEA_ROCK],
+	boats: [IMPOSTOR_TYPE.BOAT],
 })
 
 const TYPE_CATEGORY = Object.fromEntries(
@@ -116,6 +132,7 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	boulder: 0.6,
 	layeredRock: 0.85,
 	seaRock: 1.6,
+	boat: 1.65,
 })
 
 // Default sea rock settings. Rocks stand where the sea is at most `maxDepth`
@@ -152,17 +169,43 @@ export function createSeaRockSettings() {
 	}
 }
 
+// Default boat settings. A boat's center stands where the sea is between
+// `depth.min` and `depth.max` deep (measured from y = 0, like the sea rocks'
+// maxDepth): away from the coast, short of the deep sea. Its bow, stern, and
+// sides need at least `depth.min`, and the sea floor stays below its keel. A
+// chunk holds at most `maxPerChunk` boats, each `rockClearance` units from any
+// sea rock and other boat. The hull sinks `draft` (times its scale) below the
+// sea surface.
+export const BOAT_DEFAULTS = Object.freeze({
+	maxPerChunk: 2,
+	depth: Object.freeze({ min: 6, max: 18 }),
+	draft: 0.3,
+	rockClearance: 4,
+})
+
+// A mutable copy of BOAT_DEFAULTS.
+export function createBoatSettings() {
+	return {
+		maxPerChunk: BOAT_DEFAULTS.maxPerChunk,
+		depth: { ...BOAT_DEFAULTS.depth },
+		draft: BOAT_DEFAULTS.draft,
+		rockClearance: BOAT_DEFAULTS.rockClearance,
+	}
+}
+
 // Runtime settings sent with every placement request. Density and size are
 // multipliers on SCENERY_CONFIG. Density multiplies the acceptance
-// probability of its category, capped at one instance per grid cell.
-// `seaRocks` holds the sea rocks' depth, scale, and satellites.
+// probability of its category, capped at one instance per grid cell (for
+// boats, per candidate spot). `seaRocks` holds the sea rocks' depth, scale,
+// and satellites; `boats` the boats' depth band, count, draft, and clearance.
 export function createScenerySettings({ isMobile = false } = {}) {
 	return {
 		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 0.7 },
+		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 0.7, boats: 0.13 },
 		size: { ...SCENERY_DEFAULT_SIZES },
 		seaRocks: createSeaRockSettings(),
+		boats: createBoatSettings(),
 	}
 }
 
@@ -205,50 +248,64 @@ function getTint(type, biome, random) {
 	return packTint(brightness, brightness, brightness)
 }
 
-// The instance values of a sea rock with base (x, z) over ground `height`.
-function getSeaRockValues(x, z, height, scale, yaw, tint, stretch, context) {
+// The jittered candidate of grid cell (cellX, cellZ) and its ground.
+function getCellCandidate(cellX, cellZ, { seedHash, noises, params, biomeOffset, settings }) {
+	const { cellSize } = settings
+	const x = (cellX + cellRandom(seedHash, cellX, cellZ, 0)) * cellSize
+	const z = (cellZ + cellRandom(seedHash, cellX, cellZ, 1)) * cellSize
+	const height = getHeight(x, z, noises, params, biomeOffset)
+	return { x, z, height, band: getTerrainBand(x, height, z), cellX, cellZ }
+}
+
+// Whether a cell candidate may bring sea rocks: on the sand or the sea, no
+// deeper than settings.seaRocks.maxDepth.
+function isSeaRockCandidate({ band, height }, settings) {
+	return isCoastBand(band) && height >= -settings.seaRocks.maxDepth
+}
+
+// The instance values of a sea rock (from getSeaRockGroup()).
+function getSeaRockValues({ x, z, height, scale, yaw, tint, stretch }, context) {
 	const { config, worldX, worldZ } = context
 	const baseY = Math.max(height, SEA_SURFACE_Y) - config.coast.sink * scale
 	return [x - worldX, baseY, z - worldZ, scale, yaw, config.coast.type, tint, stretch]
 }
 
-// Places the sea rock of one coastal candidate, if accepted, and its smaller
-// satellites. Every value comes from the candidate's cell (salts 2 to 8 like
-// other scenery, then 9 and up for the satellites), so the group is
-// deterministic and belongs to the candidate's chunk even where a satellite
-// crosses its border.
-function placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context) {
+// The sea rocks of one coastal candidate (see isSeaRockCandidate()): the rock,
+// if accepted, and its smaller satellites, with world-space bases. Every value
+// comes from the candidate's cell (salts 2 to 8 like other scenery, then 9 and
+// up for the satellites), so the group is deterministic, belongs to the
+// candidate's chunk even where a satellite crosses its border, and any chunk
+// can recompute it (the boats avoid the rocks of neighbouring chunks).
+function getSeaRockGroup({ x, z, height, cellX, cellZ }, context) {
 	const { seedHash, noises, params, biomeOffset, settings, config } = context
 	const coast = config.coast
 	const type = coast.type
 	const random = (salt) => cellRandom(seedHash, cellX, cellZ, salt)
 	const rocks = settings.seaRocks
+	const group = []
 
 	const mask = getCoastRockMask(x, z, biomeOffset, params.coast?.mask)
 	const density =
 		(coast.baseDensity + (coast.maxDensity - coast.baseDensity) * mask) *
 		settings.density[TYPE_CATEGORY[type]]
-	if (random(2) >= density) return
+	if (random(2) >= density) return group
 
 	const [, , minStretch, maxStretch] = config.shape[type]
 	const { min: minScale, max: maxScale, bias } = rocks.scale
 	const scale =
 		(minScale + (maxScale - minScale) * random(4) ** bias) * settings.size[SCENERY_TYPE_KEYS[type]]
-	if (scale <= 0) return
+	if (scale <= 0) return group
 	// The palette gives the hue, so the tint is a brightness in every biome.
 	const tint = (salt) => getTint(type, null, random(salt))
-	instances.push({
+	group.push({
 		priority: random(8),
-		values: getSeaRockValues(
-			x,
-			z,
-			height,
-			scale,
-			random(6) * Math.PI * 2,
-			tint(7),
-			minStretch + (maxStretch - minStretch) * random(5),
-			context,
-		),
+		x,
+		z,
+		height,
+		scale,
+		yaw: random(6) * Math.PI * 2,
+		tint: tint(7),
+		stretch: minStretch + (maxStretch - minStretch) * random(5),
 	})
 
 	const satellites = Math.floor(random(9) * (Math.floor(rocks.satellites.count) + 1))
@@ -263,21 +320,180 @@ function placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context) {
 		const satelliteZ = z + Math.sin(angle) * distance
 		const satelliteHeight = getHeight(satelliteX, satelliteZ, noises, params, biomeOffset)
 		if (satelliteHeight < -rocks.maxDepth) continue
-		const satelliteScale = scale * (minShare + (maxShare - minShare) * random(salt + 2))
-		instances.push({
+		group.push({
 			priority: random(salt + 6),
-			values: getSeaRockValues(
-				satelliteX,
-				satelliteZ,
-				satelliteHeight,
-				satelliteScale,
-				random(salt + 3) * Math.PI * 2,
-				tint(salt + 4),
-				minStretch + (maxStretch - minStretch) * random(salt + 5),
-				context,
-			),
+			x: satelliteX,
+			z: satelliteZ,
+			height: satelliteHeight,
+			scale: scale * (minShare + (maxShare - minShare) * random(salt + 2)),
+			yaw: random(salt + 3) * Math.PI * 2,
+			tint: tint(salt + 4),
+			stretch: minStretch + (maxStretch - minStretch) * random(salt + 5),
 		})
 	}
+	return group
+}
+
+// The sea rocks of grid cell (cellX, cellZ), computed once per placement
+// (context.seaRockCells).
+function getCellSeaRocks(cellX, cellZ, context) {
+	const key = `${cellX}:${cellZ}`
+	let rocks = context.seaRockCells.get(key)
+	if (!rocks) {
+		const candidate = getCellCandidate(cellX, cellZ, context)
+		rocks = isSeaRockCandidate(candidate, context.settings)
+			? getSeaRockGroup(candidate, context)
+			: []
+		context.seaRockCells.set(key, rocks)
+	}
+	return rocks
+}
+
+// Farthest a sea rock's edge can reach from its cell's candidate under
+// `settings`: the largest rock, or a satellite at its largest distance.
+function getSeaRockReach(settings, config) {
+	const { scale, satellites } = settings.seaRocks
+	const footprint = config.coast.footprint
+	const largest =
+		Math.max(scale.min, scale.max, 0) *
+		Math.max(settings.size[SCENERY_TYPE_KEYS[config.coast.type]], 0)
+	if (Math.floor(satellites.count) < 1) return footprint * largest
+	const distance =
+		Math.max(satellites.distance.min, satellites.distance.max, 0) * footprint * largest
+	const satellite = footprint * largest * Math.max(satellites.scale.min, satellites.scale.max, 1)
+	return distance + satellite
+}
+
+// Distance from (px, pz) to the segment from (ax, az) to (bx, bz).
+function getSegmentDistance(px, pz, ax, az, bx, bz) {
+	const dx = bx - ax
+	const dz = bz - az
+	const lengthSquared = dx * dx + dz * dz
+	const t =
+		lengthSquared > 0
+			? Math.min(Math.max(((px - ax) * dx + (pz - az) * dz) / lengthSquared, 0), 1)
+			: 0
+	return Math.hypot(px - (ax + dx * t), pz - (az + dz * t))
+}
+
+// Whether the sea is deep enough under a boat at (x, z): its center within
+// the depth band, its bow, stern, and sides at least `depth.min` deep and
+// below its keel at `keelY`. (sin yaw, cos yaw) is the bow's direction, as
+// rotateYaw() in rotate-yaw.glsl turns local +Z.
+function isBoatInDepthBand(x, z, sinYaw, cosYaw, scale, keelY, context) {
+	const { noises, params, biomeOffset, settings, config } = context
+	const { depth } = settings.boats
+	const centerDepth = -getHeight(x, z, noises, params, biomeOffset)
+	if (centerDepth < depth.min || centerDepth > depth.max) return false
+	const minDepth = Math.max(depth.min, -keelY)
+	const halfLength = (config.boat.length / 2) * scale
+	const halfBeam = (config.boat.beam / 2) * scale
+	const points = [
+		[sinYaw * halfLength, cosYaw * halfLength],
+		[-sinYaw * halfLength, -cosYaw * halfLength],
+		[cosYaw * halfBeam, -sinYaw * halfBeam],
+		[-cosYaw * halfBeam, sinYaw * halfBeam],
+	]
+	return points.every(
+		([dx, dz]) => -getHeight(x + dx, z + dz, noises, params, biomeOffset) >= minDepth,
+	)
+}
+
+// Whether a boat at (x, z) keeps `clearance` from every sea rock: the hull is
+// a capsule along its bow direction, the beam wide; the rocks are circles of
+// their footprint, from every grid cell close enough to reach the boat.
+function isBoatClearOfRocks(x, z, sinYaw, cosYaw, scale, context) {
+	const { settings, config } = context
+	const { cellSize } = settings
+	const clearance = settings.boats.rockClearance
+	const radius = (config.boat.beam / 2) * scale
+	const half = Math.max(config.boat.length - config.boat.beam, 0) * 0.5 * scale
+	const ax = x - sinYaw * half
+	const az = z - cosYaw * half
+	const bx = x + sinYaw * half
+	const bz = z + cosYaw * half
+	const reach = half + radius + clearance + getSeaRockReach(settings, config)
+	const minCellX = Math.floor((x - reach) / cellSize)
+	const maxCellX = Math.floor((x + reach) / cellSize)
+	const minCellZ = Math.floor((z - reach) / cellSize)
+	const maxCellZ = Math.floor((z + reach) / cellSize)
+	for (let cellX = minCellX; cellX <= maxCellX; cellX++) {
+		for (let cellZ = minCellZ; cellZ <= maxCellZ; cellZ++) {
+			for (const rock of getCellSeaRocks(cellX, cellZ, context)) {
+				const rockRadius = config.coast.footprint * rock.scale
+				if (getSegmentDistance(rock.x, rock.z, ax, az, bx, bz) < rockRadius + radius + clearance) {
+					return false
+				}
+			}
+		}
+	}
+	return true
+}
+
+// The boats of one chunk, as instance values. Its `candidates` spots come from
+// the chunk's own hash (not the grid cells'), each active with the boats'
+// density, inside the chunk by half a boat and half the clearance, so boats of
+// neighbouring chunks never meet. In priority order, a spot keeps its boat
+// when the sea is deep enough (isBoatInDepthBand()), no sea rock or kept boat
+// is within the clearance, and the chunk holds fewer than maxPerChunk.
+function placeBoats(context) {
+	const { seed, size, worldX, worldZ, settings, config } = context
+	const boatConfig = config.boat
+	const type = boatConfig.type
+	const boats = settings.boats
+	const maxPerChunk = Math.floor(boats.maxPerChunk)
+	const density = settings.density[TYPE_CATEGORY[type]]
+	if (maxPerChunk < 1 || density <= 0) return []
+
+	const minX = worldX - size / 2
+	const minZ = worldZ - size / 2
+	const chunkX = Math.round(minX / size)
+	const chunkZ = Math.round(minZ / size)
+	const boatHash = hashSeed(`${seed}:boats`)
+	const random = (salt) => cellRandom(boatHash, chunkX, chunkZ, salt)
+
+	const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
+	const clearance = Math.max(boats.rockClearance, 0)
+	const candidates = []
+	for (let index = 0; index < boatConfig.candidates; index++) {
+		const salt = index * 8
+		if (random(salt) >= density) continue
+		const scale =
+			(minScale + (maxScale - minScale) * random(salt + 1)) * settings.size[SCENERY_TYPE_KEYS[type]]
+		if (scale <= 0) continue
+		const margin = (boatConfig.length / 2) * scale + clearance / 2
+		const span = size - margin * 2
+		if (span <= 0) continue
+		candidates.push({
+			priority: random(salt + 2),
+			x: minX + margin + span * random(salt + 3),
+			z: minZ + margin + span * random(salt + 4),
+			yaw: random(salt + 5) * Math.PI * 2,
+			scale,
+			stretch: minStretch + (maxStretch - minStretch) * random(salt + 6),
+		})
+	}
+	candidates.sort((a, b) => a.priority - b.priority)
+
+	const kept = []
+	for (const candidate of candidates) {
+		if (kept.length >= maxPerChunk) break
+		const { x, z, yaw, scale, stretch } = candidate
+		const sinYaw = Math.sin(yaw)
+		const cosYaw = Math.cos(yaw)
+		const keelY = SEA_SURFACE_Y - boats.draft * scale
+		if (!isBoatInDepthBand(x, z, sinYaw, cosYaw, scale, keelY, context)) continue
+		const crowded = kept.some(
+			(boat) =>
+				Math.hypot(boat.x - x, boat.z - z) <
+				(boatConfig.length / 2) * (boat.scale + scale) + clearance,
+		)
+		if (crowded) continue
+		if (!isBoatClearOfRocks(x, z, sinYaw, cosYaw, scale, context)) continue
+		kept.push(candidate)
+		candidate.values = [x - worldX, keelY, z - worldZ, scale, yaw, type, packTint(1, 1, 1), stretch]
+	}
+	return kept.map(({ values }) => values)
 }
 
 export function generateSceneryInstances({
@@ -304,23 +520,38 @@ export function generateSceneryInstances({
 	const seedHash = hashSeed(seed)
 	const normal = [0, 0, 0]
 	const instances = []
-	const context = { seedHash, noises, params, biomeOffset, settings, config, worldX, worldZ }
+	const context = {
+		seed,
+		seedHash,
+		noises,
+		params,
+		biomeOffset,
+		settings,
+		config,
+		size,
+		worldX,
+		worldZ,
+		// Sea rocks per grid cell, shared by this chunk's rocks and its boats.
+		seaRockCells: new Map(),
+	}
 
 	for (let k = 0; k < cellsPerSide; k++) {
 		for (let w = 0; w < cellsPerSide; w++) {
 			const cellX = firstCellX + k
 			const cellZ = firstCellZ + w
-			const x = (cellX + cellRandom(seedHash, cellX, cellZ, 0)) * cellSize
-			const z = (cellZ + cellRandom(seedHash, cellX, cellZ, 1)) * cellSize
-
-			const height = getHeight(x, z, noises, params, biomeOffset)
-			const band = getTerrainBand(x, height, z)
+			const candidate = getCellCandidate(cellX, cellZ, context)
+			const { x, z, height, band } = candidate
 			if (!isSceneryBand(band)) {
-				if (isCoastBand(band) && height >= -settings.seaRocks.maxDepth) {
-					placeSeaRocks(instances, { x, z, height, cellX, cellZ }, context)
+				const rocks = isSeaRockCandidate(candidate, settings)
+					? getSeaRockGroup(candidate, context)
+					: []
+				context.seaRockCells.set(`${cellX}:${cellZ}`, rocks)
+				for (const rock of rocks) {
+					instances.push({ priority: rock.priority, values: getSeaRockValues(rock, context) })
 				}
 				continue
 			}
+			context.seaRockCells.set(`${cellX}:${cellZ}`, [])
 
 			const biomeValue = getBiomeValue(x, z, biomeOffset)
 			if (Math.abs(biomeValue) < BIOME_BORDER_MARGIN) continue
@@ -373,8 +604,14 @@ export function generateSceneryInstances({
 			.sort((a, b) => a.priority - b.priority)
 			.slice(0, Math.max(0, settings.maxPerChunk))
 	}
+	// Boats come after the cap: they are few, and maxPerChunk of their own
+	// bounds them.
+	const boats = placeBoats(context)
 
-	const output = new Float32Array(kept.length * IMPOSTOR_INSTANCE_STRIDE)
+	const output = new Float32Array((kept.length + boats.length) * IMPOSTOR_INSTANCE_STRIDE)
 	kept.forEach(({ values }, index) => output.set(values, index * IMPOSTOR_INSTANCE_STRIDE))
+	boats.forEach((values, index) =>
+		output.set(values, (kept.length + index) * IMPOSTOR_INSTANCE_STRIDE),
+	)
 	return output
 }
