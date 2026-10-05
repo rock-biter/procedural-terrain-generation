@@ -1,18 +1,22 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createBiomeOffset, getBiomeValue } from '../src/biome.js'
+import { createBiomeOffset, getBiomeFields } from '../src/biome.js'
 import { COAST_RELIEF_WINDOW } from '../src/coast.js'
 import { PlaneGeometry } from 'three'
 import {
 	DESERT_TERRAIN_DEFAULTS,
+	ICE_TERRAIN_DEFAULTS,
 	TERRAIN_DEFAULTS,
 	createChunkIndex,
 	createChunkUv,
 	createTerrainNoises,
+	createTerrainSettings,
+	createTerrainSnapshot,
 	generateChunkGeometryData,
 	getDesertFlattening,
 	getDesertWeight,
 	getHeight,
+	getIceWeight,
 	getSurfaceNormal,
 } from '../src/chunkGeometry.js'
 import {
@@ -122,13 +126,24 @@ test('produces unit upward-facing normals', () => {
 const noises = createTerrainNoises('geometry-test', params.octaves)
 const plainDesert = { ...DESERT_TERRAIN_DEFAULTS, frequency: 1, amplitude: 1, flatten: 0 }
 
+const plainIce = { ...ICE_TERRAIN_DEFAULTS, frequency: 1, amplitude: 1 }
+
 // Height before per-biome topography: every octave unscaled, no flattening.
 function getTemperateHeight(x, z) {
-	return getHeight(x, z, noises, { ...params, desert: plainDesert }, biomeOffset)
+	return getHeight(x, z, noises, { ...params, desert: plainDesert, ice: plainIce }, biomeOffset)
 }
 
+function getFields(x, z) {
+	return getBiomeFields(x, z, biomeOffset, params.biomes)
+}
+
+// The effective climate (forest ring included), which the desert follows.
 function getValue(x, z) {
-	return getBiomeValue(x, z, biomeOffset)
+	return getFields(x, z).climate
+}
+
+function getIce(x, z) {
+	return getFields(x, z).ice
 }
 
 function findPoints(predicate, count) {
@@ -142,10 +157,12 @@ function findPoints(predicate, count) {
 	return points
 }
 
-test('keeps temperate heights unchanged away from the biome border', () => {
-	const temperate = (x, z) => getValue(x, z) > DESERT_TERRAIN_DEFAULTS.blend
+test('keeps temperate heights unchanged away from the biome borders', () => {
+	const temperate = (x, z) =>
+		getValue(x, z) > DESERT_TERRAIN_DEFAULTS.blend && getIce(x, z) < -ICE_TERRAIN_DEFAULTS.blend
 	for (const [x, z] of findPoints(temperate, 50)) {
 		assert.equal(getDesertWeight(getValue(x, z), params), 0)
+		assert.equal(getIceWeight(getIce(x, z), params), 0)
 		assert.equal(getDesertFlattening(getValue(x, z), params), 0)
 		const height = getHeight(x, z, noises, params, biomeOffset)
 		assert.ok(Math.abs(height - getTemperateHeight(x, z)) < 1e-9)
@@ -204,6 +221,47 @@ test('blends desert and temperate heights continuously across the border', () =>
 		assert.ok(Math.abs(height - previous) < 0.5, `jump at x=${x}`)
 		previous = height
 	}
+})
+
+test('reshapes the detail octaves inside the ice without raising them', () => {
+	// Craggier, never higher: the flight ceiling leaves no room for taller peaks.
+	assert.ok(ICE_TERRAIN_DEFAULTS.amplitude <= 1)
+	assert.ok(ICE_TERRAIN_DEFAULTS.frequency > 1)
+	const ice = (x, z) => getIce(x, z) > ICE_TERRAIN_DEFAULTS.blend
+	let changed = false
+	for (const [x, z] of findPoints(ice, 50)) {
+		assert.equal(getIceWeight(getIce(x, z), params), 1)
+		// The forest ring keeps the desert and its flattening away.
+		assert.equal(getDesertWeight(getValue(x, z), params), 0)
+		assert.equal(getDesertFlattening(getValue(x, z), params), 0)
+		const height = getHeight(x, z, noises, params, biomeOffset)
+		if (Math.abs(height - getTemperateHeight(x, z)) > 1e-3) changed = true
+	}
+	assert.ok(changed)
+})
+
+test('blends ice and temperate heights continuously across the ice border', () => {
+	const [[x0, z0]] = findPoints((x, z) => Math.abs(getIce(x, z)) < 0.001, 1)
+	let previous = getHeight(x0 - 200, z0, noises, params, biomeOffset)
+	for (let step = 1; step <= 4000; step++) {
+		const x = x0 - 200 + step * 0.1
+		const height = getHeight(x, z0, noises, params, biomeOffset)
+		assert.ok(Math.abs(height - previous) < 0.5, `jump at x=${x}`)
+		previous = height
+	}
+})
+
+test('snapshots every terrain parameter, detached from the source', () => {
+	const settings = createTerrainSettings()
+	const snapshot = createTerrainSnapshot(settings)
+	assert.deepEqual(Object.keys(snapshot).sort(), Object.keys(TERRAIN_DEFAULTS).sort())
+	assert.deepEqual(snapshot, settings)
+	settings.frequency.x = 9
+	settings.biomes.size = 9
+	settings.desert.flatten = 9
+	settings.ice.amplitude = 9
+	settings.coast.mask.threshold = 9
+	assert.deepEqual(snapshot, createTerrainSnapshot(TERRAIN_DEFAULTS))
 })
 
 test('raises rocky coasts only around the waterline', () => {

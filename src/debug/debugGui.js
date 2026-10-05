@@ -10,12 +10,19 @@ import {
 } from 'three'
 import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
-import { SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
+import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
 import { SCENERY_CATEGORIES, SCENERY_CELL_SIZES, SCENERY_TYPE_KEYS } from '../sceneryPlacement'
-import { TERRAIN_BANDS } from '../terrainBands'
+import { BIOME, TERRAIN_BANDS } from '../terrainBands'
 import { updateTerrainNormalUniforms } from '../terrainNormals'
-import { updateCoastMaskUniforms } from '../sharedUniforms'
+import { TERRAIN_PALETTE_BANDS, TERRAIN_SEA_COLORS } from '../terrainPalettePolicy'
+import {
+	updateBiomeUniforms,
+	updateCoastMaskUniforms,
+	updateSeaIceUniforms,
+	updateTerrainPaletteUniforms,
+} from '../sharedUniforms'
 import { createRandomSeed, normalizeWorldSeed } from '../worldSeed'
+import BiomeMap from './biomeMap'
 
 // The ?gui=1 tuning panel (lil-gui), loaded only behind that flag so the
 // default bundle does not carry it. Every control edits `params`
@@ -24,19 +31,26 @@ import { createRandomSeed, normalizeWorldSeed } from '../worldSeed'
 // and shadows, `setup` (src/renderSetup.js) for tone mapping and
 // post-processing. It is created before the startup assets load, so a
 // world system may not exist yet: its controls then only edit `params`,
-// which the system reads when it is created.
+// which the system reads when it is created. It also owns the biome map
+// (src/debug/biomeMap.js) and renders it again after every change it shows.
 export function createDebugGui({ params, uniforms, setup, world }) {
 	const gui = new GUI()
-	const regenerateTerrain = () => world.regenerateTerrain()
+	const biomeMap = new BiomeMap({ params, world })
+	const regenerateTerrain = () => {
+		world.regenerateTerrain()
+		biomeMap.invalidate()
+	}
 	const applySceneryWireframe = () => world.applySceneryWireframe()
 	const updateImpostorVariation = () => world.sceneryImpostors?.applyVariation()
 	const updatePalette = () => world.sceneryImpostors?.applyPalette()
+	const updateTerrainPalette = () => updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
 
 	const worldSettings = {
 		seed: world.seed,
 		randomSeed() {
 			worldSettings.seed = createRandomSeed()
 			world.applyWorldSeed(worldSettings.seed)
+			biomeMap.invalidate()
 			seedController.updateDisplay()
 		},
 	}
@@ -50,21 +64,13 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			worldSettings.seed = seed ?? world.seed
 			seedController.updateDisplay()
 			if (seed) world.applyWorldSeed(seed)
+			biomeMap.invalidate()
 		})
 	worldFolder.add(worldSettings, 'randomSeed').name('Random seed')
 
+	addBiomeControls()
+
 	const terrainFolder = gui.addFolder('Terrain')
-	terrainFolder.addColor(params.colors, 'uGrass').onChange((val) => {
-		uniforms.uGrass.value.set(val)
-	})
-
-	terrainFolder.addColor(params.colors, 'uLand').onChange((val) => {
-		uniforms.uLand.value.set(val)
-	})
-
-	terrainFolder.addColor(params.colors, 'uRocks').onChange((val) => {
-		uniforms.uRocks.value.set(val)
-	})
 	// Each change regenerates every desired chunk, so it waits for the release.
 	terrainFolder.add(params, 'amplitude', 0, 100, 0.1).onFinishChange(regenerateTerrain)
 	terrainFolder.add(params, 'octaves', 1, 10, 1).onFinishChange(regenerateTerrain)
@@ -89,28 +95,6 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				uniforms[uniform].value = value
 			})
 	}
-
-	const desertFolder = terrainFolder.addFolder('Desert topography')
-	desertFolder
-		.add(params.desert, 'frequency', 0.1, 2, 0.01)
-		.name('Detail frequency ×')
-		.onFinishChange(regenerateTerrain)
-	desertFolder
-		.add(params.desert, 'amplitude', 0, 2, 0.01)
-		.name('Detail amplitude ×')
-		.onFinishChange(regenerateTerrain)
-	desertFolder
-		.add(params.desert, 'blend', 0.01, 0.4, 0.005)
-		.name('Blend width')
-		.onFinishChange(regenerateTerrain)
-	desertFolder
-		.add(params.desert, 'flatten', 0, 1, 0.01)
-		.name('Height reduction')
-		.onFinishChange(regenerateTerrain)
-	desertFolder
-		.add(params.desert, 'depth', 0.01, 1.5, 0.01)
-		.name('Reduction depth')
-		.onFinishChange(regenerateTerrain)
 
 	const coastFolder = terrainFolder.addFolder('Coast')
 	coastFolder
@@ -395,8 +379,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.name(`${key} variation`)
 				.onChange(updateImpostorVariation)
 		}
-		const painted = Object.values(SCENERY_PALETTE_TYPES).some((entry) => entry.group === category)
-		if (painted) addPalette(folder, category)
+		// The palettes live in the Biomes folders.
 		if (category === 'seaRocks') addSeaRockControls(folder)
 		if (category === 'boats') addBoatControls(folder)
 	}
@@ -451,11 +434,9 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 
 	// Live: a category's palettes (trunk colors, palette colors and weights)
 	// and the noise that distributes them.
-	function addPalette(parent, group) {
+	function addPalette(parent, group, name) {
 		const { noise, palettes } = params.sceneryPalette
-		const folder = parent.addFolder('Palette')
-		// Palettes picked by biome (the sea rocks) use neither the noise nor the
-		// weights, so they show only their colors.
+		const folder = parent.addFolder(name)
 		if (noise[group]) {
 			folder
 				.add(noise[group], 'frequency', 0.0005, 0.1, 0.0005)
@@ -479,12 +460,171 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			palette.colors.forEach((entry, slot) => {
 				const label = entry.label ?? `Color ${slot + 1}`
 				paletteFolder.addColor(entry, 'color').name(label).onChange(updatePalette)
-				if (palette.byBiome) return
 				paletteFolder
 					.add(entry, 'weight', 0, 1, 0.01)
 					.name(`${label} weight`)
 					.onChange(updatePalette)
 			})
+		}
+	}
+
+	// One folder per biome with its colors and topography, after the
+	// distribution of the biomes and the map that shows it.
+	function addBiomeControls() {
+		const biomesFolder = gui.addFolder('Biomes')
+
+		// The shader and the map follow at once; the release regenerates the
+		// terrain and its scenery, whose heights depend on the biomes.
+		const updateBiomes = () => {
+			updateBiomeUniforms(uniforms, params.biomes)
+			biomeMap.invalidate()
+		}
+		const distributionFolder = biomesFolder.addFolder('Distribution')
+		const distributionControls = [
+			['size', 'Biome size ×', 0.3, 5, 0.05],
+			['desertBias', 'Desert share', -0.6, 0.6, 0.01],
+			['iceSize', 'Ice size ×', 0.25, 4, 0.05],
+			['iceThreshold', 'Ice rarity', 0.2, 1.1, 0.01],
+			// Below the desert and ice blends, their topographies overlap.
+			['iceRing', 'Forest ring', 0.02, 0.5, 0.005],
+		]
+		for (const [key, label, min, max, step] of distributionControls) {
+			distributionFolder
+				.add(params.biomes, key, min, max, step)
+				.name(label)
+				.onChange(updateBiomes)
+				.onFinishChange(regenerateTerrain)
+		}
+
+		const mapFolder = biomesFolder.addFolder('Map')
+		mapFolder
+			.add(biomeMap.settings, 'visible')
+			.name('Show')
+			.onChange(() => biomeMap.applyVisibility())
+		mapFolder
+			.add(biomeMap.settings, 'follow')
+			.name('Follow airplane')
+			.onChange(() => biomeMap.invalidate())
+			.listen()
+		mapFolder.add(biomeMap, 'resetView').name('Reset view')
+
+		const forestFolder = biomesFolder.addFolder('Forest')
+		addTerrainPalette(forestFolder, 'temperate')
+		addPalette(forestFolder, 'trees', 'Tree palette')
+		addRockColors(forestFolder, BIOME.TEMPERATE, ['boulder', 'seaRock'])
+
+		const desertFolder = biomesFolder.addFolder('Desert')
+		addTerrainPalette(desertFolder, 'desert')
+		const desertTopography = desertFolder.addFolder('Topography')
+		const desertControls = [
+			['frequency', 'Detail frequency ×', 0.1, 2, 0.01],
+			['amplitude', 'Detail amplitude ×', 0, 2, 0.01],
+			['blend', 'Blend width', 0.01, 0.4, 0.005],
+			['flatten', 'Height reduction', 0, 1, 0.01],
+			['depth', 'Reduction depth', 0.01, 1.5, 0.01],
+		]
+		for (const [key, label, min, max, step] of desertControls) {
+			desertTopography
+				.add(params.desert, key, min, max, step)
+				.name(label)
+				.onFinishChange(regenerateTerrain)
+		}
+		addPalette(desertFolder, 'cacti', 'Cactus palette')
+		addRockColors(desertFolder, BIOME.DESERT, ['boulder', 'layeredRock', 'seaRock'])
+
+		const iceFolder = biomesFolder.addFolder('Ice')
+		addTerrainPalette(iceFolder, 'ice')
+		// Craggier detail, never higher than the forest's: the amplitude stops
+		// at 1 for the flight ceiling.
+		const iceTopography = iceFolder.addFolder('Topography')
+		const iceControls = [
+			['frequency', 'Detail frequency ×', 0.5, 3, 0.01],
+			['amplitude', 'Detail amplitude ×', 0, 1, 0.01],
+			['blend', 'Blend width', 0.005, 0.1, 0.001],
+		]
+		for (const [key, label, min, max, step] of iceControls) {
+			iceTopography
+				.add(params.ice, key, min, max, step)
+				.name(label)
+				.onFinishChange(regenerateTerrain)
+		}
+		addSeaIceControls(iceFolder)
+		addRockColors(iceFolder, BIOME.ICE, ['boulder', 'layeredRock', 'seaRock'])
+
+		const seaFolder = biomesFolder.addFolder('Sea')
+		const seaLabels = { shallow: 'Shallow', mid: 'Open sea', deep: 'Deep sea' }
+		for (const name of TERRAIN_SEA_COLORS) {
+			seaFolder
+				.addColor(params.terrainPalette.sea, name)
+				.name(seaLabels[name])
+				.onChange(updateTerrainPalette)
+		}
+	}
+
+	// Live: a biome's land band colors, the drift of each band toward its
+	// variation color, the light patches, and the band lines.
+	function addTerrainPalette(parent, key) {
+		const palette = params.terrainPalette[key]
+		const folder = parent.addFolder('Terrain palette')
+		const label = (band) => `${band[0].toUpperCase()}${band.slice(1)}`
+		for (const band of TERRAIN_PALETTE_BANDS) {
+			folder.addColor(palette.colors, band).name(label(band)).onChange(updateTerrainPalette)
+		}
+		folder
+			.add(palette, 'colorNoise', 0, 2, 0.01)
+			.name('Light patches ×')
+			.onChange(updateTerrainPalette)
+		folder.add(palette, 'lines', 0, 1, 0.01).name('Band lines').onChange(updateTerrainPalette)
+		const variationFolder = folder.addFolder('Variation')
+		for (const band of TERRAIN_PALETTE_BANDS) {
+			const variation = palette.variation[band]
+			variationFolder
+				.addColor(variation, 'color')
+				.name(`${label(band)} toward`)
+				.onChange(updateTerrainPalette)
+			variationFolder
+				.add(variation, 'amount', 0, 1, 0.01)
+				.name(`${label(band)} amount`)
+				.onChange(updateTerrainPalette)
+		}
+	}
+
+	// Live: the rocks' colors in one biome, from the palettes picked by biome.
+	function addRockColors(parent, biome, keys) {
+		const slot = SCENERY_BIOME_SLOTS[biome]
+		const labels = { boulder: 'Boulders', layeredRock: 'Layered rocks', seaRock: 'Sea rocks' }
+		const folder = parent.addFolder('Rock colors')
+		for (const key of keys) {
+			folder
+				.addColor(params.sceneryPalette.palettes[key].colors[slot], 'color')
+				.name(labels[key])
+				.onChange(updatePalette)
+		}
+	}
+
+	// Live: the frozen sea's shape and colors; the map shows its sheet.
+	function addSeaIceControls(parent) {
+		const updateSeaIce = () => {
+			updateSeaIceUniforms(uniforms, params.seaIce)
+			biomeMap.invalidate()
+		}
+		const folder = parent.addFolder('Frozen sea')
+		const controls = [
+			['shelf', 'Sheet depth (units)', 0, 20, 0.1],
+			['fade', 'Taper (ice field)', 0.005, 0.2, 0.005],
+			['band', 'Floe band depth', 0, 12, 0.1],
+			['cellSize', 'Floe size (units)', 1, 30, 0.5],
+			['crackMin', 'Crack at sheet (units)', 0, 3, 0.05],
+			['crackMax', 'Crack offshore (units)', 0, 6, 0.05],
+			['edgeNoise', 'Edge wobble (depth)', 0, 4, 0.05],
+			['edgeFrequency', 'Edge wobble frequency', 0.005, 0.3, 0.005],
+		]
+		for (const [key, label, min, max, step] of controls) {
+			folder.add(params.seaIce, key, min, max, step).name(label).onChange(updateSeaIce)
+		}
+		const colorLabels = { sheet: 'Sheet', floe: 'Floes', water: 'Water between floes' }
+		for (const [key, label] of Object.entries(colorLabels)) {
+			folder.addColor(params.seaIce.colors, key).name(label).onChange(updateSeaIce)
 		}
 	}
 

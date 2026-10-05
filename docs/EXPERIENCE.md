@@ -18,7 +18,7 @@ This document covers user-visible startup, flight input, camera behavior, audio,
 | `play`               | Starts movement, audio, camera transition, and flight effects.            |
 | `sound-toggle`       | Mutes or unmutes the soundtrack (volume `0.1` or `0`).                    |
 
-Changing an ID requires updating `index.html` and `intro.js`; `test/domShell.test.js` fails when a looked-up ID is missing. UI classes are Tailwind utilities in `index.html`; [`style.css`](../style.css) imports Tailwind and prevents document scrolling.
+Changing an ID requires updating `index.html` and `intro.js`; `test/domShell.test.js` fails when a looked-up ID is missing. UI classes are Tailwind utilities in `index.html`; [`style.css`](../style.css) imports Tailwind and prevents document scrolling. The `?gui=1` tools create their own elements with inline styles and no IDs: the lil-gui panel (top right) and the [debug biome map](#debug-biome-map) (top left).
 
 ## Loading Flow
 
@@ -49,7 +49,7 @@ Keep audio playback behind a user gesture to comply with browser autoplay polici
 - Vertical positions above `45%` of the screen command a climb. Positions from `45%` through `65%` command zero vertical speed so the plane settles at its reached altitude. Positions below `65%` command a descent. Input strength increases linearly toward the top or bottom edge.
 - Each wheel event holds a request for `0.2` seconds (`FLIGHT_LIMITS.wheelHold`): scrolling down requests a boost (`1`), scrolling up a brake (`-1`). While a request is held, the speed effect eases toward it (`wheelResponse`, about `95%` of the way in `0.2` s), so continuous scrolling holds a full boost; without one it decays toward `0` at `speedEffectDecay` (`0.6`) per second. The effect boosts speed up to three times cruise speed or brakes to no less than `95%` of it. `getNextSpeedEffect()` is the effect's only writer.
 - `touchmove` applies the same vertical bands to the first touch and reduces horizontal input by dividing it by `1.5`.
-- Every flight listener returns early while input is disabled (`Plane.setInputEnabled(false)`, during the debug flight pause), which also drops a held wheel request.
+- Every flight listener returns early while input is disabled (`Plane.setInputEnabled(false)`, during the debug flight pause and while the pointer is over the debug biome map), which also drops a held wheel request. `FlightInput.center()` returns the input to its neutral start (no turn, the pointer in the middle of the vertical hold band).
 
 There are no player keyboard controls. The only keyboard shortcut is the debug flight pause below. Do not document or expose a control until it is implemented and manually verified.
 
@@ -98,6 +98,16 @@ Changes to movement should be checked together with chunk tracking because `Chun
 
 See [Assets](ASSETS.md) for the soundtrack path and unresolved provenance metadata.
 
+## Debug Biome Map
+
+With `?gui=1`, `createDebugGui()` also creates the biome map ([`src/debug/biomeMap.js`](../src/debug/biomeMap.js)), a square in the top-left corner that shows the world's biome distribution, to tune the **Biomes > Distribution** settings ([Terrain](TERRAIN.md#biome-field)). It is loaded with the GUI, so the default bundle carries neither.
+
+- **Content:** one flat color per category: sea, frozen sea (the [sea ice](RENDERING.md#sea-ice) sheet, without its floes), desert, forest, and ice ([`src/debug/biomeMapPolicy.js`](../src/debug/biomeMapPolicy.js)). Each pixel averages `2 × 2` samples of the same `getHeight()` and biome fields as the chunks, so islands smaller than a pixel blend instead of speckling. A red arrow marks the airplane along its heading, a bar gives the scale, and the legend gives the shares of desert, forest, and ice in the land the map shows.
+- **View:** north (`-Z`) up and `+X` to the right, `40` km wide at first, between `0.5` and `400` km. The wheel zooms about the pointer (about the airplane while following it), a drag pans, and a double click follows the airplane again; **Biomes > Map** has **Show**, **Follow airplane**, and **Reset view**. While following, the map moves with the airplane every frame and renders again once it has moved `5%` of its width.
+- **Rendering:** a module worker ([`src/debug/biomeMap.worker.js`](../src/debug/biomeMap.worker.js)) rasterizes the map from the seed and a `createTerrainSnapshot()` of `params`, keeping the seeded noises between requests. Requests are latest-only: a coarse raster (`80` pixels, `50` on mobile) while the view or a setting changes, then a fine one (`160`, `100` on mobile; about `100` ms in the worker) `150` ms after the last change. Until a raster arrives, the previous one is drawn moved and scaled into the current view, so zoom and pan respond at once. The GUI renders the map again after every terrain, biome, sea ice, or seed change; it does not wait for the chunks.
+- **Input:** the map stops `mousemove`, `wheel`, `touchstart`, `touchmove`, `pointerdown`, and `click` from reaching the global flight listeners, so the wheel over it never boosts or brakes. While the pointer is over it, the flight input is disabled and centered, so the airplane holds its course instead of steering toward the corner; leaving restores the previous state.
+- **Layout:** `220` CSS pixels wide (`160` below `768` pixels), fixed `8` pixels from the top-left corner, with `z-index` `1000`, just under the lil-gui panel (`1001`), which it can overlap on narrow screens. Before `World.init()` there is no airplane yet: the map centers on the origin.
+
 ## Responsive Behavior
 
 The JavaScript `isMobile` flag is evaluated once at module startup with `window.innerWidth < 768`.
@@ -109,6 +119,7 @@ It controls:
 - Chunk radius and per-frame queue throughput.
 - Terrain density and the default scenery grid cell: `8` units on desktop, `16` on mobile. `?gui=1` can change the cell at runtime.
 - Scenery impostors: mobile bakes the same `12 × 12` view grid as desktop but samples one baked frame instead of three.
+- The `?gui=1` [biome map](#debug-biome-map): `160` CSS pixels wide with coarser rasters on mobile.
 - Near scenery meshes: on mobile, impostors hand over to reduced-detail meshes between `120` and `180` units from the eye, and those to full-detail meshes between `60` and `90`. Desktop uses `220 → 300` and `110 → 150`.
 
 `RenderSetup.handleResize()` updates renderer dimensions and camera projection, but it does not recompute `isMobile` or rebuild terrain. Crossing the breakpoint after startup therefore does not switch runtime policy.

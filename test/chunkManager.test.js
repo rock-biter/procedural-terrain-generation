@@ -2,10 +2,10 @@
 // fake workers that answer asynchronously, like module workers.
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { Object3D, Scene, Vector2 } from 'three'
+import { Object3D, Scene, Vector4 } from 'three'
 import ChunkManager from '../src/chunkManager.js'
 import { CURVATURE } from '../src/worldConstants.js'
-import { createTerrainSettings } from '../src/chunkGeometry.js'
+import { createTerrainSettings, createTerrainSnapshot } from '../src/chunkGeometry.js'
 import { getChunkKey, getCurvatureDrop } from '../src/chunkPolicy.js'
 import { runChunkJob } from '../src/chunkWorkerJob.js'
 import { createScenerySettings } from '../src/sceneryPlacement.js'
@@ -43,7 +43,7 @@ function createManager({ failures } = {}) {
 		plane,
 		params,
 		scene,
-		{ uBiomeOffset: { value: new Vector2() }, uCurvature: { value: CURVATURE } },
+		{ uBiomeOffset: { value: new Vector4() }, uCurvature: { value: CURVATURE } },
 		{},
 		{ scenery: false },
 		'reconcile-test',
@@ -112,6 +112,24 @@ test('results of an older revision are dropped and regenerated', async () => {
 	const stats = await settle(manager)
 	assert.ok(stats.stale > 0)
 	assertConsistent(manager, scene)
+})
+
+test('requests carry a detached snapshot of every terrain parameter', () => {
+	const { manager } = createManager()
+	const request = manager.createWorkerRequest({
+		key: getChunkKey(0, 0),
+		coords: [0, 0],
+		revision: 0,
+		type: 'create',
+		LOD: 0,
+		scenery: false,
+	})
+	assert.deepEqual(request.geometry.params, createTerrainSnapshot(manager.params))
+	// The biomes reshape the terrain, so they reach the workers too.
+	assert.deepEqual(request.geometry.params.biomes, manager.params.biomes)
+	manager.params.biomes.size = 9
+	assert.notEqual(request.geometry.params.biomes.size, 9)
+	assert.equal(request.geometry.biomeOffset.length, 4)
 })
 
 test('a failed job is retried once', async (t) => {

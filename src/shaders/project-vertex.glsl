@@ -20,6 +20,11 @@ vShadowPosition = wPosition;
 float wave = sin(uTime * 3. - height * 1.);
 
 float pctWave = smoothstep(-1.,-4.,height) - smoothstep(-10.,-40., height);
+// The ice field, broad enough to interpolate across triangles: the fragment
+// reads it instead of evaluating the noise per pixel. The frozen sea stays
+// still (sea-ice-pars.glsl).
+vIceValue = getIceValue(wPosition.xz + uBiomeOffset.xy);
+pctWave *= 1.0 - getSeaIceStill(height, vIceValue);
 
 
 float dist = length(wPosition.xyz - uCamera);

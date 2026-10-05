@@ -7,6 +7,8 @@ import terrainNormalPars from './shaders/terrain-normal-pars.glsl'
 import terrainBandsPars from './shaders/terrain-bands-pars.glsl'
 import terrainColorNoisePars from './shaders/terrain-color-noise-pars.glsl'
 import seaRipplePars from './shaders/sea-ripple-pars-fragment.glsl'
+import seaIcePars from './shaders/sea-ice-pars-fragment.glsl'
+import terrainParsVertex from './shaders/terrain-pars-vertex.glsl'
 import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
 import { TERRAIN_SHADER_DEFINES } from './terrainBands'
 import { createSceneryLighting } from './curvedLights'
@@ -90,6 +92,8 @@ export default class Chunk extends Mesh {
 			shader.vertexShader = replaceChunks(shader.vertexShader, {
 				common:
 					common +
+					'\n' +
+					terrainParsVertex +
 					`
 				attribute float height;
 				varying vec3 vSphereNormal;
@@ -108,6 +112,8 @@ export default class Chunk extends Mesh {
 					terrainColorNoisePars +
 					'\n' +
 					seaRipplePars +
+					'\n' +
+					seaIcePars +
 					'\n' +
 					lighting.parsFragment +
 					`

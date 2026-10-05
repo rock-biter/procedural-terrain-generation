@@ -2,7 +2,6 @@ import { createScenerySources } from './impostorArchetypes.js'
 import { createCloudSources } from './cloudArchetypes.js'
 import { SCENERY_MESH_LOD_COUNT } from '../sceneryMeshPolicy.js'
 import { SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy.js'
-import { BIOME_SHADER_DEFINES } from '../terrainBands.js'
 import {
 	CLOUD_ATLAS_COLUMNS,
 	CLOUD_ATLAS_ROWS,
@@ -24,9 +23,9 @@ import {
 // source is the same).
 
 // Trees, cacti, rocks, and boats, placed per chunk by the workers. SCENERY_PALETTE
-// paints the trees' crowns, the cacti, and the sea rocks per instance from
-// their baked paint mask (src/sceneryPalettePolicy.js); the biome layers let a
-// palette pick its color by biome.
+// paints the trees' crowns, the cacti, and the rocks per instance from their
+// baked paint mask (src/sceneryPalettePolicy.js); the rocks' palettes pick
+// their color by the biome placement stores in the instance tint.
 export const SCENERY_IMPOSTORS = Object.freeze({
 	name: 'scenery',
 	typeCount: IMPOSTOR_TYPE_COUNT,
@@ -37,7 +36,6 @@ export const SCENERY_IMPOSTORS = Object.freeze({
 	defines: Object.freeze({
 		SCENERY_PALETTE: '',
 		SCENERY_PALETTE_SIZE,
-		...BIOME_SHADER_DEFINES,
 	}),
 })
 

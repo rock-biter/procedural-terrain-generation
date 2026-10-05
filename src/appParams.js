@@ -11,8 +11,10 @@ import {
 import { createSceneryPaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createSeaFoamSettings } from './seaFoamPolicy'
+import { createSeaIceSettings } from './seaIcePolicy'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
+import { createTerrainPaletteSettings } from './terrainPalettePolicy'
 
 // The mutable parameters of the app, edited live by the ?gui=1 debug panel
 // (src/debug/debugGui.js) and read by every system. `urlParams` supplies
@@ -35,13 +37,15 @@ export function createAppParams({ urlParams, isMobile }) {
 		// Radial fog range in world units from the eye; DayNight applies it.
 		fog: { near: 200, far: 2100 },
 		// Terrain generation (amplitude, frequency, octaves, lacunarity,
-		// persistance, desert topography, coastal relief); see TERRAIN_DEFAULTS.
+		// persistance, biome distribution, desert and ice topography, coastal
+		// relief); see TERRAIN_DEFAULTS.
 		...createTerrainSettings(),
-		colors: {
-			uGrass: '#6d976d',
-			uLand: '#455f0c',
-			uRocks: '#b66635',
-		},
+		// Shader-side, applied live: the land band colors of every biome and the
+		// sea colors; see createTerrainPaletteSettings().
+		terrainPalette: createTerrainPaletteSettings(),
+		// Shader-side, applied live: the frozen sea of the ice biome; see
+		// createSeaIceSettings().
+		seaIce: createSeaIceSettings(),
 		// Soft lighter patches on land from a world-space noise: frequency (per world
 		// unit), intensity (0.3 = up to 30% brighter), threshold (noise value in
 		// [0, 1] where lightening starts), softness (transition half-width), and

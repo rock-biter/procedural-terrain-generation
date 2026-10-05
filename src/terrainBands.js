@@ -4,12 +4,31 @@
 // #defines (TERRAIN_SHADER_DEFINES) read by terrain-bands-pars.glsl and
 // color-fragment.glsl. Three-free: the chunk workers import it.
 
-// The biome field is the sum of these simplex noise layers, each
-// [frequency per world unit, weight]; >= 0 is temperate, below desert.
-export const BIOME_NOISE_LAYERS = Object.freeze([
+// Biome ids, shared by the CPU (src/biome.js) and the shaders (BIOME_*
+// defines): they index the terrain palettes (src/terrainPalettePolicy.js) and
+// pick the sea rock color.
+export const BIOME = Object.freeze({
+	DESERT: 0,
+	TEMPERATE: 1,
+	ICE: 2,
+})
+export const BIOME_COUNT = Object.keys(BIOME).length
+
+// Two biome fields decide the biome (src/biome.js, biome-value.glsl), each a
+// sum of simplex noise layers [frequency per world unit, weight]. The climate
+// field splits temperate (>= 0) and desert; the rare ice field, sampled in its
+// own seeded noise space, overrides both where it is >= 0. Their size,
+// desert share, ice rarity, and forest ring are runtime settings
+// (params.biomes, BIOME_DEFAULTS in src/biome.js) that divide the frequencies
+// and shift the sums.
+export const BIOME_CLIMATE_LAYERS = Object.freeze([
 	Object.freeze([0.000175, 1]),
 	Object.freeze([0.0035, 0.22]),
 	Object.freeze([0.012, 0.06]),
+])
+export const BIOME_ICE_LAYERS = Object.freeze([
+	Object.freeze([0.000035, 1]),
+	Object.freeze([0.0015, 0.06]),
 ])
 
 // Offset of the rocky coast mask (src/coast.js) from the seeded biome
@@ -60,20 +79,29 @@ function glslFloat(value) {
 	return Number.isInteger(value) ? value.toFixed(1) : String(value)
 }
 
-// The biome layers as defines, for every shader that includes
-// biome-value.glsl: the terrain and the scenery palettes.
+function layerDefines(prefix, layers) {
+	return layers.map(([frequency, weight], index) => [
+		`${prefix}_${index}`,
+		`vec2(${glslFloat(frequency)}, ${glslFloat(weight)})`,
+	])
+}
+
+// The biome layers and ids as defines, for every shader that includes
+// biome-value.glsl (the terrain's).
 export const BIOME_SHADER_DEFINES = Object.freeze(
-	Object.fromEntries(
-		BIOME_NOISE_LAYERS.map(([frequency, weight], index) => [
-			`BIOME_NOISE_LAYER_${index}`,
-			`vec2(${glslFloat(frequency)}, ${glslFloat(weight)})`,
-		]),
-	),
+	Object.fromEntries([
+		...layerDefines('BIOME_CLIMATE_LAYER', BIOME_CLIMATE_LAYERS),
+		...layerDefines('BIOME_ICE_LAYER', BIOME_ICE_LAYERS),
+		...Object.entries(BIOME).map(([name, id]) => [`BIOME_${name}`, String(id)]),
+		['BIOME_COUNT', String(BIOME_COUNT)],
+	]),
 )
 
 function createShaderDefines() {
 	const defines = {
 		TERRAIN_BAND_COUNT: String(TERRAIN_BANDS.length),
+		// Land bands per biome palette: every band but the sea.
+		TERRAIN_PALETTE_BAND_COUNT: String(TERRAIN_BANDS.length - 1),
 		TERRAIN_SAND_LEVEL: glslFloat(SAND_LEVEL),
 	}
 	TERRAIN_BANDS.forEach((band, index) => {

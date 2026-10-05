@@ -36,6 +36,14 @@ export default class FlightInput {
 		this.cursor.set(((clientX / innerWidth) * 2 - 1) * turnScale, 1 - this.pointerYRatio * 2)
 	}
 
+	// Back to the neutral input of a fresh start: no turn, the pointer in the
+	// middle of the vertical hold band. The ?gui=1 biome map centers the input
+	// while the pointer is over it, so the flight holds its course.
+	center() {
+		this.cursor.set(0, 0)
+		this.pointerYRatio = (FLIGHT_LIMITS.verticalHoldTop + FLIGHT_LIMITS.verticalHoldBottom) / 2
+	}
+
 	// The wheel request still held after `dt` more seconds, or 0.
 	takeRequest(dt) {
 		if (this.requestTime <= 0) return 0

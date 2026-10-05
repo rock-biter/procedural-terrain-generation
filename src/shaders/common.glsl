@@ -3,12 +3,11 @@ uniform float uTime;
 uniform vec3 uCamera;
 uniform float uCurvature;
 #include ./curvature-drop.glsl
-uniform vec3 uGrass;
-uniform vec3 uLand;
-uniform vec3 uRocks;
 uniform vec3 uAtmosphere;
-// Seeded shift of the biome field; src/biome.js applies the same offset on the CPU.
-uniform vec2 uBiomeOffset;
+// Seeded shift of the biome fields (createBiomeOffset() in src/biome.js, which
+// applies the same offset on the CPU): xy in world units (the climate and the
+// rocky coast), zw in the ice field's noise space.
+uniform vec4 uBiomeOffset;
 varying vec3 wPosition;
 varying float distanceFromCamera;
 

@@ -1,9 +1,10 @@
-import { BIOME, BIOME_BORDER_MARGIN, getBiome, getBiomeValue } from './biome.js'
+import { BIOME, getBiome, getIceValue, ICE_BORDER_MARGIN, isNearBiomeBorder } from './biome.js'
 import { snoise } from './noise.js'
 import { cellRandom, hashSeed, pickWeighted } from './random.js'
 import { SEA_SURFACE_Y, getHeight, getSurfaceNormal } from './chunkGeometry.js'
 import { getCoastRockMask } from './coast.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from './terrainBands.js'
+import { SCENERY_BIOME_SLOTS } from './sceneryPalettePolicy.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 
 // Deterministic scenery placement, run in the chunk worker. Candidates come
@@ -12,9 +13,11 @@ import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTyp
 // output uses the IMPOSTOR_INSTANCE_STRIDE layout from impostorTypes.js.
 
 // Scenery grows from the grass band up to the rocks band (src/terrainBands.js,
-// the borders the terrain shader colors): never on snow. The sand and the
-// shallow sea carry only sea rocks (`coast`), and a band of deeper sea the
-// boats (`boat`).
+// the borders the terrain shader colors): never on snow. Each biome
+// (src/biome.js) has its rules: woods in the temperate biome, cacti and rocks
+// in the desert, sparse snowy rocks in the ice. The sand and the shallow sea
+// carry only sea rocks (`coast`), and a band of deeper sea outside the ice
+// the boats (`boat`).
 export const SCENERY_CONFIG = Object.freeze({
 	// Vertical offset into the ground, in units of instance scale, so bases do
 	// not float where coarse terrain LODs cut below the exact height.
@@ -48,6 +51,15 @@ export const SCENERY_CONFIG = Object.freeze({
 			[IMPOSTOR_TYPE.CACTUS_TWO_ARMS, 0.3],
 			[IMPOSTOR_TYPE.BOULDER, 0.2],
 			[IMPOSTOR_TYPE.LAYERED_ROCK, 0.14],
+		],
+	},
+	// Snowy rocks only, frosted by the rock palettes' ice colors.
+	ice: {
+		maxDensity: 0.08,
+		minSlopeNormalY: 0.75,
+		types: [
+			[IMPOSTOR_TYPE.BOULDER, 0.55],
+			[IMPOSTOR_TYPE.LAYERED_ROCK, 0.45],
 		],
 	},
 	// Sea rocks on the sand and the shallow sea of every biome, gathered on
@@ -235,26 +247,26 @@ function getClusterDensity(x, z, biomeOffset) {
 	return Math.min(Math.max((forest + 0.2) / 0.7, 0), 1)
 }
 
-function getTint(type, biome, random) {
+// Packed tint of a painted instance in `biome`. Every type but the boat takes
+// its hue from the palettes in the shaders (src/sceneryPalettePolicy.js): the
+// trees and cacti from world-space noise, the rocks by biome. The tint only
+// varies the brightness (red and green bytes); the blue byte holds the
+// biome's palette slot (SCENERY_BIOME_SLOTS), read by
+// getSceneryPaletteTints() in scenery-instance-pars-vertex.glsl.
+export function getPaintedTint(random, biome) {
 	const brightness = 0.86 + random * 0.28
-	if (type === IMPOSTOR_TYPE.BOULDER) {
-		return biome === BIOME.DESERT
-			? packTint(1.02 * brightness, 0.86 * brightness, 0.7 * brightness)
-			: packTint(0.8 * brightness, 0.82 * brightness, 0.84 * brightness)
-	}
-	// Trees take their hue from the crown palette in the shaders
-	// (src/sceneryPalettePolicy.js), so they vary in brightness only, like
-	// the cacti, sea rocks, and layered rocks.
-	return packTint(brightness, brightness, brightness)
+	return packTint(brightness, brightness, 0) + SCENERY_BIOME_SLOTS[biome] * 65536
 }
 
-// The jittered candidate of grid cell (cellX, cellZ) and its ground.
+// The jittered candidate of grid cell (cellX, cellZ), its ground, and its
+// biome fields (getBiomeFields()).
 function getCellCandidate(cellX, cellZ, { seedHash, noises, params, biomeOffset, settings }) {
 	const { cellSize } = settings
 	const x = (cellX + cellRandom(seedHash, cellX, cellZ, 0)) * cellSize
 	const z = (cellZ + cellRandom(seedHash, cellX, cellZ, 1)) * cellSize
-	const height = getHeight(x, z, noises, params, biomeOffset)
-	return { x, z, height, band: getTerrainBand(x, height, z), cellX, cellZ }
+	const fields = {}
+	const height = getHeight(x, z, noises, params, biomeOffset, fields)
+	return { x, z, height, band: getTerrainBand(x, height, z), cellX, cellZ, fields }
 }
 
 // Whether a cell candidate may bring sea rocks: on the sand or the sea, no
@@ -276,7 +288,7 @@ function getSeaRockValues({ x, z, height, scale, yaw, tint, stretch }, context) 
 // up for the satellites), so the group is deterministic, belongs to the
 // candidate's chunk even where a satellite crosses its border, and any chunk
 // can recompute it (the boats avoid the rocks of neighbouring chunks).
-function getSeaRockGroup({ x, z, height, cellX, cellZ }, context) {
+function getSeaRockGroup({ x, z, height, cellX, cellZ, fields }, context) {
 	const { seedHash, noises, params, biomeOffset, settings, config } = context
 	const coast = config.coast
 	const type = coast.type
@@ -295,8 +307,9 @@ function getSeaRockGroup({ x, z, height, cellX, cellZ }, context) {
 	const scale =
 		(minScale + (maxScale - minScale) * random(4) ** bias) * settings.size[SCENERY_TYPE_KEYS[type]]
 	if (scale <= 0) return group
-	// The palette gives the hue, so the tint is a brightness in every biome.
-	const tint = (salt) => getTint(type, null, random(salt))
+	// The palette gives the hue, from the biome of the group's first rock.
+	const biome = getBiome(fields)
+	const tint = (salt) => getPaintedTint(random(salt), biome)
 	group.push({
 		priority: random(8),
 		x,
@@ -434,10 +447,11 @@ function isBoatClearOfRocks(x, z, sinYaw, cosYaw, scale, context) {
 // the chunk's own hash (not the grid cells'), each active with the boats'
 // density, inside the chunk by half a boat and half the clearance, so boats of
 // neighbouring chunks never meet. In priority order, a spot keeps its boat
-// when the sea is deep enough (isBoatInDepthBand()), no sea rock or kept boat
-// is within the clearance, and the chunk holds fewer than maxPerChunk.
+// when it lies outside the ice biome (whose sea freezes), the sea is deep
+// enough (isBoatInDepthBand()), no sea rock or kept boat is within the
+// clearance, and the chunk holds fewer than maxPerChunk.
 function placeBoats(context) {
-	const { seed, size, worldX, worldZ, settings, config } = context
+	const { seed, size, worldX, worldZ, settings, config, params, biomeOffset } = context
 	const boatConfig = config.boat
 	const type = boatConfig.type
 	const boats = settings.boats
@@ -482,6 +496,7 @@ function placeBoats(context) {
 		const sinYaw = Math.sin(yaw)
 		const cosYaw = Math.cos(yaw)
 		const keelY = SEA_SURFACE_Y - boats.draft * scale
+		if (getIceValue(x, z, biomeOffset, params.biomes) > -ICE_BORDER_MARGIN) continue
 		if (!isBoatInDepthBand(x, z, sinYaw, cosYaw, scale, keelY, context)) continue
 		const crowded = kept.some(
 			(boat) =>
@@ -540,7 +555,7 @@ export function generateSceneryInstances({
 			const cellX = firstCellX + k
 			const cellZ = firstCellZ + w
 			const candidate = getCellCandidate(cellX, cellZ, context)
-			const { x, z, height, band } = candidate
+			const { x, z, height, band, fields } = candidate
 			if (!isSceneryBand(band)) {
 				const rocks = isSeaRockCandidate(candidate, settings)
 					? getSeaRockGroup(candidate, context)
@@ -553,20 +568,19 @@ export function generateSceneryInstances({
 			}
 			context.seaRockCells.set(`${cellX}:${cellZ}`, [])
 
-			const biomeValue = getBiomeValue(x, z, biomeOffset)
-			if (Math.abs(biomeValue) < BIOME_BORDER_MARGIN) continue
-			const biome = getBiome(biomeValue)
-			const rules = biome === BIOME.DESERT ? config.desert : config.temperate
+			if (isNearBiomeBorder(fields)) continue
+			const biome = getBiome(fields)
+			const temperate = biome === BIOME.TEMPERATE
+			const rules = temperate ? config.temperate : biome === BIOME.ICE ? config.ice : config.desert
 
 			// The type is drawn before acceptance, from an independent random
 			// value, so a category's density only adds or removes that category.
-			const table = biome === BIOME.DESERT ? rules.types : rules.bands[TERRAIN_BANDS[band]]
+			const table = temperate ? rules.bands[TERRAIN_BANDS[band]] : rules.types
 			const type = pickWeighted(table, cellRandom(seedHash, cellX, cellZ, 3))
 
-			const baseDensity =
-				biome === BIOME.DESERT
-					? rules.maxDensity
-					: rules.maxDensity * getClusterDensity(x, z, biomeOffset)
+			const baseDensity = temperate
+				? rules.maxDensity * getClusterDensity(x, z, biomeOffset)
+				: rules.maxDensity
 			const density = baseDensity * settings.density[TYPE_CATEGORY[type]]
 			if (cellRandom(seedHash, cellX, cellZ, 2) >= density) continue
 
@@ -589,7 +603,7 @@ export function generateSceneryInstances({
 					scale,
 					cellRandom(seedHash, cellX, cellZ, 6) * Math.PI * 2,
 					type,
-					getTint(type, biome, cellRandom(seedHash, cellX, cellZ, 7)),
+					getPaintedTint(cellRandom(seedHash, cellX, cellZ, 7), biome),
 					stretch,
 				],
 			})

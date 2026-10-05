@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { BIOME_BORDER_MARGIN, createBiomeOffset, getBiomeValue } from '../src/biome.js'
+import {
+	BIOME,
+	createBiomeOffset,
+	getBiome,
+	getBiomeFields,
+	getIceValue,
+	ICE_BORDER_MARGIN,
+	isNearBiomeBorder,
+} from '../src/biome.js'
 import {
 	SEA_SURFACE_Y,
 	TERRAIN_DEFAULTS,
@@ -22,6 +30,7 @@ import {
 	isSceneryBand,
 	packTint,
 } from '../src/sceneryPlacement.js'
+import { SCENERY_BIOME_SLOTS, SCENERY_PAINTED_TYPES } from '../src/sceneryPalettePolicy.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from '../src/terrainBands.js'
 
 // The production terrain.
@@ -203,7 +212,8 @@ test('places only sea rocks and boats in water or on beaches, and nothing on sno
 			assert.ok(band >= TERRAIN_BAND.grass && band <= TERRAIN_BAND.rocks)
 			assert.ok(Math.abs(instance.y - (height - SCENERY_CONFIG.sink * instance.scale)) < 1e-3)
 			// Temperate types follow the band the shader colors under them.
-			if (getBiomeValue(instance.x, instance.z, biomeOffset) > 0) {
+			const fields = getBiomeFields(instance.x, instance.z, biomeOffset, params.biomes)
+			if (getBiome(fields) === BIOME.TEMPERATE) {
 				const table = SCENERY_CONFIG.temperate.bands[TERRAIN_BANDS[band]]
 				assert.ok(table.some(([type]) => type === instance.type))
 			}
@@ -213,34 +223,85 @@ test('places only sea rocks and boats in water or on beaches, and nothing on sno
 	assert.ok(bands.size > 1)
 })
 
-test('keeps desert and temperate types in their biome', () => {
-	const desertOnly = new Set([
-		IMPOSTOR_TYPE.CACTUS_ONE_ARM,
-		IMPOSTOR_TYPE.CACTUS_TWO_ARMS,
-		IMPOSTOR_TYPE.LAYERED_ROCK,
-	])
-	const temperateOnly = new Set([IMPOSTOR_TYPE.ROUND_TREE, IMPOSTOR_TYPE.CONIFER])
-	let desertCount = 0
-	let temperateCount = 0
+// The types each biome may place, whatever the band.
+const biomeTypes = {
+	[BIOME.TEMPERATE]: new Set(
+		Object.values(SCENERY_CONFIG.temperate.bands).flatMap((table) => table.map(([type]) => type)),
+	),
+	[BIOME.DESERT]: new Set(SCENERY_CONFIG.desert.types.map(([type]) => type)),
+	[BIOME.ICE]: new Set(SCENERY_CONFIG.ice.types.map(([type]) => type)),
+}
 
-	for (const [i, j, data] of chunks) {
+// Every land instance stands off the biome borders, in a biome that places
+// its type; returns the count per biome.
+function assertBiomeTypes(results, offset, coords) {
+	const counts = { [BIOME.DESERT]: 0, [BIOME.TEMPERATE]: 0, [BIOME.ICE]: 0 }
+	results.forEach((data, index) => {
+		const [i, j] = coords[index]
 		for (const instance of instances(data, i, j)) {
-			// Sea rocks and boats float in both biomes, up to the border.
+			// Sea rocks and boats float in every biome, up to the border.
 			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK || instance.type === IMPOSTOR_TYPE.BOAT) continue
-			const biomeValue = getBiomeValue(instance.x, instance.z, biomeOffset)
-			assert.ok(Math.abs(biomeValue) >= BIOME_BORDER_MARGIN)
-			if (desertOnly.has(instance.type)) {
-				assert.ok(biomeValue < 0)
-				desertCount++
-			}
-			if (temperateOnly.has(instance.type)) {
-				assert.ok(biomeValue > 0)
-				temperateCount++
-			}
+			const fields = getBiomeFields(instance.x, instance.z, offset, params.biomes)
+			assert.equal(isNearBiomeBorder(fields), false)
+			const biome = getBiome(fields)
+			assert.ok(biomeTypes[biome].has(instance.type), `type ${instance.type} in biome ${biome}`)
+			counts[biome]++
 		}
-	}
+	})
+	return counts
+}
 
-	assert.ok(desertCount + temperateCount > 0)
+test('keeps desert and temperate types in their biome', () => {
+	const counts = assertBiomeTypes(
+		chunks.map(([, , data]) => data),
+		biomeOffset,
+		chunks,
+	)
+	assert.ok(counts[BIOME.DESERT] + counts[BIOME.TEMPERATE] > 0)
+	// Cacti only in the desert, trees only in the temperate biome.
+	assert.ok(!biomeTypes[BIOME.TEMPERATE].has(IMPOSTOR_TYPE.CACTUS_ONE_ARM))
+	assert.ok(!biomeTypes[BIOME.DESERT].has(IMPOSTOR_TYPE.ROUND_TREE))
+})
+
+// A seed whose spawn lies in the ice, by a frozen coast.
+const iceSeed = 'ice194'
+const iceNoises = createTerrainNoises(iceSeed, params.octaves)
+const iceOffset = createBiomeOffset(iceSeed)
+const iceCoords = []
+for (let i = -3; i <= 3; i++) {
+	for (let j = -3; j <= 3; j++) iceCoords.push([i, j])
+}
+function generateIce(settingsOverrides = {}) {
+	return iceCoords.map(([i, j]) =>
+		generate(i, j, { seed: iceSeed, noises: iceNoises, biomeOffset: iceOffset }, settingsOverrides),
+	)
+}
+const iceChunks = generateIce()
+
+test('places only sparse rocks in the ice', () => {
+	assert.deepEqual(
+		[...biomeTypes[BIOME.ICE]].sort(),
+		[IMPOSTOR_TYPE.BOULDER, IMPOSTOR_TYPE.LAYERED_ROCK].sort(),
+	)
+	// The rock palettes frost them (src/sceneryPalettePolicy.js).
+	const counts = assertBiomeTypes(iceChunks, iceOffset, iceCoords)
+	assert.ok(counts[BIOME.ICE] > 0)
+	assert.ok(SCENERY_CONFIG.ice.maxDensity < SCENERY_CONFIG.desert.maxDensity)
+})
+
+test('keeps boats out of the frozen sea of the ice', () => {
+	const results = generateIce({ density: { ...createScenerySettings().density, boats: 1 } })
+	let seaRocks = 0
+	results.forEach((data, index) => {
+		const [i, j] = iceCoords[index]
+		for (const instance of instances(data, i, j)) {
+			const ice = getIceValue(instance.x, instance.z, iceOffset, params.biomes)
+			if (instance.type === IMPOSTOR_TYPE.BOAT) assert.ok(ice <= -ICE_BORDER_MARGIN)
+			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK && ice >= 0) seaRocks++
+		}
+	})
+	// Sea rocks still stand in the ice.
+	assert.ok(seaRocks > 0)
 })
 
 test('rejects cell sizes that do not divide the chunk', () => {
@@ -254,27 +315,35 @@ test('packs tint channels as bytes', () => {
 	assert.ok(Number.isInteger(Math.fround(packTint(2, 2, 2))))
 })
 
-test('painted types vary in brightness only: their hue comes from the palettes', () => {
-	const painted = new Set([
-		IMPOSTOR_TYPE.ROUND_TREE,
-		IMPOSTOR_TYPE.CONIFER,
-		IMPOSTOR_TYPE.CACTUS_ONE_ARM,
-		IMPOSTOR_TYPE.CACTUS_TWO_ARMS,
-		IMPOSTOR_TYPE.SEA_ROCK,
-	])
-	let count = 0
-	for (const [, , data] of chunks) {
+test('painted types vary in brightness only and carry their biome slot', () => {
+	const painted = new Set(SCENERY_PAINTED_TYPES)
+	assert.ok(painted.has(IMPOSTOR_TYPE.BOULDER) && painted.has(IMPOSTOR_TYPE.LAYERED_ROCK))
+	const slots = new Set()
+	const check = (data, i, j, offset) => {
 		for (let k = 0; k < data.length; k += IMPOSTOR_INSTANCE_STRIDE) {
-			if (!painted.has(data[k + 5])) continue
+			const type = data[k + 5]
+			if (!painted.has(type)) continue
 			const tint = data[k + 6]
 			const r = tint % 256
 			const g = Math.floor(tint / 256) % 256
-			const b = Math.floor(tint / 65536)
-			assert.ok(r === g && g === b, `gray tint, got ${r} ${g} ${b}`)
-			count++
+			const slot = Math.floor(tint / 65536)
+			assert.equal(r, g, 'gray tint')
+			// Land instances carry the biome under them; a sea rock group its
+			// first rock's, so only land types are checked here.
+			if (type !== IMPOSTOR_TYPE.SEA_ROCK) {
+				const x = data[k] + (i + 0.5) * size
+				const z = data[k + 2] + (j + 0.5) * size
+				const biome = getBiome(getBiomeFields(x, z, offset, params.biomes))
+				assert.equal(slot, SCENERY_BIOME_SLOTS[biome])
+			}
+			assert.ok(Object.values(SCENERY_BIOME_SLOTS).includes(slot))
+			slots.add(slot)
 		}
 	}
-	assert.ok(count > 0)
+	for (const [i, j, data] of chunks) check(data, i, j, biomeOffset)
+	iceChunks.forEach((data, index) => check(data, ...iceCoords[index], iceOffset))
+	assert.ok(slots.has(SCENERY_BIOME_SLOTS[BIOME.ICE]))
+	assert.ok(slots.size > 1)
 })
 
 function countByType(data) {

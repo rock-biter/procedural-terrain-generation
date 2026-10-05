@@ -1,10 +1,17 @@
-import { Color, Vector2, Vector3 } from 'three'
-import { createBiomeOffset } from './biome'
+import { Color, Vector2, Vector3, Vector4 } from 'three'
+import { BIOME_COUNT, createBiomeOffset, getBiomeGradientBounds } from './biome'
 import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
 import { createTerrainNormalUniforms } from './terrainNormals'
+import {
+	getTerrainPaletteLayout,
+	TERRAIN_PALETTE_BANDS,
+	TERRAIN_SEA_COLORS,
+} from './terrainPalettePolicy'
 import { CURVATURE } from './worldConstants'
+
+const PALETTE_SIZE = BIOME_COUNT * TERRAIN_PALETTE_BANDS.length
 
 // Uniforms shared by the terrain, scenery, clouds, and debug materials: one
 // object whose entries every material references, so a write reaches them
@@ -14,12 +21,21 @@ export function createSharedUniforms(params, seed) {
 		uTime: { value: 0 },
 		uCamera: { value: new Vector3() },
 		uCurvature: { value: CURVATURE },
-		uLand: { value: new Color(params.colors.uLand) },
-		uGrass: { value: new Color(params.colors.uGrass) },
-		uRocks: { value: new Color(params.colors.uRocks) },
 		// Written by DayNight before the first render.
 		uAtmosphere: { value: new Color() },
-		uBiomeOffset: { value: new Vector2(...createBiomeOffset(seed)) },
+		uBiomeOffset: { value: new Vector4().fromArray(createBiomeOffset(seed)) },
+		// Biome distribution (biome-value.glsl), terrain palettes
+		// (terrain-bands-pars.glsl), and frozen sea (sea-ice-pars.glsl); written
+		// by the update functions below.
+		uBiomeClimate: { value: new Vector4() },
+		uBiomeIce: { value: new Vector4() },
+		uTerrainColors: { value: Array.from({ length: PALETTE_SIZE }, () => new Color()) },
+		uTerrainVariations: { value: Array.from({ length: PALETTE_SIZE }, () => new Vector4()) },
+		uTerrainStyles: { value: Array.from({ length: BIOME_COUNT }, () => new Vector3()) },
+		uSeaColors: { value: TERRAIN_SEA_COLORS.map(() => new Color()) },
+		uSeaIceShape: { value: new Vector4() },
+		uSeaIceEdge: { value: new Vector4() },
+		uSeaIceColors: { value: [new Color(), new Color(), new Color()] },
 		uColorNoiseFrequency: { value: params.terrainColorNoise.frequency },
 		uColorNoiseIntensity: { value: params.terrainColorNoise.intensity },
 		uColorNoiseThreshold: { value: params.terrainColorNoise.threshold },
@@ -39,6 +55,9 @@ export function createSharedUniforms(params, seed) {
 		...createSeaFoamUniforms(),
 	}
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
+	updateBiomeUniforms(uniforms, params.biomes)
+	updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
+	updateSeaIceUniforms(uniforms, params.seaIce)
 	return uniforms
 }
 
@@ -48,4 +67,48 @@ export function createSharedUniforms(params, seed) {
 export function updateCoastMaskUniforms(uniforms, mask) {
 	uniforms.uCoastRockNoise.value.set(mask.frequency, mask.detailFrequency, mask.detailWeight)
 	uniforms.uCoastRockEdge.value.set(mask.threshold, mask.softness)
+}
+
+// Writes the biome distribution (params.biomes) into the biome uniforms, in
+// place; the CPU reads the same settings (getBiomeFields() in src/biome.js).
+// The gradient bounds follow the sizes, so the separators keep their width.
+export function updateBiomeUniforms(uniforms, settings) {
+	const bounds = getBiomeGradientBounds(settings)
+	uniforms.uBiomeClimate.value.set(1 / settings.size, settings.desertBias, bounds.climate, 0)
+	uniforms.uBiomeIce.value.set(
+		1 / settings.iceSize,
+		settings.iceThreshold,
+		settings.iceRing,
+		bounds.ice,
+	)
+}
+
+const color = new Color()
+
+// Writes the terrain and sea colors (params.terrainPalette,
+// getTerrainPaletteLayout()) into their uniforms, in place, converted from
+// sRGB to linear.
+export function updateTerrainPaletteUniforms(uniforms, settings) {
+	const { colors, variations, styles, sea } = getTerrainPaletteLayout(settings)
+	colors.forEach((hex, index) => uniforms.uTerrainColors.value[index].set(hex))
+	variations.forEach(({ color: hex, amount }, index) => {
+		color.set(hex)
+		uniforms.uTerrainVariations.value[index].set(color.r, color.g, color.b, amount)
+	})
+	styles.forEach((style, index) => uniforms.uTerrainStyles.value[index].fromArray(style))
+	sea.forEach((hex, index) => uniforms.uSeaColors.value[index].set(hex))
+}
+
+// Writes the frozen sea settings (params.seaIce, src/seaIcePolicy.js) into
+// their uniforms, in place.
+export function updateSeaIceUniforms(uniforms, settings) {
+	uniforms.uSeaIceShape.value.set(settings.shelf, settings.fade, settings.band, settings.cellSize)
+	uniforms.uSeaIceEdge.value.set(
+		settings.crackMin,
+		settings.crackMax,
+		settings.edgeNoise,
+		settings.edgeFrequency,
+	)
+	const { sheet, floe, water } = settings.colors
+	;[sheet, floe, water].forEach((hex, index) => uniforms.uSeaIceColors.value[index].set(hex))
 }

@@ -22,16 +22,16 @@ import { IMPOSTOR_TYPE } from './impostorTypes.js'
 // so segment counts are kept low.
 
 const COLORS = {
-	// Wood-toy look: the lightest woods for rocks. The trees and cacti
-	// (SCENERY_PAINTED_TYPES) are baked in a neutral linear gray: their colors
-	// come from the palette uniforms at runtime (src/sceneryPalettePolicy.js).
+	// The trees, cacti, and rocks (SCENERY_PAINTED_TYPES) are baked in a
+	// neutral linear gray: their colors come from the palette uniforms at
+	// runtime (src/sceneryPalettePolicy.js), the rocks' by biome.
 	painted: new Color().setScalar(SCENERY_PAINT_BASE),
 	// The sea rock's smaller stone, painted like the others but baked darker,
 	// so the group keeps two tones under any palette color.
 	paintedDark: new Color().setScalar(SCENERY_PAINT_BASE * 0.64),
-	boulder: '#dcc29a',
-	rockLight: '#e3c9a0',
-	rockDark: '#cfa878',
+	// Every other layer of the layered rock, as much darker as its former
+	// wood tones (#cfa878 under #e3c9a0).
+	paintedLayer: new Color().setScalar(SCENERY_PAINT_BASE * 0.7),
 	// The stand-in boat (boat()).
 	boatHull: '#b5462f',
 	boatCabin: '#efe3c8',
@@ -184,7 +184,7 @@ function boulder(lod) {
 	const rock = new IcosahedronGeometry(1.5, detail(lod, 3, 2))
 	rock.scale(1.15, 0.72, 1)
 	rock.translate(0, 0.85, 0)
-	return [part(rock, COLORS.boulder, { lumps: 0.22, lumpScale: 0.9 })]
+	return [part(rock, COLORS.painted, { lumps: 0.22, lumpScale: 0.9, paint: 1 })]
 }
 
 function layeredRock(lod) {
@@ -199,8 +199,8 @@ function layeredRock(lod) {
 		const layer = new CylinderGeometry(top, bottom, height, detail(lod, 11, 7), detail(lod, 2, 1))
 		layer.translate(0.15 * index, y + height / 2, -0.1 * index)
 		y += height * 0.94
-		const color = index % 2 === 0 ? COLORS.rockDark : COLORS.rockLight
-		return part(layer, color, { lumps: 0.12, lumpScale: 0.7 })
+		const color = index % 2 === 0 ? COLORS.paintedLayer : COLORS.painted
+		return part(layer, color, { lumps: 0.12, lumpScale: 0.7, paint: 1 })
 	})
 }
 

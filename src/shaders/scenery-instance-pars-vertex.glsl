@@ -82,8 +82,7 @@ vec3 getSceneryTint(float packedTint, vec2 baseXZ, int type) {
 }
 
 #ifdef SCENERY_PALETTE
-#include ./biome-value.glsl
-// Palette per type (tree crowns, whole cacti and sea rocks), one color per
+// Palette per type (tree crowns, whole cacti and rocks), one color per
 // instance picked from world-space noise, or by biome (src/sceneryPalettePolicy.js). Colors are linear and
 // divided by SCENERY_PAINT_BASE, the gray the painted types are baked in.
 // Unpainted types have zero weights and white colors, so both of their tints
@@ -95,7 +94,8 @@ uniform vec3 uSceneryTrunkColors[IMPOSTOR_TYPE_COUNT];
 // Per type, x: patch frequency per world unit, y: random mix (0 noise patches
 // only, 1 a random color per instance), z: palette index, which selects the
 // noise fields (types sharing a palette share its map), w: 1 to pick the color
-// by biome instead (slot 0 temperate, slot 1 desert).
+// by biome instead (slot 0 temperate, slot 1 desert, slot 2 ice; placement
+// stores the slot in the tint, see getSceneryPaletteTints()).
 uniform vec4 uSceneryPaletteNoise[IMPOSTOR_TYPE_COUNT];
 // Tint of the painted parts (paint 1); vTint holds the unpainted parts' (the
 // trunk's).
@@ -113,11 +113,17 @@ float getSceneryPaletteHash(float seed, int slot) {
 	return float(h >> 8) * (1.0 / 16777216.0);
 }
 
-// Splits the instance tint into the trunk and painted tints. Every slot has its
-// own noise field; the slot with the largest log(value) / weight wins, a
+// Splits the instance tint into the trunk and painted tints. `tint` is the
+// decoded tint (getSceneryTint()) and `packedTint` its packed value. Painted
+// types (positive weights) vary in brightness only: their red channel holds
+// it, and placement keeps the blue byte for the biome's palette slot
+// (getPaintedTint() in src/sceneryPlacement.js), which palettes picked by
+// biome (the rocks) read. The others draw a slot from noise: every slot has
+// its own noise field; the slot with the largest log(value) / weight wins, a
 // weighted race in which each slot's share follows its weight.
 void getSceneryPaletteTints(
 	vec3 tint,
+	float packedTint,
 	vec2 baseXZ,
 	float seed,
 	int type,
@@ -126,15 +132,15 @@ void getSceneryPaletteTints(
 ) {
 	vec4 weights = uSceneryPaletteWeights[type];
 	vec4 paletteNoise = uSceneryPaletteNoise[type];
+	if (dot(weights, vec4(1.0)) > 0.0) tint = vec3(tint.r);
 	if (paletteNoise.w > 0.5) {
-		// The biome under the base, as the terrain colors it.
-		int biomeSlot = getBiomeValue(baseXZ + uBiomeOffset) < 0.0 ? 1 : 0;
+		int biomeSlot = int(floor(packedTint / 65536.0));
 		trunkTint = tint * uSceneryTrunkColors[type];
 		paintTint = tint * uSceneryPaletteColors[type * SCENERY_PALETTE_SIZE + biomeSlot];
 		return;
 	}
 	// Shifted by the seeded biome offset, so every world seed paints its own map.
-	vec2 palettePosition = (baseXZ + uBiomeOffset) * paletteNoise.x;
+	vec2 palettePosition = (baseXZ + uBiomeOffset.xy) * paletteNoise.x;
 	int chosen = 0;
 	float bestKey = -1e30;
 	for (int slot = 0; slot < SCENERY_PALETTE_SIZE; slot++) {

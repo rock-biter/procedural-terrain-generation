@@ -86,7 +86,7 @@ vec3 impostorTint = getSceneryTint(aInstanceB.z, impostorBase.xz, impostorType);
 // the baked paint mask.
 vec3 impostorTrunkTint;
 vec3 impostorPaintTint;
-getSceneryPaletteTints(impostorTint, impostorBase.xz, impostorYaw, impostorType, impostorTrunkTint, impostorPaintTint);
+getSceneryPaletteTints(impostorTint, aInstanceB.z, impostorBase.xz, impostorYaw, impostorType, impostorTrunkTint, impostorPaintTint);
 vTint = impostorTrunkTint;
 vPaintTint = impostorPaintTint;
 #else

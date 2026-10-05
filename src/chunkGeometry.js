@@ -1,6 +1,6 @@
 import alea from 'alea'
 import { createNoise2D } from 'simplex-noise'
-import { getBiomeValue } from './biome.js'
+import { createBiomeSettings, getBiomeFields } from './biome.js'
 import { COAST_MASK_DEFAULTS, getCoastRelief } from './coast.js'
 import { lerp, smoothstep } from './math.js'
 
@@ -25,6 +25,19 @@ export const DESERT_TERRAIN_DEFAULTS = Object.freeze({
 	depth: 0.4,
 })
 
+// Default ice topography: frequency and amplitude scale the detail octaves in
+// the ice, which is craggier than the temperate land but never higher, so its
+// peaks stay under the flight ceiling (FLIGHT_LIMITS in src/flightPolicy.js);
+// blend is the half-width, in ice field units, of the band around the ice
+// border where the topographies mix. The forest ring (params.biomes.iceRing)
+// must stay wider than blend plus the desert's, so the ice and desert
+// topographies never overlap.
+export const ICE_TERRAIN_DEFAULTS = Object.freeze({
+	frequency: 1.4,
+	amplitude: 0.9,
+	blend: 0.02,
+})
+
 // Default rocky coast (src/coast.js): the relief's mound height in world
 // units and noise frequency per world unit, and the mask that picks the rocky
 // stretches. An amplitude of 0 leaves the coast unchanged.
@@ -39,27 +52,42 @@ export const COAST_TERRAIN_DEFAULTS = Object.freeze({
 export const SEA_SURFACE_Y = -1
 
 // Production terrain parameters (createAppParams() in src/appParams.js, edited by the ?gui=1
-// Terrain folder) and the tests' terrain, so both describe the same world:
-// height amplitude, base noise frequency per axis, octave count, lacunarity
-// (frequency gain per octave), persistance (amplitude gain per octave), and
-// the desert topography above.
+// Terrain and Biomes folders) and the tests' terrain, so both describe the
+// same world: height amplitude, base noise frequency per axis, octave count,
+// lacunarity (frequency gain per octave), persistance (amplitude gain per
+// octave), the biome distribution (BIOME_DEFAULTS in src/biome.js), and the
+// desert, ice, and coast topographies above.
 export const TERRAIN_DEFAULTS = Object.freeze({
 	amplitude: 32,
 	frequency: Object.freeze({ x: 0.5, z: 0.5 }),
 	octaves: 3,
 	lacunarity: 2,
 	persistance: 0.5,
+	biomes: Object.freeze(createBiomeSettings()),
 	desert: DESERT_TERRAIN_DEFAULTS,
+	ice: ICE_TERRAIN_DEFAULTS,
 	coast: COAST_TERRAIN_DEFAULTS,
 })
 
 // A mutable copy of TERRAIN_DEFAULTS.
 export function createTerrainSettings() {
+	return createTerrainSnapshot(TERRAIN_DEFAULTS)
+}
+
+// A detached copy of every terrain parameter of `params` (the keys of
+// TERRAIN_DEFAULTS): what ChunkManager sends to the workers, so later edits
+// never reach a job in flight.
+export function createTerrainSnapshot(params) {
 	return {
-		...TERRAIN_DEFAULTS,
-		frequency: { ...TERRAIN_DEFAULTS.frequency },
-		desert: { ...TERRAIN_DEFAULTS.desert },
-		coast: { ...TERRAIN_DEFAULTS.coast, mask: { ...TERRAIN_DEFAULTS.coast.mask } },
+		amplitude: params.amplitude,
+		frequency: { ...params.frequency },
+		octaves: params.octaves,
+		lacunarity: params.lacunarity,
+		persistance: params.persistance,
+		biomes: { ...params.biomes },
+		desert: { ...params.desert },
+		ice: { ...params.ice },
+		coast: { ...params.coast, mask: { ...params.coast.mask } },
 	}
 }
 
@@ -106,31 +134,45 @@ function getLandmass(x, z, noises, params) {
 	)
 }
 
-// Share of desert detail topography: 1 inside the desert, 0 in the temperate
-// biome, mixed over +-blend around the border.
-export function getDesertWeight(biomeValue, params) {
+// Share of desert detail topography outside the ice: 1 inside the desert, 0
+// in the temperate biome, mixed over +-blend around the border. `climate` is
+// the effective climate of getBiomeFields() (src/biome.js).
+export function getDesertWeight(climate, params) {
 	const blend = Math.max(params.desert.blend, 1e-6)
-	return 1 - smoothstep(-blend, blend, biomeValue)
+	return 1 - smoothstep(-blend, blend, climate)
+}
+
+// Share of ice detail topography: 1 inside the ice, 0 outside, mixed over
+// +-blend around the border of the ice field.
+export function getIceWeight(ice, params) {
+	const blend = Math.max(params.ice.blend, 1e-6)
+	return smoothstep(-blend, blend, ice)
 }
 
 // Share of land height removed by the desert: 0 at the border, growing
-// smoothly to flatten once the biome value is depth below it.
-export function getDesertFlattening(biomeValue, params) {
+// smoothly to flatten once the climate is depth below it.
+export function getDesertFlattening(climate, params) {
 	const depth = Math.max(params.desert.depth, 1e-6)
-	return params.desert.flatten * smoothstep(0, depth, -biomeValue)
+	return params.desert.flatten * smoothstep(0, depth, -climate)
 }
 
-// biomeOffset comes from createBiomeOffset(seed); the desert reshapes the
-// terrain, so heights depend on the biome field.
-export function getHeight(x, z, noises, params, biomeOffset) {
+// Reused by getHeight(), which never runs reentrantly.
+const heightFields = { climate: 0, ice: 0, ringDriven: false }
+
+// biomeOffset comes from createBiomeOffset(seed); the desert and the ice
+// reshape the terrain, so heights depend on the biome fields
+// (params.biomes). With `fields`, the biome fields at (x, z) are written to it.
+export function getHeight(x, z, noises, params, biomeOffset, fields = heightFields) {
 	// Octave 0 and the landmass shape the world at large scale and are shared
 	// by every biome. Detail octaves are computed for each biome only where it
-	// has weight, then mixed, so the border has no frequency warping.
-	const biomeValue = getBiomeValue(x, z, biomeOffset)
-	const desert = getDesertWeight(biomeValue, params)
+	// has weight, then mixed, so the borders have no frequency warping.
+	getBiomeFields(x, z, biomeOffset, params.biomes, fields)
+	const ice = getIceWeight(fields.ice, params)
+	const desert = (1 - ice) * getDesertWeight(fields.climate, params)
+	const temperate = 1 - ice - desert
 	let height = getOctaves(x, z, noises, params, 0, Math.min(params.octaves, 1))
-	if (desert < 1) {
-		height += (1 - desert) * getOctaves(x, z, noises, params, 1, params.octaves)
+	if (temperate > 0) {
+		height += temperate * getOctaves(x, z, noises, params, 1, params.octaves)
 	}
 	if (desert > 0) {
 		height +=
@@ -146,6 +188,20 @@ export function getHeight(x, z, noises, params, biomeOffset) {
 				params.desert.amplitude,
 			)
 	}
+	if (ice > 0) {
+		height +=
+			ice *
+			getOctaves(
+				x,
+				z,
+				noises,
+				params,
+				1,
+				params.octaves,
+				params.ice.frequency,
+				params.ice.amplitude,
+			)
+	}
 	height += getLandmass(x, z, noises, params)
 
 	// Rocky coasts rise in mounds around the waterline. The relief is added
@@ -153,7 +209,7 @@ export function getHeight(x, z, noises, params, biomeOffset) {
 	height += getCoastRelief(x, z, height, biomeOffset, params.coast)
 
 	// Only land is lowered, so coastlines and sea depth stay unchanged.
-	if (height > 0) height *= 1 - getDesertFlattening(biomeValue, params)
+	if (height > 0) height *= 1 - getDesertFlattening(fields.climate, params)
 
 	return height
 }

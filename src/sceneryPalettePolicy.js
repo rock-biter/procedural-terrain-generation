@@ -1,7 +1,8 @@
 import { IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
+import { BIOME } from './terrainBands.js'
 
 // Color palettes of the painted scenery types: the trees' crowns, the whole
-// cacti, and the whole sea rocks. Their sources are baked in a neutral gray with a paint mask
+// cacti, and the whole rocks (boulders, layered rocks, and sea rocks). Their sources are baked in a neutral gray with a paint mask
 // (src/impostors/impostorArchetypes.js), and the shaders pick one palette
 // color per instance from world-space noise (getSceneryPaletteTints() in
 // scenery-instance-pars-vertex.glsl): every slot has its own noise field, and
@@ -21,16 +22,29 @@ export const SCENERY_PAINT_BASE = 0.5
 // Each painted type's palette (a key of settings.palettes) and noise group (a
 // key of settings.noise, named like SCENERY_CATEGORIES). Both cactus types
 // share one palette and its noise fields, so a region paints them alike. The
-// palette indices select the noise fields, so new palettes go last.
+// palette indices select the noise fields, so new noise palettes go last; the
+// rocks pick their colors by biome and read no noise.
 export const SCENERY_PALETTE_TYPES = Object.freeze({
 	[IMPOSTOR_TYPE.ROUND_TREE]: Object.freeze({ palette: 'roundTree', group: 'trees' }),
 	[IMPOSTOR_TYPE.CONIFER]: Object.freeze({ palette: 'conifer', group: 'trees' }),
 	[IMPOSTOR_TYPE.CACTUS_ONE_ARM]: Object.freeze({ palette: 'cactus', group: 'cacti' }),
 	[IMPOSTOR_TYPE.CACTUS_TWO_ARMS]: Object.freeze({ palette: 'cactus', group: 'cacti' }),
+	[IMPOSTOR_TYPE.BOULDER]: Object.freeze({ palette: 'boulder', group: 'rocks' }),
+	[IMPOSTOR_TYPE.LAYERED_ROCK]: Object.freeze({ palette: 'layeredRock', group: 'rocks' }),
 	[IMPOSTOR_TYPE.SEA_ROCK]: Object.freeze({ palette: 'seaRock', group: 'seaRocks' }),
 })
 
 export const SCENERY_PAINTED_TYPES = Object.freeze(Object.keys(SCENERY_PALETTE_TYPES).map(Number))
+
+// Slot of each biome (src/biome.js) in the palettes picked by biome. Placement
+// stores it in the blue byte of every painted instance's tint (painted types
+// vary in brightness only), so the shaders read the biome instead of
+// evaluating it per vertex.
+export const SCENERY_BIOME_SLOTS = Object.freeze({
+	[BIOME.TEMPERATE]: 0,
+	[BIOME.DESERT]: 1,
+	[BIOME.ICE]: 2,
+})
 
 // Every palette once, in type order. A palette's index here selects its noise
 // fields in the shader.
@@ -45,8 +59,8 @@ export const SCENERY_PALETTE_KEYS = Object.freeze([
 // weights that are relative shares (only their ratios matter, 0 disables a
 // slot); tree palettes also have a `trunk` color. Cacti and sea rocks are
 // painted whole. A palette with `byBiome` ignores the noise and the weights:
-// its first color paints the temperate biome and its second the desert, as
-// the terrain colors them.
+// its colors paint the temperate biome, the desert, and the ice, in that
+// order, as the terrain colors them.
 export function createSceneryPaletteSettings() {
 	return {
 		noise: {
@@ -78,11 +92,30 @@ export function createSceneryPaletteSettings() {
 					{ label: 'Yellow wood', color: '#ee9577', weight: 1 },
 				],
 			},
+			// The boulders and layered rocks of the forest and the desert keep their
+			// former wood tones; the ice frosts them.
+			boulder: {
+				byBiome: true,
+				colors: [
+					{ label: 'Forest', color: '#c7b18e', weight: 1 },
+					{ label: 'Desert', color: '#deb583', weight: 1 },
+					{ label: 'Ice', color: '#d3e2ec', weight: 1 },
+				],
+			},
+			layeredRock: {
+				byBiome: true,
+				colors: [
+					{ label: 'Forest', color: '#e3c9a0', weight: 1 },
+					{ label: 'Desert', color: '#e3c9a0', weight: 1 },
+					{ label: 'Ice', color: '#dce8f0', weight: 1 },
+				],
+			},
 			seaRock: {
 				byBiome: true,
 				colors: [
 					{ label: 'Forest', color: '#5f3b2b', weight: 1 },
 					{ label: 'Desert', color: '#e27865', weight: 1 },
+					{ label: 'Ice', color: '#8fa9bd', weight: 1 },
 				],
 			},
 		},

@@ -1,7 +1,7 @@
 import { Vector3 } from 'three'
 import { createBiomeOffset } from './biome'
 import Chunk from './chunk'
-import { createTerrainNoises } from './chunkGeometry'
+import { createTerrainNoises, createTerrainSnapshot } from './chunkGeometry'
 import {
 	CHUNK_STREAMING,
 	getChunkKey,
@@ -285,18 +285,8 @@ export default class ChunkManager {
 				worldZ: (j + 0.5) * this.chunkSize,
 				seed: this.seed,
 				biomeOffset: this.biomeOffset,
-				params: {
-					amplitude: this.params.amplitude,
-					frequency: {
-						x: this.params.frequency.x,
-						z: this.params.frequency.z,
-					},
-					octaves: this.params.octaves,
-					lacunarity: this.params.lacunarity,
-					persistance: this.params.persistance,
-					desert: { ...this.params.desert },
-					coast: { ...this.params.coast, mask: { ...this.params.coast.mask } },
-				},
+				// Every height parameter, biomes included.
+				params: createTerrainSnapshot(this.params),
 			},
 		}
 	}

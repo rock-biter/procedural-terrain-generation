@@ -83,7 +83,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 
 - Chunk size: `256`.
 - Default octaves: `3`.
-- `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and three biome-field samples. Near a biome border the two detail octaves are evaluated twice, for seven terrain samples.
+- `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and five biome-field samples (three climate, two ice). Near a biome border the two detail octaves are evaluated twice, for seven terrain samples.
 - Desktop uses `maxDistance = 6`, `lookAhead = 2`, `rearDistance = 3`, terrain density divisor `2`, and a `4`-unit scenery cell.
 - Mobile uses `maxDistance = 5`, `lookAhead = 1`, `rearDistance = 2.5`, terrain density divisor `4`, and an `8`-unit scenery cell.
 - The scenery cells above are the former defaults the scenery counts were computed with. The current defaults are `8` units on desktop and `16` on mobile, a quarter of those candidates; the scenery rows have not been recomputed.
@@ -107,7 +107,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 
 Terrain startup performed about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile at the 2026-09-26 baseline; shared normal samples at desktop LOD 0 now lower the desktop total, which has not been recounted. They are distributed across up to four desktop workers or one mobile worker.
 
-Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations. Land candidates add three biome and two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
+Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations, which also give its biome fields. Temperate land candidates add two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
 
 The former tree path would have needed 1.15 million main-thread evaluations on desktop. With the default settings, the new path measured about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node, with at most about 550 and 120 instances per chunk. The former per-chunk clouds would have added about **14.4 million** desktop and **9.6 million** mobile main-thread evaluations. The world-level cloud field (`FEAT-006`) evaluates one coverage noise and a few hashes per cell, at most 484 cells per rebuild on desktop, once per `160` units of travel: about `0.3` ms on desktop and `0.1` ms on mobile in Node.
 
@@ -398,6 +398,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 | `FEAT-004` | Near scenery meshes                                             | In progress | [Rendering](RENDERING.md#near-scenery-meshes)                                                  |
 | `FEAT-005` | Soft scenery shadows                                            | In progress | [Rendering](RENDERING.md#scenery-shadows)                                                      |
 | `FEAT-006` | Carved-wood clouds with impostors and cloud shadows             | In progress | [Terrain](TERRAIN.md#clouds), [Rendering](RENDERING.md#clouds)                                 |
+| `FEAT-007` | Ice biome, frozen sea, and biome tuning tools                   | In progress | [Terrain](TERRAIN.md#biome-field), [Rendering](RENDERING.md#sea-ice), [Experience](EXPERIENCE.md#debug-biome-map) |
 
 ### `FEAT-001`: Post-Processing Pipeline And Speed Effect
 
@@ -431,6 +432,11 @@ The features below are implemented; their behavior, parameters, and costs live i
 
 - **Rejected:** per-chunk clouds in the worker (clouds are few, large, and must stay visible beyond the scenery range); clouds in the scenery cascades (their `450`-unit fade would cut cloud shadows near the airplane, and depth cascades need many taps, while a coverage map needs one); a full-sphere atlas and then the lower-hemisphere grid (a frontal band of 30 views replaces 144, about four times less memory; only the shadow caster keeps a small lower-hemisphere coverage atlas).
 - **Open:** tuning of density, sizes, and the ambient boost.
+
+### `FEAT-007`: Ice Biome, Frozen Sea, And Biome Tuning Tools
+
+- **Rejected:** one climate field split into three ranges (the ice would only be the forest's cold core, never as large as a forest region while staying rare); a fixed world offset for the ice field (its broad layers left almost every seed's spawn area in one window of the noise: about 1% of seeds had ice near the origin instead of about 6%); a floe edge evaluated at each Voronoi cell's center (the height there is unknown to the fragment shader, and extrapolating it from derivatives cuts plates along triangle edges); raising the ice's land for taller peaks (the flight ceiling); evaluating the biome per vertex in the scenery shaders (about 2% of frame time at 4K, removed by storing the biome slot in the instance tint); evaluating the ice field per pixel (about 3%, removed by interpolating it from the vertices).
+- **Open:** visual tuning of the ice and sea ice palettes and the floe shape; boats in the ice biome's open water; a normal-map layer of its own for the sea ice (it borrows the snow's); the peaks above the flight ceiling that predate the ice ([Terrain](TERRAIN.md#open-questions)).
 
 Add further features with this template:
 

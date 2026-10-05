@@ -77,6 +77,12 @@ test('the terrain patches fit the standard material', () => {
 		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz\)/,
 	)
 	assert.match(terrain.fragmentShader, /getCoastRockMask\(biomeXZ\)/)
+	// The frozen sea covers the sea, and its sheet keeps the vertex waves still.
+	assert.match(terrain.fragmentShader, /seaIce = applySeaIce\(diffuseColor\.rgb, wPosition\.y/)
+	// The broad ice field is evaluated per vertex and interpolated.
+	assert.match(terrain.vertexShader, /vIceValue = getIceValue\(/)
+	assert.match(terrain.vertexShader, /getSeaIceStill\(height, vIceValue\)/)
+	assert.match(terrain.fragmentShader, /float iceValue = vIceValue;/)
 })
 
 test('the scenery and cloud impostor patches fit the standard material', () => {
@@ -134,8 +140,11 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 			const shader = patch(level.material, 'physical')
 			assert.ok('uSceneryDetail' in shader.uniforms)
 			assert.ok('uSceneryPaletteNoise' in shader.uniforms)
-			// Biome palettes need the biome layers.
-			if (meshes === scenery) assert.ok('BIOME_NOISE_LAYER_0' in level.material.defines)
+			// The rocks read their biome from the instance tint: no per-vertex field.
+			if (meshes === scenery) {
+				assert.doesNotMatch(shader.vertexShader, /getIceValue|getClimateNoise/)
+				assert.match(shader.vertexShader, /getSceneryPaletteTints\(sceneryTint, aInstanceB\.z/)
+			}
 			patch(level.wireframeMaterial, 'physical')
 		}
 	}
