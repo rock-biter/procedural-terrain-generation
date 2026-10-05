@@ -31,7 +31,7 @@ function variation(color, amount) {
 }
 
 // The forest and desert colors reproduce the former shader constants; the ice
-// is snow up to the rocks, which turn into blue ice rock and glacier ice.
+// is in shades of blue, from a deep navy shore up to bright icy peaks.
 export function createTerrainPaletteSettings() {
 	return {
 		temperate: {
@@ -72,11 +72,11 @@ export function createTerrainPaletteSettings() {
 		},
 		ice: {
 			colors: {
-				sand: '#dfe9ef',
-				grass: '#e8f0f4',
-				land: '#d4e3ec',
-				rocks: '#8ea7ba',
-				snow: '#b4dcec',
+				sand: '#064260',
+				grass: '#42bff5',
+				land: '#4b8fb9',
+				rocks: '#81b6df',
+				snow: '#3da1ff',
 			},
 			variation: {
 				sand: variation('#a9c4d6', 0),

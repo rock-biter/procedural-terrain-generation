@@ -115,8 +115,9 @@ float applySeaIce(inout vec3 color, float height, vec2 xz, float iceValue, float
 		coverage = floes;
 	}
 
-	// The floes are a little darker than the sheet, and the water between
-	// them takes an icy tint that fades seaward and toward the ice border.
+	// The sheet's color turns into the floes' across its edge, and the water
+	// between them takes an icy tint that fades seaward and toward the ice
+	// border.
 	vec3 ice = mix(uSeaIceColors[0], uSeaIceColors[1], smoothstep(-0.25, 0.25, t));
 	vec3 water = mix(color, uSeaIceColors[2], (1.0 - smoothstep(0.0, 1.0, t)) * amount);
 	color = mix(water, ice, coverage);

@@ -22,15 +22,15 @@ import { SAND_LEVEL } from './terrainBands.js'
 // - Colors are sRGB: the sheet, the floes, and the icy water between them;
 //   the ice meets the water without any dark line.
 export const SEA_ICE_DEFAULTS = Object.freeze({
-	shelf: 6,
-	fade: 0.04,
-	band: 4,
-	cellSize: 7,
-	crackMin: 0.15,
-	crackMax: 1.5,
-	edgeNoise: 0.8,
-	edgeFrequency: 0.05,
-	colors: Object.freeze({ sheet: '#e6f0f5', floe: '#cfe3ee', water: '#3d7fb0' }),
+	shelf: 15.3,
+	fade: 0.065,
+	band: 9,
+	cellSize: 15,
+	crackMin: 0.25,
+	crackMax: 4.3,
+	edgeNoise: 1.1,
+	edgeFrequency: 0.145,
+	colors: Object.freeze({ sheet: '#93bdd2', floe: '#c3dfee', water: '#249af5' }),
 })
 
 // A mutable copy of SEA_ICE_DEFAULTS (params.seaIce).
