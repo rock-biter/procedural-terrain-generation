@@ -43,6 +43,9 @@ struct SeaWaves {
 	// How much the crests compress the surface: 1 minus the Jacobian of the
 	// horizontal displacement, at most the steepness.
 	float squeeze;
+	// The largest squeeze the waves reach here, when every crest meets: the
+	// squeeze over it places the point on the waves whatever their size.
+	float peak;
 	// Share of the full waves the coast and the frozen sea leave.
 	float amount;
 };
@@ -78,7 +81,7 @@ float getSeaVertexFade(vec2 xz) {
 // ground: components shorter than a few pixels fade instead of aliasing (0
 // keeps them all).
 SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float still, float pixel) {
-	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), 0.0, 0.0);
+	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), 0.0, 0.0, 0.0);
 	vec4 shape = uSeaWaveShape[type];
 	waves.amount = smoothstep(shape.z, shape.w, depth) * (1.0 - still);
 	if (waves.amount <= 0.0) return waves;
@@ -99,6 +102,7 @@ SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float stil
 		waves.offset += vec3(wave.x * h * c, a * s, wave.y * h * c);
 		waves.slope += wave.xy * (wave.z * a * c);
 		waves.squeeze += wave.z * h * s;
+		waves.peak += wave.z * h;
 	}
 	return waves;
 }
@@ -114,6 +118,7 @@ SeaWaves getSeaWaves(vec2 xz, float depth, float oceanMask, float state, float s
 		mix(sea.offset, ocean.offset, oceanMask),
 		mix(sea.slope, ocean.slope, oceanMask),
 		mix(sea.squeeze, ocean.squeeze, oceanMask),
+		mix(sea.peak, ocean.peak, oceanMask),
 		mix(sea.amount, ocean.amount, oceanMask)
 	);
 }

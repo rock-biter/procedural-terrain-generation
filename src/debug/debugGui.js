@@ -1221,6 +1221,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['irregularity', 'Irregularity (rad)', 0, 8, 0.05],
 					['irregularityScale', 'Irregularity frequency', 0.001, 0.2, 0.001],
 					['stateStrength', 'Strength by sea state ±', 0, 1, 0.01],
+					['minimum', 'Minimum strength (calm)', 0, 2, 0.01],
 				],
 			],
 			[
@@ -1231,6 +1232,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['softness', 'Softness', 0.001, 0.3, 0.001],
 					['intensity', 'Intensity', 0, 1, 0.01],
 					['scale', 'Breakup frequency', 0.005, 1, 0.005],
+					['minimum', 'Minimum in calm water', 0, 1, 0.01],
 				],
 			],
 			[

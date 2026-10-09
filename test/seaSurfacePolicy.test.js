@@ -77,6 +77,18 @@ test('the wave components follow the wind, the ratios, and deep water dispersion
 	)
 })
 
+test('calm water keeps some foam and ripples, the deep ocean more', () => {
+	const { sea, ocean } = SEA_SURFACE_DEFAULTS
+	for (const group of ['whitecaps', 'ripples']) {
+		assert.ok(sea[group].minimum > 0, group)
+		assert.ok(ocean[group].minimum > sea[group].minimum, group)
+	}
+	// The ripples' floor lifts the calmest regions' map strength.
+	for (const { ripples } of [sea, ocean]) {
+		assert.ok(ripples.minimum > 1 - ripples.stateStrength)
+	}
+})
+
 test('the bound covers the largest displacement of both types', () => {
 	const settings = createSeaSurfaceSettings()
 	const bound = getSeaWaveBound(settings)
@@ -111,12 +123,16 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 				component.omega,
 			])
 		})
-		const { waves, coast } = settings[key]
+		const { waves, coast, whitecaps, ripples } = settings[key]
 		assert.deepEqual(uniforms.uSeaWaveShape.value[type].toArray(), [
 			waves.calm,
 			waves.rough,
 			coast.start,
 			coast.full,
+		])
+		assert.deepEqual(uniforms.uSeaMinimum.value[type].toArray(), [
+			whitecaps.minimum,
+			ripples.minimum,
 		])
 	})
 

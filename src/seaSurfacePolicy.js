@@ -30,10 +30,13 @@
 //   `amplitude` world units, with crests `wavelength` units apart along the
 //   ribs, travelling at `speed` units per second, its phase broken by a noise
 //   (`irregularity` radians, `irregularityScale` per world unit). The map's
-//   strength grows with the sea state by up to ± `stateStrength`.
+//   strength grows with the sea state by up to ± `stateStrength`, never below
+//   `minimum`, so calm water keeps its ripples.
 // - Whitecaps foam where the crests squeeze the surface by more than
 //   `threshold` (at most the steepness), over `softness`, broken by a noise of
-//   `scale` per world unit, up to `intensity`.
+//   `scale` per world unit, up to `intensity`. A thinner foam, `minimum` of
+//   it, stays on the highest crests of any open water, so calm water keeps
+//   some.
 // - Foam lines: the coast's animated contour lines (getSeaRipple()), from
 //   `start` to `full` and from `fadeStart` to `end` units of depth,
 //   `frequency` lines per unit of depth moving at `speed`, sharpened by the
@@ -89,8 +92,8 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	debugView: SEA_SURFACE_DEBUG_VIEWS.none,
 	sea: Object.freeze({
 		waves: Object.freeze({
-			amplitude: 0.7,
-			wavelength: 32,
+			amplitude: 3.05,
+			wavelength: 68,
 			steepness: 0.55,
 			direction: 35,
 			spread: 40,
@@ -106,14 +109,21 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			irregularity: 2,
 			irregularityScale: 0.02,
 			stateStrength: 0.35,
+			minimum: 0.8,
 		}),
-		whitecaps: Object.freeze({ threshold: 0.44, softness: 0.06, intensity: 0.6, scale: 0.12 }),
+		whitecaps: Object.freeze({
+			threshold: 0.44,
+			softness: 0.06,
+			intensity: 0.6,
+			scale: 0.12,
+			minimum: 0.25,
+		}),
 		foam: FOAM_LINE_DEFAULTS,
 	}),
 	ocean: Object.freeze({
 		waves: Object.freeze({
-			amplitude: 1.6,
-			wavelength: 64,
+			amplitude: 6,
+			wavelength: 138,
 			steepness: 0.7,
 			direction: 35,
 			spread: 30,
@@ -121,7 +131,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			calm: 0.3,
 			rough: 1.6,
 		}),
-		coast: Object.freeze({ start: 1.5, full: 12 }),
+		coast: Object.freeze({ start: 4.9, full: 16 }),
 		ripples: Object.freeze({
 			amplitude: 0.7,
 			wavelength: 18,
@@ -129,8 +139,15 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			irregularity: 2.5,
 			irregularityScale: 0.015,
 			stateStrength: 0.45,
+			minimum: 1,
 		}),
-		whitecaps: Object.freeze({ threshold: 0.5, softness: 0.06, intensity: 0.75, scale: 0.08 }),
+		whitecaps: Object.freeze({
+			threshold: 0.5,
+			softness: 0.06,
+			intensity: 0.75,
+			scale: 0.08,
+			minimum: 0.45,
+		}),
 		foam: FOAM_LINE_DEFAULTS,
 	}),
 })

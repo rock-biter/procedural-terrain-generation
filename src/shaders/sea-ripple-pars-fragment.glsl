@@ -29,6 +29,10 @@ uniform vec4 uSeaRipples[SEA_SURFACE_TYPE_COUNT];
 // Whitecaps, per type. x: crest squeeze where they start, y: softness, z:
 // intensity, w: frequency of the breakup noise (per world unit).
 uniform vec4 uSeaWhitecaps[SEA_SURFACE_TYPE_COUNT];
+// The least of the sea's details, per type, whatever the sea state. x: the
+// whitecaps' share left on the highest crests of calm water, y: the ribbed
+// map's strength.
+uniform vec2 uSeaMinimum[SEA_SURFACE_TYPE_COUNT];
 
 // The sea rock ripples: the foam lines also circle the sea rocks, on one sea
 // height: the coast's raw height fused with the sea rocks (src/seaFoam.js,
@@ -65,10 +69,12 @@ float getSeaRipple(float seaHeight, vec2 xz, float oceanMask, float state) {
 	return ripple * dashes * style.y * mix(1.0 - style.z, 1.0 + style.z, state);
 }
 
-// Strength of the sea's normal map in sea state `state`.
+// Strength of the sea's normal map in sea state `state`, never below the
+// type's minimum.
 float getSeaRippleBoost(float oceanMask, float state) {
 	float boost = mix(uSeaRippleDetail[0].y, uSeaRippleDetail[1].y, oceanMask);
-	return mix(1.0 - boost, 1.0 + boost, state);
+	float minimum = mix(uSeaMinimum[0].y, uSeaMinimum[1].y, oceanMask);
+	return max(mix(1.0 - boost, 1.0 + boost, state), minimum);
 }
 
 // Offset of the sea normal map's world uv `uv` (x, -z, normal-fragment-map.glsl)
@@ -83,17 +89,25 @@ vec2 getSeaRippleWarp(vec2 uv, float noise, float oceanMask, float strength) {
 	return across * (ripples.x * strength * sin(phase));
 }
 
-// Whitecap coverage where the crests squeeze the surface by `squeeze`
-// (SeaWaves.squeeze) at flat world `xz`, broken by a slowly drifting noise.
-// They fade out before the noise gets finer than a few pixels (`pixel`, the
-// pixel's size on the ground), instead of sparkling.
-float getSeaWhitecap(float squeeze, vec2 xz, float oceanMask, float pixel) {
+// Whitecap coverage of the waves `waves` at flat world `xz`: they break where
+// the crests squeeze the surface beyond the threshold, in rough water, and a
+// thinner foam (the type's minimum) stays on the highest crests of any water,
+// placed by the squeeze over its peak, so calm open water keeps some. Both
+// are broken by a slowly drifting noise, the thinner foam into sparser dabs,
+// and fade out before the noise gets finer than a few pixels (`pixel`, the
+// pixel's size on the ground), instead of sparkling. The coast and the ice
+// calm the thinner foam with the waves.
+float getSeaWhitecap(SeaWaves waves, vec2 xz, float oceanMask, float pixel) {
 	vec4 caps = mix(uSeaWhitecaps[0], uSeaWhitecaps[1], oceanMask);
-	float crest = smoothstep(caps.x - caps.y, caps.x + caps.y, squeeze);
-	crest *= 1.0 - smoothstep(0.15, 0.35, pixel * caps.w);
-	if (crest <= 0.0) return 0.0;
-	float breakup = smoothstep(0.0, 0.6, snoise(xz * caps.w + uTime * 0.05));
-	return crest * breakup * caps.z;
+	float fade = 1.0 - smoothstep(0.15, 0.35, pixel * caps.w);
+	float breaking = smoothstep(caps.x - caps.y, caps.x + caps.y, waves.squeeze);
+	float minimum = mix(uSeaMinimum[0].x, uSeaMinimum[1].x, oceanMask);
+	float crest = waves.squeeze / max(waves.peak, 1e-5);
+	float calm = minimum * waves.amount * smoothstep(0.5, 0.8, crest);
+	if (max(breaking, calm) * fade <= 0.0) return 0.0;
+	float noise = snoise(xz * caps.w + uTime * 0.05);
+	float foam = max(breaking * smoothstep(0.0, 0.6, noise), calm * smoothstep(0.25, 0.7, noise));
+	return foam * fade * caps.z;
 }
 
 // The sea painted by the debug view `view` (SEA_SURFACE_DEBUG_VIEWS in

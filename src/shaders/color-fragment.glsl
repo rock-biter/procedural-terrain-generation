@@ -143,15 +143,15 @@ if (seaIce > 0.5) terrainBand = TERRAIN_BAND_SNOW;
 
 // The moving sea (sea-surface-pars.glsl): its waves, calm toward the coast
 // and still under the frozen sea, tilt the normals (normal-fragment-map.glsl)
-// and foam on their sharpest crests. The deep ocean's settings take over
-// inside its border.
+// and foam on their sharpest crests, a little even in calm water. The deep
+// ocean's settings take over inside its border.
 float seaState = vSeaState;
 float seaOceanMask = getSeaOceanMask(oceanValue);
-SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), 0.0, 0.0);
+SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), 0.0, 0.0, 0.0);
 if (wPosition.y < 0.0) {
 	float seaStill = iceValue > 0.0 ? max(getSeaIceStill(wPosition.y, iceValue), seaIce) : 0.0;
 	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel);
-	float whitecap = getSeaWhitecap(seaWaves.squeeze, wPosition.xz, seaOceanMask, groundPixel);
+	float whitecap = getSeaWhitecap(seaWaves, wPosition.xz, seaOceanMask, groundPixel);
 	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, whitecap);
 }
 vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);

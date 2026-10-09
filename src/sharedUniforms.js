@@ -96,6 +96,7 @@ export function createSharedUniforms(params, seed) {
 		uSeaRipples: { value: perSeaType(() => new Vector4()) },
 		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
 		uSeaWhitecaps: { value: perSeaType(() => new Vector4()) },
+		uSeaMinimum: { value: perSeaType(() => new Vector2()) },
 	}
 	updateBiomeOffsetUniforms(uniforms, createBiomeOffset(seed))
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
@@ -227,6 +228,7 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 			whitecaps.intensity,
 			whitecaps.scale,
 		)
+		uniforms.uSeaMinimum.value[type].set(whitecaps.minimum, ripples.minimum)
 		const bandStart = Math.max(foam.start, 0)
 		const fadeEdge = Math.max(foam.fadeStart, 0)
 		uniforms.uSeaFoamLineBand.value[type].set(
