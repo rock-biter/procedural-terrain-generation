@@ -16,6 +16,7 @@ import {
 	getDesertFlattening,
 	getDesertWeight,
 	getHeight,
+	getIceFlattening,
 	getIceWeight,
 	getSurfaceNormal,
 } from '../src/chunkGeometry.js'
@@ -126,9 +127,10 @@ test('produces unit upward-facing normals', () => {
 const noises = createTerrainNoises('geometry-test', params.octaves)
 const plainDesert = { ...DESERT_TERRAIN_DEFAULTS, frequency: 1, amplitude: 1, flatten: 0 }
 
-const plainIce = { ...ICE_TERRAIN_DEFAULTS, frequency: 1, amplitude: 1 }
+const plainIce = { ...ICE_TERRAIN_DEFAULTS, frequency: 1, amplitude: 1, flatten: 0, peakChance: 0 }
 
-// Height before per-biome topography: every octave unscaled, no flattening.
+// Height before per-biome topography: every octave unscaled, no flattening,
+// no ice mountains.
 function getTemperateHeight(x, z) {
 	return getHeight(x, z, noises, { ...params, desert: plainDesert, ice: plainIce }, biomeOffset)
 }
@@ -223,10 +225,8 @@ test('blends desert and temperate heights continuously across the border', () =>
 	}
 })
 
-test('reshapes the detail octaves inside the ice without raising them', () => {
-	// Craggier, never higher: the flight ceiling leaves no room for taller peaks.
-	assert.ok(ICE_TERRAIN_DEFAULTS.amplitude <= 1)
-	assert.ok(ICE_TERRAIN_DEFAULTS.frequency > 1)
+test('reshapes the detail octaves inside the ice', () => {
+	const unflattened = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, flatten: 0, peakChance: 0 } }
 	const ice = (x, z) => getIce(x, z) > ICE_TERRAIN_DEFAULTS.blend
 	let changed = false
 	for (const [x, z] of findPoints(ice, 50)) {
@@ -234,10 +234,61 @@ test('reshapes the detail octaves inside the ice without raising them', () => {
 		// The forest ring keeps the desert and its flattening away.
 		assert.equal(getDesertWeight(getValue(x, z), params), 0)
 		assert.equal(getDesertFlattening(getValue(x, z), params), 0)
-		const height = getHeight(x, z, noises, params, biomeOffset)
+		const height = getHeight(x, z, noises, unflattened, biomeOffset)
 		if (Math.abs(height - getTemperateHeight(x, z)) > 1e-3) changed = true
 	}
 	assert.ok(changed)
+})
+
+test('flattens ice land progressively with depth into the biome', () => {
+	const { flatten, depth } = ICE_TERRAIN_DEFAULTS
+	assert.equal(getIceFlattening(-0.1, params), 0)
+	assert.equal(getIceFlattening(0, params), 0)
+	assert.equal(getIceFlattening(depth, params), flatten)
+	assert.equal(getIceFlattening(depth * 2, params), flatten)
+	let previous = 0
+	for (let value = 0; value <= depth; value += depth / 40) {
+		const flattening = getIceFlattening(value, params)
+		assert.ok(flattening >= previous)
+		previous = flattening
+	}
+
+	// Deep inside the ice, without its mountains, land is exactly
+	// (1 - flatten) of the unflattened ice height; sea keeps its depth, so
+	// coastlines and the frozen sea do not move.
+	const plain = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, peakChance: 0 } }
+	const unflattened = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, flatten: 0, peakChance: 0 } }
+	const deep = (x, z) => getIce(x, z) > depth
+	let land = 0
+	for (const [x, z] of findPoints(deep, 50)) {
+		const raw = getHeight(x, z, noises, unflattened, biomeOffset)
+		const height = getHeight(x, z, noises, plain, biomeOffset)
+		if (raw > 0) {
+			land++
+			assert.ok(Math.abs(height - raw * (1 - flatten)) < 1e-9)
+		} else {
+			assert.equal(height, raw)
+		}
+	}
+	assert.ok(land > 0)
+})
+
+test('raises sparse ice mountains from the land, no higher than peakHeight', () => {
+	const { peakHeight } = ICE_TERRAIN_DEFAULTS
+	const plain = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, peakChance: 0 } }
+	const points = findPoints((x, z) => getIce(x, z) > 0, 2000)
+	let raised = 0
+	for (const [x, z] of points) {
+		const flat = getHeight(x, z, noises, plain, biomeOffset)
+		const height = getHeight(x, z, noises, params, biomeOffset)
+		assert.ok(height >= flat)
+		assert.ok(height <= Math.max(flat, peakHeight))
+		// No mountain rises from the sea.
+		if (flat <= 0) assert.equal(height, flat)
+		if (height > flat) raised++
+	}
+	assert.ok(raised > 0)
+	assert.ok(raised < points.length * 0.15, `${raised} of ${points.length} raised`)
 })
 
 test('blends ice and temperate heights continuously across the ice border', () => {

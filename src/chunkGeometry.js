@@ -2,6 +2,7 @@ import alea from 'alea'
 import { createNoise2D } from 'simplex-noise'
 import { createBiomeSettings, getBiomeFields } from './biome.js'
 import { COAST_MASK_DEFAULTS, getCoastRelief } from './coast.js'
+import { getIcePeaks } from './icePeaks.js'
 import { lerp, smoothstep } from './math.js'
 
 // getLandmass() always reads noises 0 and 1, so at least two are created even
@@ -25,17 +26,30 @@ export const DESERT_TERRAIN_DEFAULTS = Object.freeze({
 	depth: 0.4,
 })
 
-// Default ice topography: frequency and amplitude scale the detail octaves in
-// the ice, which is craggier than the temperate land but never higher, so its
-// peaks stay under the flight ceiling (FLIGHT_LIMITS in src/flightPolicy.js);
-// blend is the half-width, in ice field units, of the band around the ice
-// border where the topographies mix. The forest ring (params.biomes.iceRing)
-// must stay wider than blend plus the desert's, so the ice and desert
-// topographies never overlap.
+// Default ice topography: a plain with sparse, tall mountains. frequency and
+// amplitude scale the detail octaves in the ice; blend is the half-width, in
+// ice field units, of the band around the ice border where the topographies
+// mix. The forest ring (params.biomes.iceRing) must stay wider than blend plus
+// the desert's, so the ice and desert topographies never overlap. flatten is
+// the share of land height removed deep in the ice, reached progressively
+// once the ice field is depth inside the border, where the mountains
+// (src/icePeaks.js) reach their full height too. The mountains stand on a grid
+// of peakSpacing world units, one in a share peakChance of its cells, with a
+// radius up to peakRadius and a summit up to peakHeight, an absolute height
+// that keeps them under the flight ceiling (FLIGHT_LIMITS in
+// src/flightPolicy.js: 95 with a clearance of 10); peakSharpness steepens
+// their profile toward a sharper summit.
 export const ICE_TERRAIN_DEFAULTS = Object.freeze({
 	frequency: 1.4,
 	amplitude: 0.9,
 	blend: 0.02,
+	flatten: 0.8,
+	depth: 0.06,
+	peakHeight: 80,
+	peakSpacing: 1400,
+	peakChance: 0.35,
+	peakRadius: 300,
+	peakSharpness: 1.6,
 })
 
 // Default rocky coast (src/coast.js): the relief's mound height in world
@@ -156,6 +170,13 @@ export function getDesertFlattening(climate, params) {
 	return params.desert.flatten * smoothstep(0, depth, -climate)
 }
 
+// Share of land height removed by the ice: 0 at its border, growing smoothly
+// to flatten once the ice field is depth inside it.
+export function getIceFlattening(ice, params) {
+	const depth = Math.max(params.ice.depth, 1e-6)
+	return params.ice.flatten * smoothstep(0, depth, ice)
+}
+
 // Reused by getHeight(), which never runs reentrantly.
 const heightFields = { climate: 0, ice: 0, ringDriven: false }
 
@@ -205,11 +226,20 @@ export function getHeight(x, z, noises, params, biomeOffset, fields = heightFiel
 	height += getLandmass(x, z, noises, params)
 
 	// Rocky coasts rise in mounds around the waterline. The relief is added
-	// before the desert flattening, which scales it with the rest of the land.
+	// before the desert and ice flattening, which scale it with the rest of
+	// the land.
 	height += getCoastRelief(x, z, height, biomeOffset, params.coast)
 
-	// Only land is lowered, so coastlines and sea depth stay unchanged.
-	if (height > 0) height *= 1 - getDesertFlattening(fields.climate, params)
+	// Only land is lowered, so coastlines and sea depth stay unchanged. The
+	// forest ring keeps the two flattenings apart. The ice's mountains rise
+	// from its flattened plain, and only on land.
+	if (height > 0) {
+		const landHeight = height
+		height *= 1 - getDesertFlattening(fields.climate, params) - getIceFlattening(fields.ice, params)
+		if (fields.ice > 0) {
+			height = getIcePeaks(x, z, height, landHeight, fields.ice, biomeOffset, params.ice)
+		}
+	}
 
 	return height
 }

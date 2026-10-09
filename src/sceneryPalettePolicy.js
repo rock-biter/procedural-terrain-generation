@@ -2,7 +2,8 @@ import { IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 import { BIOME } from './terrainBands.js'
 
 // Color palettes of the painted scenery types: the trees' crowns, the whole
-// cacti, and the whole rocks (boulders, layered rocks, and sea rocks). Their sources are baked in a neutral gray with a paint mask
+// cacti, the whole rocks (boulders, layered rocks, and sea rocks), and the
+// whole ice spikes. Their sources are baked in a neutral gray with a paint mask
 // (src/impostors/impostorArchetypes.js), and the shaders pick one palette
 // color per instance from world-space noise (getSceneryPaletteTints() in
 // scenery-instance-pars-vertex.glsl): every slot has its own noise field, and
@@ -32,6 +33,8 @@ export const SCENERY_PALETTE_TYPES = Object.freeze({
 	[IMPOSTOR_TYPE.BOULDER]: Object.freeze({ palette: 'boulder', group: 'rocks' }),
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: Object.freeze({ palette: 'layeredRock', group: 'rocks' }),
 	[IMPOSTOR_TYPE.SEA_ROCK]: Object.freeze({ palette: 'seaRock', group: 'seaRocks' }),
+	[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: Object.freeze({ palette: 'iceSpike', group: 'iceSpikes' }),
+	[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: Object.freeze({ palette: 'iceSpike', group: 'iceSpikes' }),
 })
 
 export const SCENERY_PAINTED_TYPES = Object.freeze(Object.keys(SCENERY_PALETTE_TYPES).map(Number))
@@ -93,7 +96,8 @@ export function createSceneryPaletteSettings() {
 				],
 			},
 			// The boulders and layered rocks of the forest and the desert keep their
-			// former wood tones; the ice frosts them.
+			// former wood tones; the ice frosts its boulders (layered rocks stand
+			// only in the desert, so their ice color is unused).
 			boulder: {
 				byBiome: true,
 				colors: [
@@ -116,6 +120,16 @@ export function createSceneryPaletteSettings() {
 					{ label: 'Forest', color: '#5f3b2b', weight: 1 },
 					{ label: 'Desert', color: '#e27865', weight: 1 },
 					{ label: 'Ice', color: '#8fa9bd', weight: 1 },
+				],
+			},
+			// Both ice spike types; they stand only in the ice, so the forest and
+			// desert slots repeat its color.
+			iceSpike: {
+				byBiome: true,
+				colors: [
+					{ label: 'Forest', color: '#c6ecfa', weight: 1 },
+					{ label: 'Desert', color: '#c6ecfa', weight: 1 },
+					{ label: 'Ice', color: '#c6ecfa', weight: 1 },
 				],
 			},
 		},

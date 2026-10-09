@@ -1,4 +1,5 @@
 import { BIOME, getBiome, getIceValue, ICE_BORDER_MARGIN, isNearBiomeBorder } from './biome.js'
+import { smoothstep } from './math.js'
 import { snoise } from './noise.js'
 import { cellRandom, hashSeed, pickWeighted } from './random.js'
 import { SEA_SURFACE_Y, getHeight, getSurfaceNormal } from './chunkGeometry.js'
@@ -15,9 +16,9 @@ import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTyp
 // Scenery grows from the grass band up to the rocks band (src/terrainBands.js,
 // the borders the terrain shader colors): never on snow. Each biome
 // (src/biome.js) has its rules: woods in the temperate biome, cacti and rocks
-// in the desert, sparse snowy rocks in the ice. The sand and the shallow sea
-// carry only sea rocks (`coast`), and a band of deeper sea outside the ice
-// the boats (`boat`).
+// in the desert, sparse snowy boulders and patches of ice spikes in the ice.
+// The sand and the shallow sea carry only sea rocks (`coast`), and a band of
+// deeper sea outside the ice the boats (`boat`).
 export const SCENERY_CONFIG = Object.freeze({
 	// Vertical offset into the ground, in units of instance scale, so bases do
 	// not float where coarse terrain LODs cut below the exact height.
@@ -53,14 +54,30 @@ export const SCENERY_CONFIG = Object.freeze({
 			[IMPOSTOR_TYPE.LAYERED_ROCK, 0.14],
 		],
 	},
-	// Snowy rocks only, frosted by the rock palettes' ice colors.
+	// Boulders, frosted by the boulder palette's ice color, accepted at
+	// maxDensity; a cell that draws an ice spike type brings a group of them
+	// instead (`iceSpikes`).
 	ice: {
 		maxDensity: 0.08,
 		minSlopeNormalY: 0.75,
 		types: [
-			[IMPOSTOR_TYPE.BOULDER, 0.55],
-			[IMPOSTOR_TYPE.LAYERED_ROCK, 0.45],
+			[IMPOSTOR_TYPE.BOULDER, 0.4],
+			[IMPOSTOR_TYPE.ICE_SPIKES_TWO, 0.3],
+			[IMPOSTOR_TYPE.ICE_SPIKES_THREE, 0.3],
 		],
+	},
+	// Ice spike groups, gathered in patches (getIceSpikeMask(), with
+	// settings.iceSpikes.mask) like the sea rocks on rocky coast: acceptance
+	// grows from `baseDensity` (isolated groups anywhere in the ice) to
+	// `maxDensity` where the mask is 1. `footprint` is the larger source's
+	// horizontal radius at scale 1 (src/impostors/impostorArchetypes.js),
+	// which spaces the satellites; each satellite is of either type. Scale and
+	// satellites are runtime settings (settings.iceSpikes, ICE_SPIKE_DEFAULTS).
+	iceSpikes: {
+		types: [IMPOSTOR_TYPE.ICE_SPIKES_TWO, IMPOSTOR_TYPE.ICE_SPIKES_THREE],
+		baseDensity: 0.01,
+		maxDensity: 0.25,
+		footprint: 1.8,
 	},
 	// Sea rocks on the sand and the shallow sea of every biome, gathered on
 	// rocky coast (getCoastRockMask() in src/coast.js, with params.coast.mask).
@@ -101,6 +118,9 @@ export const SCENERY_CONFIG = Object.freeze({
 		[IMPOSTOR_TYPE.SEA_ROCK]: [0.35, 2.1, 0.8, 1.35],
 		// One size for every boat: the boat size setting alone scales it.
 		[IMPOSTOR_TYPE.BOAT]: [1, 1, 1, 1],
+		// Their scale range is only the default of settings.iceSpikes.scale.
+		[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: [0.7, 1.5, 0.85, 1.35],
+		[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: [0.7, 1.5, 0.85, 1.35],
 	},
 })
 
@@ -114,6 +134,8 @@ export const SCENERY_TYPE_KEYS = Object.freeze({
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: 'layeredRock',
 	[IMPOSTOR_TYPE.SEA_ROCK]: 'seaRock',
 	[IMPOSTOR_TYPE.BOAT]: 'boat',
+	[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: 'iceSpikesTwo',
+	[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: 'iceSpikesThree',
 })
 
 // Density is set per category; each type belongs to one.
@@ -123,6 +145,7 @@ export const SCENERY_CATEGORIES = Object.freeze({
 	rocks: [IMPOSTOR_TYPE.BOULDER, IMPOSTOR_TYPE.LAYERED_ROCK],
 	seaRocks: [IMPOSTOR_TYPE.SEA_ROCK],
 	boats: [IMPOSTOR_TYPE.BOAT],
+	iceSpikes: [IMPOSTOR_TYPE.ICE_SPIKES_TWO, IMPOSTOR_TYPE.ICE_SPIKES_THREE],
 })
 
 const TYPE_CATEGORY = Object.fromEntries(
@@ -145,6 +168,8 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	layeredRock: 0.85,
 	seaRock: 1.6,
 	boat: 1.65,
+	iceSpikesTwo: 1,
+	iceSpikesThree: 1,
 })
 
 // Default sea rock settings. Rocks stand where the sea is at most `maxDepth`
@@ -181,6 +206,45 @@ export function createSeaRockSettings() {
 	}
 }
 
+// Default ice spike settings. `mask` picks the patches where the groups
+// gather (getIceSpikeMask(), with the fields of COAST_MASK_DEFAULTS in
+// src/coast.js). The scale and satellites work like the sea rocks' (times the
+// size of the group's first type), the satellites spaced by
+// SCENERY_CONFIG.iceSpikes.footprint.
+export const ICE_SPIKE_DEFAULTS = Object.freeze({
+	mask: Object.freeze({
+		frequency: 0.004,
+		detailFrequency: 0.016,
+		detailWeight: 0.35,
+		threshold: 0.3,
+		softness: 0.2,
+	}),
+	scale: Object.freeze({
+		min: SCENERY_CONFIG.shape[IMPOSTOR_TYPE.ICE_SPIKES_TWO][0],
+		max: SCENERY_CONFIG.shape[IMPOSTOR_TYPE.ICE_SPIKES_TWO][1],
+		bias: 1.3,
+	}),
+	satellites: Object.freeze({
+		count: 4,
+		distance: Object.freeze({ min: 0.8, max: 1.6 }),
+		scale: Object.freeze({ min: 0.45, max: 0.8 }),
+	}),
+})
+
+// A mutable copy of ICE_SPIKE_DEFAULTS.
+export function createIceSpikeSettings() {
+	const { mask, scale, satellites } = ICE_SPIKE_DEFAULTS
+	return {
+		mask: { ...mask },
+		scale: { ...scale },
+		satellites: {
+			count: satellites.count,
+			distance: { ...satellites.distance },
+			scale: { ...satellites.scale },
+		},
+	}
+}
+
 // Default boat settings. A boat's center stands where the sea is between
 // `depth.min` and `depth.max` deep (measured from y = 0, like the sea rocks'
 // maxDepth): away from the coast, short of the deep sea. Its bow, stern, and
@@ -209,20 +273,24 @@ export function createBoatSettings() {
 // multipliers on SCENERY_CONFIG. Density multiplies the acceptance
 // probability of its category, capped at one instance per grid cell (for
 // boats, per candidate spot). `seaRocks` holds the sea rocks' depth, scale,
-// and satellites; `boats` the boats' depth band, count, draft, and clearance.
+// and satellites; `iceSpikes` the ice spikes' patches, scale, and
+// satellites; `boats` the boats' depth band, count, draft, and clearance.
 export function createScenerySettings({ isMobile = false } = {}) {
 	return {
 		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 0.7, boats: 0.13 },
+		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 0.7, boats: 0.13, iceSpikes: 1 },
 		size: { ...SCENERY_DEFAULT_SIZES },
 		seaRocks: createSeaRockSettings(),
+		iceSpikes: createIceSpikeSettings(),
 		boats: createBoatSettings(),
 	}
 }
 
 // Offsets that decorrelate the cluster noise from the biome field.
 const CLUSTER_OFFSET = [7123.4, -3311.9]
+// And the ice spike patches from the other layers.
+const ICE_SPIKE_OFFSET = [-2719.6, 5381.2]
 
 // Tint channels in [0, 2) stored as bytes; decoded in impostor-vertex.glsl.
 export function packTint(r, g, b) {
@@ -245,6 +313,20 @@ function getClusterDensity(x, z, biomeOffset) {
 	const cz = z + biomeOffset[1] + CLUSTER_OFFSET[1]
 	const forest = snoise(cx * 0.004, cz * 0.004) * 0.7 + snoise(cx * 0.02, cz * 0.02) * 0.3
 	return Math.min(Math.max((forest + 0.2) / 0.7, 0), 1)
+}
+
+// Where the ice spikes gather: 1 in their patches, 0 elsewhere. Two simplex
+// layers at the seeded biome coordinates, like getCoastRockMask() in
+// src/coast.js, with `mask` (settings.iceSpikes.mask); placement alone reads
+// it, so it has no shader twin.
+export function getIceSpikeMask(x, z, biomeOffset, mask = ICE_SPIKE_DEFAULTS.mask) {
+	const cx = x + biomeOffset[0] + ICE_SPIKE_OFFSET[0]
+	const cz = z + biomeOffset[1] + ICE_SPIKE_OFFSET[1]
+	const { frequency, detailFrequency, detailWeight, threshold, softness } = mask
+	const value =
+		snoise(cx * frequency, cz * frequency) +
+		snoise(cx * detailFrequency, cz * detailFrequency) * detailWeight
+	return smoothstep(threshold - softness, threshold + softness, value)
 }
 
 // Packed tint of a painted instance in `biome`. Every type but the boat takes
@@ -280,6 +362,42 @@ function getSeaRockValues({ x, z, height, scale, yaw, tint, stretch }, context) 
 	const { config, worldX, worldZ } = context
 	const baseY = Math.max(height, SEA_SURFACE_Y) - config.coast.sink * scale
 	return [x - worldX, baseY, z - worldZ, scale, yaw, config.coast.type, tint, stretch]
+}
+
+// Appends to `group` the satellites of its first member: up to
+// `satellites.count` smaller ones around it, at `satellites.distance` times
+// `footprint` times its scale, scaled by `satellites.scale` of its scale. Every
+// value comes from the group's cell through `random` (salt 9 for the count,
+// then 8 salts per satellite from 10, the last one free for `extra`).
+// `stand(x, z)` returns a satellite's ground height, or null where it may not
+// stand; `tint(salt)` packs its tint; `extra(salt)` adds values of its own.
+function addGroupSatellites(group, { satellites, footprint, stretch, random, tint, stand, extra }) {
+	const [{ x, z, scale }] = group
+	const [minStretch, maxStretch] = stretch
+	const count = Math.floor(random(9) * (Math.floor(satellites.count) + 1))
+	const { min: minDistance, max: maxDistance } = satellites.distance
+	const { min: minShare, max: maxShare } = satellites.scale
+	for (let index = 0; index < count; index++) {
+		const salt = 10 + index * 8
+		const angle = random(salt) * Math.PI * 2
+		const distance =
+			(minDistance + (maxDistance - minDistance) * random(salt + 1)) * footprint * scale
+		const satelliteX = x + Math.cos(angle) * distance
+		const satelliteZ = z + Math.sin(angle) * distance
+		const satelliteHeight = stand(satelliteX, satelliteZ)
+		if (satelliteHeight === null) continue
+		group.push({
+			priority: random(salt + 6),
+			x: satelliteX,
+			z: satelliteZ,
+			height: satelliteHeight,
+			scale: scale * (minShare + (maxShare - minShare) * random(salt + 2)),
+			yaw: random(salt + 3) * Math.PI * 2,
+			tint: tint(salt + 4),
+			stretch: minStretch + (maxStretch - minStretch) * random(salt + 5),
+			...extra?.(salt),
+		})
+	}
 }
 
 // The sea rocks of one coastal candidate (see isSeaRockCandidate()): the rock,
@@ -321,30 +439,94 @@ function getSeaRockGroup({ x, z, height, cellX, cellZ, fields }, context) {
 		stretch: minStretch + (maxStretch - minStretch) * random(5),
 	})
 
-	const satellites = Math.floor(random(9) * (Math.floor(rocks.satellites.count) + 1))
-	const { min: minDistance, max: maxDistance } = rocks.satellites.distance
-	const { min: minShare, max: maxShare } = rocks.satellites.scale
-	for (let index = 0; index < satellites; index++) {
-		const salt = 10 + index * 8
-		const angle = random(salt) * Math.PI * 2
-		const distance =
-			(minDistance + (maxDistance - minDistance) * random(salt + 1)) * coast.footprint * scale
-		const satelliteX = x + Math.cos(angle) * distance
-		const satelliteZ = z + Math.sin(angle) * distance
-		const satelliteHeight = getHeight(satelliteX, satelliteZ, noises, params, biomeOffset)
-		if (satelliteHeight < -rocks.maxDepth) continue
-		group.push({
-			priority: random(salt + 6),
-			x: satelliteX,
-			z: satelliteZ,
-			height: satelliteHeight,
-			scale: scale * (minShare + (maxShare - minShare) * random(salt + 2)),
-			yaw: random(salt + 3) * Math.PI * 2,
-			tint: tint(salt + 4),
-			stretch: minStretch + (maxStretch - minStretch) * random(salt + 5),
-		})
-	}
+	addGroupSatellites(group, {
+		satellites: rocks.satellites,
+		footprint: coast.footprint,
+		stretch: [minStretch, maxStretch],
+		random,
+		tint,
+		stand: (satelliteX, satelliteZ) => {
+			const satelliteHeight = getHeight(satelliteX, satelliteZ, noises, params, biomeOffset)
+			return satelliteHeight < -rocks.maxDepth ? null : satelliteHeight
+		},
+	})
 	return group
+}
+
+// Whether the ground at (x, z) is gentle enough for the ice's scenery.
+function isIceSlopeGentle(x, z, context) {
+	const { noises, params, biomeOffset, config, normal } = context
+	getSurfaceNormal(x, z, noises, params, biomeOffset, normal)
+	return normal[1] >= config.ice.minSlopeNormalY
+}
+
+// The ice spikes of one ice candidate (on a scenery band, off the biome
+// borders) that drew spike type `type`: the group, if accepted, and its
+// smaller satellites, each of either spike type, with world-space bases.
+// Acceptance grows with the ice spike mask, so the groups gather in patches.
+// Every satellite stands like other ice scenery: on a scenery band, in the
+// ice off its border, on a gentle slope. The values come from the candidate's
+// cell like the sea rocks' (getSeaRockGroup()), and the satellites belong to
+// its chunk.
+function getIceSpikeGroup({ x, z, height, cellX, cellZ }, type, context) {
+	const { seedHash, noises, params, biomeOffset, settings, config } = context
+	const rules = config.iceSpikes
+	const spikes = settings.iceSpikes
+	const random = (salt) => cellRandom(seedHash, cellX, cellZ, salt)
+	const group = []
+
+	const mask = getIceSpikeMask(x, z, biomeOffset, spikes.mask)
+	const density =
+		(rules.baseDensity + (rules.maxDensity - rules.baseDensity) * mask) *
+		settings.density[TYPE_CATEGORY[type]]
+	if (random(2) >= density) return group
+	if (!isIceSlopeGentle(x, z, context)) return group
+
+	const [, , minStretch, maxStretch] = config.shape[type]
+	const { min: minScale, max: maxScale, bias } = spikes.scale
+	const scale =
+		(minScale + (maxScale - minScale) * random(4) ** bias) * settings.size[SCENERY_TYPE_KEYS[type]]
+	if (scale <= 0) return group
+	const tint = (salt) => getPaintedTint(random(salt), BIOME.ICE)
+	group.push({
+		type,
+		priority: random(8),
+		x,
+		z,
+		height,
+		scale,
+		yaw: random(6) * Math.PI * 2,
+		tint: tint(7),
+		stretch: minStretch + (maxStretch - minStretch) * random(5),
+	})
+
+	const fields = {}
+	addGroupSatellites(group, {
+		satellites: spikes.satellites,
+		footprint: rules.footprint,
+		stretch: [minStretch, maxStretch],
+		random,
+		tint,
+		stand: (satelliteX, satelliteZ) => {
+			const satelliteHeight = getHeight(satelliteX, satelliteZ, noises, params, biomeOffset, fields)
+			if (!isSceneryBand(getTerrainBand(satelliteX, satelliteHeight, satelliteZ))) return null
+			if (isNearBiomeBorder(fields) || getBiome(fields) !== BIOME.ICE) return null
+			return isIceSlopeGentle(satelliteX, satelliteZ, context) ? satelliteHeight : null
+		},
+		extra: (salt) => ({
+			type: rules.types[
+				Math.min(Math.floor(random(salt + 7) * rules.types.length), rules.types.length - 1)
+			],
+		}),
+	})
+	return group
+}
+
+// The instance values of an ice spike (from getIceSpikeGroup()), sunk like
+// other land scenery.
+function getIceSpikeValues({ x, z, height, scale, yaw, type, tint, stretch }, context) {
+	const { config, worldX, worldZ } = context
+	return [x - worldX, height - config.sink * scale, z - worldZ, scale, yaw, type, tint, stretch]
 }
 
 // The sea rocks of grid cell (cellX, cellZ), computed once per placement
@@ -548,6 +730,8 @@ export function generateSceneryInstances({
 		worldZ,
 		// Sea rocks per grid cell, shared by this chunk's rocks and its boats.
 		seaRockCells: new Map(),
+		// Scratch surface normal.
+		normal,
 	}
 
 	for (let k = 0; k < cellsPerSide; k++) {
@@ -577,6 +761,12 @@ export function generateSceneryInstances({
 			// value, so a category's density only adds or removes that category.
 			const table = temperate ? rules.bands[TERRAIN_BANDS[band]] : rules.types
 			const type = pickWeighted(table, cellRandom(seedHash, cellX, cellZ, 3))
+			if (biome === BIOME.ICE && config.iceSpikes.types.includes(type)) {
+				for (const spike of getIceSpikeGroup(candidate, type, context)) {
+					instances.push({ priority: spike.priority, values: getIceSpikeValues(spike, context) })
+				}
+				continue
+			}
 
 			const baseDensity = temperate
 				? rules.maxDensity * getClusterDensity(x, z, biomeOffset)

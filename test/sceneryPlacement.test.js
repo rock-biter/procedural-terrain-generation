@@ -19,6 +19,7 @@ import { getCoastRockMask } from '../src/coast.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from '../src/impostors/impostorTypes.js'
 import {
 	BOAT_DEFAULTS,
+	ICE_SPIKE_DEFAULTS,
 	SCENERY_CATEGORIES,
 	SCENERY_CONFIG,
 	SCENERY_DEFAULT_SIZES,
@@ -26,6 +27,7 @@ import {
 	SEA_ROCK_DEFAULTS,
 	createScenerySettings,
 	generateSceneryInstances,
+	getIceSpikeMask,
 	isCoastBand,
 	isSceneryBand,
 	packTint,
@@ -278,15 +280,115 @@ function generateIce(settingsOverrides = {}) {
 }
 const iceChunks = generateIce()
 
-test('places only sparse rocks in the ice', () => {
+test('places boulders and ice spikes in the ice', () => {
+	const { BOULDER, LAYERED_ROCK, ICE_SPIKES_TWO, ICE_SPIKES_THREE } = IMPOSTOR_TYPE
 	assert.deepEqual(
 		[...biomeTypes[BIOME.ICE]].sort(),
-		[IMPOSTOR_TYPE.BOULDER, IMPOSTOR_TYPE.LAYERED_ROCK].sort(),
+		[BOULDER, ICE_SPIKES_TWO, ICE_SPIKES_THREE].sort(),
 	)
-	// The rock palettes frost them (src/sceneryPalettePolicy.js).
+	// The layered rocks stand only in the desert, the spikes only in the ice.
+	assert.ok(biomeTypes[BIOME.DESERT].has(LAYERED_ROCK))
+	for (const type of [LAYERED_ROCK, ...SCENERY_CONFIG.iceSpikes.types]) {
+		const biomes = Object.values(BIOME).filter((biome) => biomeTypes[biome].has(type))
+		assert.equal(biomes.length, 1, `type ${type} in one biome`)
+	}
+	// The boulder palette frosts them (src/sceneryPalettePolicy.js).
 	const counts = assertBiomeTypes(iceChunks, iceOffset, iceCoords)
 	assert.ok(counts[BIOME.ICE] > 0)
 	assert.ok(SCENERY_CONFIG.ice.maxDensity < SCENERY_CONFIG.desert.maxDensity)
+	const spikes = iceSpikesOf(iceChunks)
+	assert.ok(spikes.some(({ type }) => type === ICE_SPIKES_TWO))
+	assert.ok(spikes.some(({ type }) => type === ICE_SPIKES_THREE))
+	assert.ok(iceChunks.some((data) => countByType(data).has(BOULDER)))
+})
+
+// Farthest an ice spike satellite can stand from its candidate.
+const spikeReach =
+	ICE_SPIKE_DEFAULTS.satellites.distance.max *
+	SCENERY_CONFIG.iceSpikes.footprint *
+	ICE_SPIKE_DEFAULTS.scale.max *
+	Math.max(SCENERY_DEFAULT_SIZES.iceSpikesTwo, SCENERY_DEFAULT_SIZES.iceSpikesThree)
+
+const iceSpikeTypes = new Set(SCENERY_CATEGORIES.iceSpikes)
+
+function iceSpikesOf(results) {
+	const spikes = []
+	results.forEach((data, index) => {
+		const [i, j] = iceCoords[index]
+		for (const instance of instances(data, i, j)) {
+			if (iceSpikeTypes.has(instance.type)) spikes.push(instance)
+		}
+	})
+	return spikes
+}
+
+test('keeps ice spike satellites within their reach of the chunk, without duplicates', () => {
+	const seen = new Set()
+	iceChunks.forEach((data, index) => {
+		const [i, j] = iceCoords[index]
+		for (const instance of instances(data, i, j)) {
+			// Sea rock and ice spike satellites belong to their candidate's chunk.
+			const reach =
+				instance.type === IMPOSTOR_TYPE.SEA_ROCK
+					? satelliteReach
+					: iceSpikeTypes.has(instance.type)
+						? spikeReach
+						: 0
+			assert.ok(instance.localX >= -size / 2 - reach && instance.localX < size / 2 + reach)
+			assert.ok(instance.localZ >= -size / 2 - reach && instance.localZ < size / 2 + reach)
+			const key = `${instance.x.toFixed(3)}|${instance.z.toFixed(3)}`
+			assert.equal(seen.has(key), false)
+			seen.add(key)
+		}
+	})
+})
+
+test('gathers ice spikes in patches', () => {
+	let patch = 0
+	let elsewhere = 0
+	for (const spike of iceSpikesOf(iceChunks)) {
+		if (getIceSpikeMask(spike.x, spike.z, iceOffset) > 0.5) patch++
+		else elsewhere++
+	}
+	assert.ok(patch > elsewhere * 2, `${patch} spikes in patches, ${elsewhere} elsewhere`)
+})
+
+test('follows the ice spike settings without changing other scenery', () => {
+	const iceSpikes = (overrides) => ({
+		iceSpikes: { ...createScenerySettings().iceSpikes, ...overrides },
+	})
+	const baseline = iceSpikesOf(iceChunks)
+	const size = SCENERY_DEFAULT_SIZES.iceSpikesTwo
+
+	const aloneResults = generateIce(
+		iceSpikes({ satellites: { ...ICE_SPIKE_DEFAULTS.satellites, count: 0 } }),
+	)
+	const alone = iceSpikesOf(aloneResults)
+	assert.ok(alone.length > 0 && alone.length < baseline.length)
+
+	// Without satellites, every group draws its scale from the range.
+	const scale = { min: 1, max: 1.2, bias: 1 }
+	const ranged = iceSpikesOf(
+		generateIce(iceSpikes({ scale, satellites: { ...ICE_SPIKE_DEFAULTS.satellites, count: 0 } })),
+	)
+	assert.equal(ranged.length, alone.length)
+	for (const spike of ranged) {
+		assert.ok(spike.scale >= scale.min * size - 1e-5 && spike.scale <= scale.max * size + 1e-5)
+	}
+
+	const mask = { ...ICE_SPIKE_DEFAULTS.mask, threshold: ICE_SPIKE_DEFAULTS.mask.threshold + 0.5 }
+	const fewerPatches = iceSpikesOf(generateIce(iceSpikes({ mask })))
+	assert.ok(fewerPatches.length < baseline.length)
+
+	const noneResults = generateIce({ density: { ...createScenerySettings().density, iceSpikes: 0 } })
+	assert.equal(iceSpikesOf(noneResults).length, 0)
+
+	// The other scenery stays where it was.
+	const others = (results) =>
+		results.reduce((count, data) => count + data.length, 0) / IMPOSTOR_INSTANCE_STRIDE -
+		iceSpikesOf(results).length
+	assert.equal(others(aloneResults), others(iceChunks))
+	assert.equal(others(noneResults), others(iceChunks))
 })
 
 test('keeps boats out of the frozen sea of the ice', () => {

@@ -233,6 +233,36 @@ function seaRock(lod) {
 	})
 }
 
+// Ice spikes for the ice biome: stalagmites of ice rising from the ground,
+// grouped by two or three. Each is a tapered cylinder almost closed at its tip
+// (a closed tip pinches the normals), leaning away from the group. They stay
+// stout, because the distant mips and the shadow casters lose thin parts.
+// Painted whole, the tallest in the light gray and the others in the darker
+// one, so the group keeps two tones under any palette color.
+// [base radius, height, x, z, lean around x, lean around z, color]
+const ICE_SPIKES = [
+	[0.8, 4.5, 0, 0, 0.05, -0.04, COLORS.painted],
+	[0.55, 3, 1.05, -0.35, -0.08, -0.25, COLORS.paintedLayer],
+	[0.42, 2.1, -0.75, 0.8, 0.22, 0.2, COLORS.paintedLayer],
+]
+
+function iceSpikes(lod, count) {
+	return ICE_SPIKES.slice(0, count).map(([radius, height, x, z, leanX, leanZ, color]) => {
+		const spike = new CylinderGeometry(
+			radius * 0.06,
+			radius,
+			height,
+			detail(lod, 7, 5),
+			detail(lod, 4, 2),
+		)
+		spike.translate(0, height / 2 - 0.03, 0)
+		spike.rotateX(leanX)
+		spike.rotateZ(leanZ)
+		spike.translate(x, 0, z)
+		return part(spike, color, { lumps: 0.05, lumpScale: 1.2, paint: 1 })
+	})
+}
+
 // A stand-in toy boat with the model's length and beam (SCENERY_CONFIG.boat in
 // src/sceneryPlacement.js): an oval tub and a cabin. The boat is drawn from its
 // model (src/impostors/boatSources.js, set with setCatalogSources()); this one
@@ -256,6 +286,8 @@ const BUILDERS = {
 	[IMPOSTOR_TYPE.LAYERED_ROCK]: layeredRock,
 	[IMPOSTOR_TYPE.SEA_ROCK]: seaRock,
 	[IMPOSTOR_TYPE.BOAT]: boat,
+	[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: (lod) => iceSpikes(lod, 2),
+	[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: (lod) => iceSpikes(lod, 3),
 }
 
 function buildSource(type, lod) {

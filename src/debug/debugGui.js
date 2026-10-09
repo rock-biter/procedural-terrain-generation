@@ -366,6 +366,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		rocks: 'Rocks',
 		seaRocks: 'Sea rocks',
 		boats: 'Boats',
+		iceSpikes: 'Ice spikes',
 	}
 	for (const [category, types] of Object.entries(SCENERY_CATEGORIES)) {
 		const folder = sceneryFolder.addFolder(sceneryLabels[category])
@@ -386,6 +387,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		}
 		// The palettes live in the Biomes folders.
 		if (category === 'seaRocks') addSeaRockControls(folder)
+		if (category === 'iceSpikes') addIceSpikeControls(folder)
 		if (category === 'boats') addBoatControls(folder)
 	}
 
@@ -400,25 +402,57 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.add(seaRocks.scale, 'bias', 0.2, 4, 0.05)
 			.name('Small rock bias')
 			.onFinishChange(updateScenery)
-		const satellites = folder.addFolder('Satellites')
-		satellites
-			.add(seaRocks.satellites, 'count', 0, 6, 1)
-			.name('Max count')
+		addSatelliteControls(folder, seaRocks.satellites)
+	}
+
+	// The ice spikes' patches, scale range, and satellites
+	// (settings.iceSpikes); the release re-places the scenery.
+	function addIceSpikeControls(folder) {
+		const { iceSpikes } = params.scenery
+		const patches = folder.addFolder('Patches')
+		patches
+			.add(iceSpikes.mask, 'frequency', 0.0005, 0.02, 0.0005)
+			.name('Frequency')
 			.onFinishChange(updateScenery)
+		patches
+			.add(iceSpikes.mask, 'threshold', -1, 1, 0.01)
+			.name('Threshold')
+			.onFinishChange(updateScenery)
+		patches
+			.add(iceSpikes.mask, 'softness', 0.01, 1, 0.01)
+			.name('Softness')
+			.onFinishChange(updateScenery)
+		folder
+			.add(iceSpikes.scale, 'min', 0.05, 3, 0.01)
+			.name('Min scale')
+			.onFinishChange(updateScenery)
+		folder.add(iceSpikes.scale, 'max', 0.1, 4, 0.01).name('Max scale').onFinishChange(updateScenery)
+		folder
+			.add(iceSpikes.scale, 'bias', 0.2, 4, 0.05)
+			.name('Small spike bias')
+			.onFinishChange(updateScenery)
+		addSatelliteControls(folder, iceSpikes.satellites)
+	}
+
+	// A group's satellites: how many, how far (× footprint × scale), and how
+	// large (× the group's first scale).
+	function addSatelliteControls(folder, settings) {
+		const satellites = folder.addFolder('Satellites')
+		satellites.add(settings, 'count', 0, 8, 1).name('Max count').onFinishChange(updateScenery)
 		satellites
-			.add(seaRocks.satellites.distance, 'min', 0.5, 3, 0.05)
+			.add(settings.distance, 'min', 0.5, 3, 0.05)
 			.name('Min distance ×')
 			.onFinishChange(updateScenery)
 		satellites
-			.add(seaRocks.satellites.distance, 'max', 0.5, 3, 0.05)
+			.add(settings.distance, 'max', 0.5, 3, 0.05)
 			.name('Max distance ×')
 			.onFinishChange(updateScenery)
 		satellites
-			.add(seaRocks.satellites.scale, 'min', 0.1, 1, 0.01)
+			.add(settings.scale, 'min', 0.1, 1, 0.01)
 			.name('Min size ×')
 			.onFinishChange(updateScenery)
 		satellites
-			.add(seaRocks.satellites.scale, 'max', 0.1, 1, 0.01)
+			.add(settings.scale, 'max', 0.1, 1, 0.01)
 			.name('Max size ×')
 			.onFinishChange(updateScenery)
 	}
@@ -539,13 +573,23 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 
 		const iceFolder = biomesFolder.addFolder('Ice')
 		addTerrainPalette(iceFolder, 'ice')
-		// Craggier detail, never higher than the forest's: the amplitude stops
-		// at 1 for the flight ceiling.
+		// A flattened plain with sparse mountains (src/icePeaks.js). Their
+		// summit stops at 85, the flight ceiling minus the terrain clearance
+		// (FLIGHT_LIMITS in src/flightPolicy.js); the detail amplitude stops at
+		// 1, so the border, flattened only partly, is never higher than the
+		// forest's.
 		const iceTopography = iceFolder.addFolder('Topography')
 		const iceControls = [
 			['frequency', 'Detail frequency ×', 0.5, 3, 0.01],
 			['amplitude', 'Detail amplitude ×', 0, 1, 0.01],
 			['blend', 'Blend width', 0.005, 0.1, 0.001],
+			['flatten', 'Height reduction', 0, 1, 0.01],
+			['depth', 'Reduction depth', 0.005, 0.3, 0.005],
+			['peakHeight', 'Peak height', 0, 85, 1],
+			['peakSpacing', 'Peak spacing', 300, 5000, 10],
+			['peakChance', 'Peak chance', 0, 1, 0.01],
+			['peakRadius', 'Peak radius', 50, 1000, 5],
+			['peakSharpness', 'Peak sharpness', 0.5, 4, 0.05],
 		]
 		for (const [key, label, min, max, step] of iceControls) {
 			iceTopography
@@ -554,7 +598,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.onFinishChange(regenerateTerrain)
 		}
 		addSeaIceControls(iceFolder)
-		addRockColors(iceFolder, BIOME.ICE, ['boulder', 'layeredRock', 'seaRock'])
+		addRockColors(iceFolder, BIOME.ICE, ['boulder', 'iceSpike', 'seaRock'])
 
 		const seaFolder = biomesFolder.addFolder('Sea')
 		const seaLabels = { shallow: 'Shallow', mid: 'Open sea', deep: 'Deep sea' }
@@ -597,7 +641,12 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	// Live: the rocks' colors in one biome, from the palettes picked by biome.
 	function addRockColors(parent, biome, keys) {
 		const slot = SCENERY_BIOME_SLOTS[biome]
-		const labels = { boulder: 'Boulders', layeredRock: 'Layered rocks', seaRock: 'Sea rocks' }
+		const labels = {
+			boulder: 'Boulders',
+			layeredRock: 'Layered rocks',
+			seaRock: 'Sea rocks',
+			iceSpike: 'Ice spikes',
+		}
 		const folder = parent.addFolder('Rock colors')
 		for (const key of keys) {
 			folder

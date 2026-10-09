@@ -109,6 +109,8 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			layeredRock: { scale: 0.01, color: 0.1, normalized: false },
 			seaRock: { scale: 0.01, color: 0.1, normalized: false },
 			boat: { scale: 0.01, color: 0, normalized: false },
+			iceSpikesTwo: { scale: 0.01, color: 0.1, normalized: false },
+			iceSpikesThree: { scale: 0.01, color: 0.1, normalized: false },
 		},
 		// Shader-side, applied live: the trees' trunk colors and crown palettes and
 		// the cacti's palette, picked per instance from world-space noise; see
