@@ -34,10 +34,10 @@ function length([x, y, z]) {
 }
 
 test('advances and wraps the time of day in both directions', () => {
-	assertClose(advanceTimeOfDay(0.5, 60, 240), 0.75)
-	assertClose(advanceTimeOfDay(0.9, 48, 240), 0.1)
-	assertClose(advanceTimeOfDay(0.1, -48, 240), 0.9)
-	assertClose(advanceTimeOfDay(0.2, 240 * 3, 240), 0.2)
+	assertClose(advanceTimeOfDay(0.5, 60, 180), 0.75)
+	assertClose(advanceTimeOfDay(0.9, 48, 180), 0.1)
+	assertClose(advanceTimeOfDay(0.1, -48, 180), 0.9)
+	assertClose(advanceTimeOfDay(0.2, 180 * 3, 180), 0.2)
 	assert.equal(advanceTimeOfDay(0.4, 10, 0), 0.4)
 	assert.equal(wrapTimeOfDay(1), 0)
 	assert.equal(wrapTimeOfDay(-1e-18), 0)

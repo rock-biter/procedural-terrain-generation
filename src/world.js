@@ -13,7 +13,7 @@ import Plane from './plane'
 import SceneryImpostors from './sceneryImpostors'
 import SceneryShadows from './sceneryShadows'
 import SeaFoam from './seaFoam'
-import { updateSeaIceShelf } from './sharedUniforms'
+import { updateSeaIceNight } from './sharedUniforms'
 import TerrainSampleDebug from './terrainSampleDebug'
 import { CHUNK_SIZE } from './worldConstants'
 
@@ -320,8 +320,8 @@ export default class World {
 
 		const dayNightState = this.dayNight.update(deltaTime)
 		plane.setDayNight(dayNightState)
-		// The frozen sea grows through the night and melts back by noon.
-		updateSeaIceShelf(uniforms, this.params.seaIce, dayNightState.timeOfDay)
+		// The frozen sea and its floes grow through the night and melt back by noon.
+		updateSeaIceNight(uniforms, this.params.seaIce, dayNightState.timeOfDay)
 		frameStats.mark('dayNight')
 		// The timer's first delta after the tab is shown again can be negative.
 		this.aurora?.update(Math.max(deltaTime, 0), plane.position, dayNightState)

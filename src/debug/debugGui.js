@@ -814,8 +814,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		}
 	}
 
-	// Live: the frozen sea's shape and colors, and how much further it freezes
-	// at night; the map shows its sheet at the current time of day.
+	// Live: the frozen sea's shape and colors, and how much further it and its
+	// floes freeze at night; the map shows its sheet at the current time of day.
 	function addSeaIceControls(parent) {
 		const updateSeaIce = () => {
 			updateSeaIceUniforms(uniforms, params.seaIce, params.dayNight.timeOfDay)
@@ -827,9 +827,11 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			['nightShelf', 'Night growth (depth)', 0, 30, 0.1],
 			['fade', 'Taper (ice field)', 0.005, 0.2, 0.005],
 			['band', 'Floe band depth', 0, 12, 0.1],
+			['nightBand', 'Night floe band (depth)', 0, 20, 0.1],
 			['cellSize', 'Floe size (units)', 1, 30, 0.5],
 			['crackMin', 'Crack at sheet (units)', 0, 3, 0.05],
 			['crackMax', 'Crack offshore (units)', 0, 6, 0.05],
+			['nightCrack', 'Night crack closing', 0, 1, 0.01],
 			['edgeNoise', 'Edge wobble (depth)', 0, 4, 0.05],
 			['edgeFrequency', 'Edge wobble frequency', 0.005, 0.3, 0.005],
 		]

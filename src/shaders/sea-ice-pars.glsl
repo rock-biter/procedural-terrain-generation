@@ -7,10 +7,11 @@
 
 // x: shelf (depth the sheet covers deep in the ice), y: fade (ice field value
 // where shelf and band reach full size), z: floe band depth beyond the sheet,
-// w: floe cell size in world units.
+// w: floe cell size in world units. The shelf and band deepen at night.
 uniform vec4 uSeaIceShape;
 // x, y: crack width in world units at the sheet edge and at the band's outer
-// limit, z: edge wobble in units of depth, w: its frequency per world unit.
+// limit (narrower at night), z: edge wobble in units of depth, w: its
+// frequency per world unit.
 uniform vec4 uSeaIceEdge;
 
 // Share of the full shelf and band at ice field value `iceValue`: 0 at and

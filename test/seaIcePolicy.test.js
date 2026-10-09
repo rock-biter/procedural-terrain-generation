@@ -4,6 +4,8 @@ import {
 	createSeaIceSettings,
 	getSeaIceAmount,
 	getSeaIceBand,
+	getSeaIceBandAt,
+	getSeaIceCrackScaleAt,
 	getSeaIceNightGrowth,
 	getSeaIceShelf,
 	getSeaIceShelfAt,
@@ -81,6 +83,30 @@ test('the shelf deepens by nightShelf at sunrise', () => {
 	assert.equal(isUnderSeaIce(depth, inside, settings), false)
 	const night = { ...settings, shelf: getSeaIceShelfAt(settings, SEA_ICE_NIGHT.peak) }
 	assert.equal(isUnderSeaIce(depth, inside, night), true)
+})
+
+test('the floe band deepens by nightBand and the cracks narrow by nightCrack at sunrise', () => {
+	assert.ok(settings.nightBand > 0)
+	assert.ok(settings.nightCrack > 0 && settings.nightCrack <= 1)
+	assert.equal(getSeaIceBandAt(settings, SEA_ICE_NIGHT.melt), settings.band)
+	assert.equal(getSeaIceBandAt(settings, SEA_ICE_NIGHT.peak), settings.band + settings.nightBand)
+	assert.equal(getSeaIceCrackScaleAt(settings, SEA_ICE_NIGHT.melt), 1)
+	assert.equal(getSeaIceCrackScaleAt(settings, SEA_ICE_NIGHT.peak), 1 - settings.nightCrack)
+	// Both follow the night growth, never past their sunrise values.
+	for (let time = 0; time < 1; time += 0.01) {
+		const growth = getSeaIceNightGrowth(time)
+		assert.ok(
+			Math.abs(getSeaIceBandAt(settings, time) - settings.band - settings.nightBand * growth) <
+				1e-9,
+		)
+		const scale = getSeaIceCrackScaleAt(settings, time)
+		assert.ok(scale >= 1 - settings.nightCrack - 1e-12 && scale <= 1)
+	}
+	// Without night settings, or with a closing beyond 1, nothing breaks.
+	const still = { ...settings, nightBand: undefined, nightCrack: undefined }
+	assert.equal(getSeaIceBandAt(still, SEA_ICE_NIGHT.peak), settings.band)
+	assert.equal(getSeaIceCrackScaleAt(still, SEA_ICE_NIGHT.peak), 1)
+	assert.equal(getSeaIceCrackScaleAt({ ...settings, nightCrack: 2 }, SEA_ICE_NIGHT.peak), 0)
 })
 
 test('settings are mutable copies of the defaults', () => {

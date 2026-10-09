@@ -3,7 +3,12 @@ import { BIOME_COUNT, createBiomeOffset, getBiomeGradientBounds } from './biome'
 import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
-import { getSeaIceShelfAt, SEA_ICE_NIGHT } from './seaIcePolicy'
+import {
+	getSeaIceBandAt,
+	getSeaIceCrackScaleAt,
+	getSeaIceShelfAt,
+	SEA_ICE_NIGHT,
+} from './seaIcePolicy'
 import { createTerrainNormalUniforms } from './terrainNormals'
 import {
 	getTerrainPaletteLayout,
@@ -101,27 +106,26 @@ export function updateTerrainPaletteUniforms(uniforms, settings) {
 }
 
 // Writes the frozen sea settings (params.seaIce, src/seaIcePolicy.js) into
-// their uniforms, in place, with the shelf of `timeOfDay` (noon by default:
-// `shelf` itself).
+// their uniforms, in place, with the shelf, band, and cracks of `timeOfDay`
+// (noon by default: the daytime settings themselves).
 export function updateSeaIceUniforms(uniforms, settings, timeOfDay = SEA_ICE_NIGHT.melt) {
-	uniforms.uSeaIceShape.value.set(
-		getSeaIceShelfAt(settings, timeOfDay),
-		settings.fade,
-		settings.band,
-		settings.cellSize,
-	)
-	uniforms.uSeaIceEdge.value.set(
-		settings.crackMin,
-		settings.crackMax,
-		settings.edgeNoise,
-		settings.edgeFrequency,
-	)
+	uniforms.uSeaIceShape.value.y = settings.fade
+	uniforms.uSeaIceShape.value.w = settings.cellSize
+	uniforms.uSeaIceEdge.value.z = settings.edgeNoise
+	uniforms.uSeaIceEdge.value.w = settings.edgeFrequency
+	updateSeaIceNight(uniforms, settings, timeOfDay)
 	const { sheet, floe, water } = settings.colors
 	;[sheet, floe, water].forEach((hex, index) => uniforms.uSeaIceColors.value[index].set(hex))
 }
 
-// Writes only the shelf of `timeOfDay`, every frame: the sea freezes further
-// through the night and melts back by noon.
-export function updateSeaIceShelf(uniforms, settings, timeOfDay) {
-	uniforms.uSeaIceShape.value.x = getSeaIceShelfAt(settings, timeOfDay)
+// Writes only what follows `timeOfDay`, every frame: the sea freezes further
+// through the night (a deeper shelf, a deeper floe band, narrower cracks) and
+// melts back by noon.
+export function updateSeaIceNight(uniforms, settings, timeOfDay) {
+	const shape = uniforms.uSeaIceShape.value
+	shape.x = getSeaIceShelfAt(settings, timeOfDay)
+	shape.z = getSeaIceBandAt(settings, timeOfDay)
+	const crackScale = getSeaIceCrackScaleAt(settings, timeOfDay)
+	uniforms.uSeaIceEdge.value.x = settings.crackMin * crackScale
+	uniforms.uSeaIceEdge.value.y = settings.crackMax * crackScale
 }

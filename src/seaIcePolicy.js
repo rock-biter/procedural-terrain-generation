@@ -1,4 +1,4 @@
-import { smoothstep } from './math.js'
+import { clamp01, smoothstep } from './math.js'
 import { SAND_LEVEL } from './terrainBands.js'
 
 // The frozen sea of the ice biome (three-free). The terrain shader draws it
@@ -20,21 +20,25 @@ import { SAND_LEVEL } from './terrainBands.js'
 // - A simplex wobble of `edgeNoise` units of depth at `edgeFrequency` per
 //   world unit frays the edge.
 // - The sea freezes further at night: from sunset the shelf deepens by up to
-//   `nightShelf` units of depth, reached at sunrise, and melts back to `shelf`
-//   by noon (getSeaIceNightGrowth()). World updates the shelf uniform every
-//   frame from the time of day (updateSeaIceShelf() in src/sharedUniforms.js).
+//   `nightShelf` units of depth and the floe band by up to `nightBand`, while
+//   the cracks narrow by up to the share `nightCrack`, all reached at sunrise
+//   and melted back to the daytime values by noon (getSeaIceNightGrowth()).
+//   World updates those uniforms every frame from the time of day
+//   (updateSeaIceNight() in src/sharedUniforms.js).
 // - Colors are sRGB: the sheet, the floes, and the icy water between them;
 //   the ice meets the water without any dark line.
 export const SEA_ICE_DEFAULTS = Object.freeze({
 	shelf: 15.3,
-	fade: 0.19,
+	fade: 0.15,
 	band: 9,
 	cellSize: 15,
 	crackMin: 0.25,
 	crackMax: 4.3,
 	edgeNoise: 1.1,
 	edgeFrequency: 0.145,
-	nightShelf: 10,
+	nightShelf: 18,
+	nightBand: 9,
+	nightCrack: 0.6,
 	colors: Object.freeze({ sheet: '#aed3e5', floe: '#ffffff', water: '#2fe1ee' }),
 })
 
@@ -68,6 +72,18 @@ export function getSeaIceNightGrowth(timeOfDay) {
 // growth goes.
 export function getSeaIceShelfAt(settings, timeOfDay) {
 	return settings.shelf + Math.max(settings.nightShelf ?? 0, 0) * getSeaIceNightGrowth(timeOfDay)
+}
+
+// The floe band at `timeOfDay`: `band`, deepened by `nightBand` as the night
+// growth goes, so the floes reach further seaward and pack closer.
+export function getSeaIceBandAt(settings, timeOfDay) {
+	return settings.band + Math.max(settings.nightBand ?? 0, 0) * getSeaIceNightGrowth(timeOfDay)
+}
+
+// Share of the crack widths left open at `timeOfDay`: 1 by day, down to
+// 1 - `nightCrack` at sunrise, as the water between the floes freezes.
+export function getSeaIceCrackScaleAt(settings, timeOfDay) {
+	return 1 - clamp01(settings.nightCrack ?? 0) * getSeaIceNightGrowth(timeOfDay)
 }
 
 // Share of the full shelf and band at ice field value `ice`: 0 at and outside

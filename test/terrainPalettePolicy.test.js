@@ -6,7 +6,7 @@ import { createAppParams } from '../src/appParams.js'
 import {
 	createSharedUniforms,
 	updateBiomeUniforms,
-	updateSeaIceShelf,
+	updateSeaIceNight,
 	updateSeaIceUniforms,
 	updateTerrainPaletteUniforms,
 } from '../src/sharedUniforms.js'
@@ -144,10 +144,29 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 		seaIce.edgeNoise,
 		seaIce.edgeFrequency,
 	])
-	// At sunrise the sheet reaches nightShelf deeper; the frame loop writes only
-	// the shelf.
+	// At sunrise the sheet and the floe band reach nightShelf and nightBand
+	// deeper and the cracks narrow by nightCrack; the frame loop writes only
+	// those back.
 	updateSeaIceUniforms(uniforms, seaIce, SEA_ICE_NIGHT.peak)
-	assert.equal(uniforms.uSeaIceShape.value.x, 3 + seaIce.nightShelf)
-	updateSeaIceShelf(uniforms, seaIce, SEA_ICE_NIGHT.melt)
+	const crackScale = 1 - seaIce.nightCrack
+	assert.deepEqual(uniforms.uSeaIceShape.value.toArray(), [
+		3 + seaIce.nightShelf,
+		seaIce.fade,
+		seaIce.band + seaIce.nightBand,
+		9,
+	])
+	assert.deepEqual(uniforms.uSeaIceEdge.value.toArray(), [
+		seaIce.crackMin * crackScale,
+		seaIce.crackMax * crackScale,
+		seaIce.edgeNoise,
+		seaIce.edgeFrequency,
+	])
+	updateSeaIceNight(uniforms, seaIce, SEA_ICE_NIGHT.melt)
 	assert.deepEqual(uniforms.uSeaIceShape.value.toArray(), [3, seaIce.fade, seaIce.band, 9])
+	assert.deepEqual(uniforms.uSeaIceEdge.value.toArray(), [
+		seaIce.crackMin,
+		seaIce.crackMax,
+		seaIce.edgeNoise,
+		seaIce.edgeFrequency,
+	])
 })

@@ -149,7 +149,7 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 ])
 
 export const DAY_NIGHT_DEFAULTS = Object.freeze({
-	cycleDuration: 240,
+	cycleDuration: 180,
 	// Fixed start in the debug modes (?debug=1, ?gui=1); otherwise the local clock.
 	debugTimeOfDay: 0.3,
 	// Tilts the celestial arc toward +Z so the sun crosses the initial view.
