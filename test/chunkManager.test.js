@@ -7,6 +7,7 @@ import ChunkManager from '../src/chunkManager.js'
 import { CURVATURE } from '../src/worldConstants.js'
 import { createTerrainSettings, createTerrainSnapshot } from '../src/chunkGeometry.js'
 import { getChunkKey, getCurvatureDrop } from '../src/chunkPolicy.js'
+import { getChunkShadowView } from '../src/chunkTopology.js'
 import { runChunkJob } from '../src/chunkWorkerJob.js'
 import { createScenerySettings } from '../src/sceneryPlacement.js'
 import { createSceneryShadowSettings } from '../src/shadowPolicy.js'
@@ -101,6 +102,34 @@ test('crossing chunk borders disposes what left and streams what entered', async
 	plane.updateMatrixWorld()
 	await settle(manager)
 	assertConsistent(manager, scene)
+})
+
+test('terrain shadow views are disposed with their chunk geometry', async () => {
+	const { manager, plane } = createManager()
+	await settle(manager)
+	const views = []
+	for (const chunk of manager.chunks.values()) {
+		const view = getChunkShadowView(chunk.geometry, 1)
+		const entry = { geometry: chunk.geometry, view, disposed: false }
+		view.addEventListener('dispose', () => {
+			entry.disposed = true
+		})
+		views.push(entry)
+	}
+	// Moving on replaces near geometries (LOD) and disposes the chunks left behind.
+	plane.position.z += CHUNK_SIZE * 3
+	const stats = await settle(manager)
+	assert.ok(stats.disposed > 0)
+	const live = new Set([...manager.chunks.values()].map((chunk) => chunk.geometry))
+	let disposed = 0
+	for (const { geometry, view, disposed: wasDisposed } of views) {
+		assert.equal(wasDisposed, !live.has(geometry))
+		if (!wasDisposed) continue
+		disposed++
+		assert.equal(view.getAttribute('position'), undefined)
+	}
+	assert.ok(disposed > 0)
+	assert.ok(disposed < views.length)
 })
 
 test('results of an older revision are dropped and regenerated', async () => {

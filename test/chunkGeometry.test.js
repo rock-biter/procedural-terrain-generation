@@ -7,7 +7,9 @@ import {
 	DESERT_TERRAIN_DEFAULTS,
 	ICE_TERRAIN_DEFAULTS,
 	TERRAIN_DEFAULTS,
+	CHUNK_EDGES,
 	createChunkIndex,
+	createChunkShadowIndex,
 	createChunkUv,
 	createTerrainNoises,
 	createTerrainSettings,
@@ -23,6 +25,8 @@ import {
 import {
 	createChunkGeometry,
 	disposeChunkGeometry,
+	getChunkShadowIndex,
+	getChunkShadowView,
 	getChunkTopology,
 } from '../src/chunkTopology.js'
 
@@ -416,4 +420,160 @@ test('shares index and uv per LOD and keeps them when a chunk is disposed', () =
 	assert.equal(first.getAttribute('uv'), undefined)
 	assert.equal(second.getIndex(), index)
 	assert.ok(index.array.length > 0)
+})
+
+// Shadow index triangles as [row, column] grid points of a `segments` grid.
+function getShadowTriangles(index, segments) {
+	const columns = segments + 1
+	const triangles = []
+	for (let offset = 0; offset < index.length; offset += 3) {
+		triangles.push(
+			[index[offset], index[offset + 1], index[offset + 2]].map((vertex) => [
+				Math.floor(vertex / columns),
+				vertex % columns,
+			]),
+		)
+	}
+	return triangles
+}
+
+// Normal Y of a triangle of [row, column] points (column along +X, row along
+// +Z), as in createChunkIndex(): twice the signed area seen from above.
+function getUpwardArea([[r0, c0], [r1, c1], [r2, c2]]) {
+	return (r1 - r0) * (c2 - c0) - (c1 - c0) * (r2 - r0)
+}
+
+test('the shadow index is the coarse grid over every stride-th vertex', () => {
+	const segments = 16
+	for (const shadowSegments of [16, 8, 4, 2, 1]) {
+		const stride = segments / shadowSegments
+		const coarse = createChunkIndex(shadowSegments)
+		const index = createChunkShadowIndex(segments, shadowSegments)
+		assert.equal(index.length, coarse.length)
+		for (let offset = 0; offset < coarse.length; offset++) {
+			const row = Math.floor(coarse[offset] / (shadowSegments + 1))
+			const column = coarse[offset] % (shadowSegments + 1)
+			assert.equal(index[offset], row * stride * (segments + 1) + column * stride)
+		}
+	}
+	assert.ok(createChunkShadowIndex(128, 64) instanceof Uint16Array)
+	assert.throws(() => createChunkShadowIndex(16, 3), RangeError)
+	assert.throws(() => createChunkShadowIndex(16, 32), RangeError)
+	assert.throws(() => createChunkShadowIndex(16, 8, [1, 3, 1, 1]), RangeError)
+	assert.throws(() => createChunkShadowIndex(16, 4, [8, 1, 1, 1]), RangeError)
+})
+
+test('stitched shadow grids tile the chunk and end on the coarser neighbors', () => {
+	const segments = 32
+	const shadowSegments = 8
+	const stride = segments / shadowSegments
+	const factors = [1, 2, 4, 8]
+	for (const back of factors) {
+		for (const front of factors) {
+			for (const left of factors) {
+				for (const right of factors) {
+					const edgeFactors = [back, front, left, right]
+					const index = createChunkShadowIndex(segments, shadowSegments, edgeFactors)
+					const triangles = getShadowTriangles(index, segments)
+					let area = 0
+					const edges = new Map()
+					for (const triangle of triangles) {
+						const upward = getUpwardArea(triangle)
+						// Every triangle faces up, so none overlaps or folds.
+						assert.ok(upward > 0, `${edgeFactors}: ${JSON.stringify(triangle)}`)
+						area += upward / 2
+						for (let corner = 0; corner < 3; corner++) {
+							const a = triangle[corner].join()
+							const b = triangle[(corner + 1) % 3].join()
+							const key = a < b ? `${a}/${b}` : `${b}/${a}`
+							edges.set(key, (edges.get(key) ?? 0) + 1)
+						}
+					}
+					assert.equal(area, segments * segments, `${edgeFactors}`)
+
+					// The outline is each side split at its neighbor's vertices.
+					const expected = new Set()
+					const side = (factor, point) => {
+						const step = factor * stride
+						for (let at = 0; at < segments; at += step) {
+							const a = point(at).join()
+							const b = point(at + step).join()
+							expected.add(a < b ? `${a}/${b}` : `${b}/${a}`)
+						}
+					}
+					side(back, (at) => [0, at])
+					side(front, (at) => [segments, at])
+					side(left, (at) => [at, 0])
+					side(right, (at) => [at, segments])
+					const outline = new Set([...edges].filter(([, count]) => count === 1).map(([key]) => key))
+					assert.deepEqual(outline, expected, `${edgeFactors}`)
+				}
+			}
+		}
+	}
+	assert.deepEqual(CHUNK_EDGES, ['back', 'front', 'left', 'right'])
+})
+
+test('a stitched shadow edge meets its coarser neighbor in world space', () => {
+	// LOD 0 at x 8 and its LOD 1 neighbor at x 24 share the edge x = 16.
+	const fine = generate()
+	const coarse = generate({ LOD: 1, worldX: 24 })
+	assert.equal(fine.segments, coarse.segments * 2)
+	const index = createChunkShadowIndex(fine.segments, fine.segments, [1, 1, 1, 2])
+	const coarseIndex = createChunkShadowIndex(coarse.segments, coarse.segments)
+	const edgePoints = (data, index, worldX, x) => {
+		const points = new Set()
+		for (const vertex of index) {
+			if (data.position[vertex * 3] + worldX !== x) continue
+			points.add([data.position[vertex * 3 + 2], data.position[vertex * 3 + 1]].map(String).join())
+		}
+		return points
+	}
+	const fineEdge = edgePoints(fine, index, 8, 16)
+	assert.deepEqual(fineEdge, edgePoints(coarse, coarseIndex, 24, 16))
+	assert.equal(fineEdge.size, coarse.segments + 1)
+})
+
+test('shadow views share the chunk position and leave it when disposed', () => {
+	const geometry = createChunkGeometry(generate())
+	const sibling = createChunkGeometry(generate({ worldX: 24 }))
+	assert.equal(geometry.userData.segments, 8)
+	const near = getChunkShadowView(geometry, 0)
+	const far = getChunkShadowView(geometry, 1)
+	assert.equal(getChunkShadowView(geometry, 0), near)
+	assert.notEqual(near, far)
+	assert.equal(near.getAttribute('position'), geometry.getAttribute('position'))
+	assert.deepEqual(Object.keys(near.attributes), ['position'])
+	assert.ok(near.boundingSphere.equals(geometry.boundingSphere))
+	assert.notEqual(near.boundingSphere, geometry.boundingSphere)
+
+	// Shared and cached; the full grid without stitching is the topology index.
+	const index = getChunkShadowIndex(8, 4, [1, 1, 2, 1])
+	assert.equal(getChunkShadowIndex(8, 4, [1, 1, 2, 1]), index)
+	assert.equal(getChunkShadowIndex(8, 8), getChunkTopology(8).index)
+	near.setIndex(index)
+	getChunkShadowView(sibling, 0).setIndex(index)
+
+	const disposed = []
+	near.addEventListener('dispose', () => {
+		disposed.push({ index: near.getIndex(), attributes: Object.keys(near.attributes) })
+	})
+	disposeChunkGeometry(geometry)
+	assert.deepEqual(disposed, [{ index: null, attributes: [] }])
+	assert.ok(index.array.length > 0)
+	assert.equal(getChunkShadowView(sibling, 0).getIndex(), index)
+	// A new view would follow a new geometry, never a disposed one.
+	assert.notEqual(getChunkShadowView(geometry, 0), near)
+})
+
+test('reports the steepest vertex gradient for the shadow casters', () => {
+	const data = generate({ ...land })
+	let steepest = 0
+	for (let index = 0; index < data.normal.length; index += 3) {
+		const [x, y, z] = data.normal.subarray(index, index + 3)
+		steepest = Math.max(steepest, Math.hypot(x, z) / y)
+	}
+	assert.ok(data.maxSlope > 0)
+	assert.ok(Math.abs(data.maxSlope - steepest) <= 1e-4 * Math.max(steepest, 1))
+	assert.equal(createChunkGeometry(data).userData.maxSlope, data.maxSlope)
 })

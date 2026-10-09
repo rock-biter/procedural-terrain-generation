@@ -980,6 +980,20 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.name(`${index === 0 ? 'Near' : 'Far'} cascade radius`)
 			.onChange(updateShadows)
 	})
+	// Live; the shadow grid segments are fixed at startup.
+	const terrainCastersFolder = shadowsFolder.addFolder('Terrain casters')
+	terrainCastersFolder
+		.add(params.shadows.terrainCasters, 'enabled')
+		.name('Enabled')
+		.onChange(updateShadows)
+	terrainCastersFolder
+		.add(params.shadows.terrainCasters, 'offset', 0, 3, 0.05)
+		.name('Offset (units)')
+		.onChange(updateShadows)
+	terrainCastersFolder
+		.add(params.shadows.terrainCasters, 'maxReach', 0, 1500, 10)
+		.name('Max reach (units)')
+		.onChange(updateShadows)
 
 	// Live: the adaptive ratio reads these every frame.
 	const performanceFolder = gui.addFolder('Performance')

@@ -16,16 +16,28 @@ import {
 	Vector4,
 	WebGLRenderTarget,
 } from 'three'
-import { LightBasis, createImpostorCasterMaterial, writeShadowMatrix } from './lightSpace'
+import {
+	LightBasis,
+	createImpostorCasterMaterial,
+	createTerrainCasterMaterial,
+	writeShadowMatrix,
+} from './lightSpace'
 import { chunkIntersectsSelection } from './sceneryMeshPolicy'
+import { getFlatBoxHalfHeight } from './chunkPolicy'
+import { getChunkShadowIndex, getChunkShadowView } from './chunkTopology'
 import {
 	SCENERY_SHADOW_CASCADE_COUNT,
 	getCascadeDepthRange,
 	getCascadeSphere,
+	getShadowEdgeFactor,
 	getShadowStrength,
+	getTerrainCasterReach,
+	getTerrainShadowSegments,
 	hasLightDirectionChanged,
 	selectShadowLight,
 	shouldRenderCascade,
+	terrainChunkCastsIntoDisk,
+	terrainChunkFacesAwayFrom,
 } from './shadowPolicy'
 
 // Receiver uniforms, shared with the terrain, impostor, and near-mesh
@@ -53,15 +65,19 @@ export function createSceneryShadowUniforms(settings) {
 // Soft scenery shadows in two light-aligned cascades (rules in
 // src/shadowPolicy.js). Every update it picks the shadowing light (sun or
 // moon), syncs one caster proxy per live scenery chunk plus the airplane into
-// its own scene, and renders the scheduled cascades' depth maps. Casters and
-// receivers use flat world space; the curvature is visual only.
+// its own scene, and renders the scheduled cascades' depth maps. Before each
+// cascade renders, it also syncs one terrain caster proxy per chunk that can
+// shadow that cascade's disk. Casters and receivers use flat world space; the
+// curvature is visual only.
 //
 // Ownership: this object owns the cascade render targets, cameras, caster
-// materials, and proxies. Proxies borrow the chunks' scenery geometries and
-// the airplane geometry, and never dispose them. `uniforms` is the
-// shared uniform object (src/sharedUniforms.js), which must hold createSceneryShadowUniforms(); this
-// object writes them. `impostorMaterial` (optional) provides the atlas
-// uniforms and frame count, so a re-bake reaches the casters.
+// materials, and proxies. Proxies borrow the chunks' scenery geometries, the
+// terrain shadow views (owned by src/chunkTopology.js and disposed with their
+// chunk geometry), and the airplane geometry, and never dispose them.
+// `uniforms` is the shared uniform object (src/sharedUniforms.js), which must
+// hold createSceneryShadowUniforms(); this object writes them.
+// `impostorMaterial` (optional) provides the atlas uniforms and frame count,
+// so a re-bake reaches the casters.
 export default class SceneryShadows {
 	constructor({ renderer, uniforms, settings, impostorMaterial = null }) {
 		this.renderer = renderer
@@ -90,6 +106,13 @@ export default class SceneryShadows {
 			colorWrite: false,
 		})
 		this.airplane = null
+		this.terrainCaster = createTerrainCasterMaterial({ light: this.basis.vector })
+		this.terrainProxies = []
+		// Chunk grid segments by packed coordinates, for the edge stitching.
+		this.chunkSegments = new Map()
+		this.edgeFactors = [1, 1, 1, 1]
+		// Receivers beyond the fade get no shadow (x, z: the plane).
+		this.fadeDisk = { x: 0, z: 0, diskRadius: 0 }
 
 		// 16-bit depth: the far cascade spans about 1100 units of depth (2100 at
 		// the GUI's largest radius), so a step of 0.017 to 0.032 units stays below
@@ -113,6 +136,10 @@ export default class SceneryShadows {
 				camera: new OrthographicCamera(),
 				lastFrame: -1,
 				drawCalls: 0,
+				triangles: 0,
+				terrainCasters: 0,
+				terrainTriangles: 0,
+				stitched: 0,
 			}
 		})
 
@@ -136,7 +163,7 @@ export default class SceneryShadows {
 	// Re-reads the live settings (strength is applied every update). Cascade
 	// radii changes render every cascade on the next update.
 	applySettings() {
-		const { fade, softness, bias } = this.settings
+		const { fade, softness, bias, terrainCasters } = this.settings
 		const start = Math.max(fade.start, 0)
 		this.uniforms.uSceneryShadowFade.value.set(start, Math.max(fade.end, start + 1))
 		this.uniforms.uSceneryShadowSoftness.value.set(
@@ -144,6 +171,7 @@ export default class SceneryShadows {
 			Math.max(softness.far, 0),
 		)
 		this.uniforms.uSceneryShadowBias.value = Math.max(bias, 0)
+		this.terrainCaster.uniforms.uTerrainCasterOffset.value = Math.max(terrainCasters.offset, 0)
 		this.forceRender = true
 	}
 
@@ -197,6 +225,10 @@ export default class SceneryShadows {
 		plane.updateWorldMatrix(true, true)
 		this.heading.set(0, 0, 1).applyQuaternion(plane.quaternion)
 		this.syncCasters(chunks, chunkSize, plane)
+		this.indexChunkSegments(chunks)
+		this.fadeDisk.x = plane.position.x
+		this.fadeDisk.z = plane.position.z
+		this.fadeDisk.diskRadius = Math.max(settings.fade.end, 0)
 
 		const { renderer } = this
 		const previousTarget = renderer.getRenderTarget()
@@ -205,20 +237,27 @@ export default class SceneryShadows {
 			const config = settings.cascades[index]
 			if (!shouldRenderCascade(this.frame, index, config.interval, forced)) {
 				cascade.drawCalls = 0
+				cascade.triangles = 0
 				return
 			}
 			this.placeCascade(cascade, config, index, plane)
+			this.syncTerrainCasters(chunks, chunkSize, cascade, index)
 			// The airplane's shadow only matters near it; the far cascade skips
 			// its dense mesh.
 			if (this.airplane) this.airplane.visible = index === 0
 			const before = renderer.info.render.calls
+			const trianglesBefore = renderer.info.render.triangles
 			renderer.setRenderTarget(cascade.target)
 			renderer.clear(false, true, false)
 			renderer.render(this.scene, cascade.camera)
-			// With autoReset, render() restarts the counter.
-			cascade.drawCalls = renderer.info.autoReset
+			// With autoReset, render() restarts the counters.
+			const { autoReset } = renderer.info
+			cascade.drawCalls = autoReset
 				? renderer.info.render.calls
 				: renderer.info.render.calls - before
+			cascade.triangles = autoReset
+				? renderer.info.render.triangles
+				: renderer.info.render.triangles - trianglesBefore
 			cascade.lastFrame = this.frame
 			drawCalls += cascade.drawCalls
 		})
@@ -274,6 +313,103 @@ export default class SceneryShadows {
 		}
 	}
 
+	// Grid segments of every live chunk by coordinates, so each terrain caster
+	// can find its neighbors' grids without building chunk keys.
+	indexChunkSegments(chunks) {
+		const { chunkSegments } = this
+		chunkSegments.clear()
+		if (!this.settings.terrainCasters.enabled) return
+		for (const chunk of chunks.values()) {
+			const segments = chunk.geometry?.userData.segments
+			if (!segments || !chunk.coords) continue
+			chunkSegments.set(packChunkCoords(chunk.coords[0], chunk.coords[1]), segments)
+		}
+	}
+
+	// Pools one terrain proxy per chunk that can shadow this cascade's disk
+	// (run after placeCascade(), which leaves the cascade's sphere in
+	// `this.sphere`) within the shadow fade: steep enough to face away from the
+	// light, and within the disk or upstream toward the light as far as its
+	// highest point can shadow the lowest receiver. Each draws the chunk's
+	// shadow view for this cascade with a grid of the cascade's segments,
+	// stitched to coarser neighbors. Frustum culling is off: the culling would
+	// drop the chunks before the near plane, which the caster flattens onto it.
+	syncTerrainCasters(chunks, chunkSize, cascade, index) {
+		const { settings, edgeFactors, terrainProxies } = this
+		const terrain = settings.terrainCasters
+		let count = 0
+		let triangles = 0
+		let stitched = 0
+		if (terrain.enabled) {
+			const requested = terrain.segments[index]
+			const light = this.basis.direction
+			const halfSize = chunkSize / 2
+			const minHeight = settings.heightRange.min
+			for (const chunk of chunks.values()) {
+				const { geometry, coords, position } = chunk
+				const segments = geometry?.userData.segments
+				if (!segments || !coords) continue
+				if (!terrainChunkFacesAwayFrom(geometry.userData.maxSlope, light)) continue
+				const flat = geometry.boundingSphere
+				const top = position.y + flat.center.y + getFlatBoxHalfHeight(flat.radius, chunkSize)
+				const reach = getTerrainCasterReach(top, light, minHeight, terrain.maxReach)
+				const { x, z } = position
+				if (
+					!terrainChunkCastsIntoDisk(x, z, halfSize, this.sphere, light[0], light[2], reach) ||
+					!terrainChunkCastsIntoDisk(x, z, halfSize, this.fadeDisk, light[0], light[2], reach)
+				) {
+					continue
+				}
+
+				const own = getTerrainShadowSegments(requested, segments)
+				const [i, j] = coords
+				edgeFactors[0] = this.getEdgeFactor(own, requested, i, j - 1)
+				edgeFactors[1] = this.getEdgeFactor(own, requested, i, j + 1)
+				edgeFactors[2] = this.getEdgeFactor(own, requested, i - 1, j)
+				edgeFactors[3] = this.getEdgeFactor(own, requested, i + 1, j)
+				const shadowIndex = getChunkShadowIndex(segments, own, edgeFactors)
+				const view = getChunkShadowView(geometry, index)
+				// Only on a change: a new index rebuilds the view's vertex array.
+				if (view.index !== shadowIndex) view.setIndex(shadowIndex)
+
+				let proxy = terrainProxies[count]
+				if (!proxy) {
+					proxy = new Mesh(view, this.terrainCaster)
+					proxy.name = 'terrain-shadow-caster'
+					proxy.frustumCulled = false
+					// Opaque depth first, before the impostors' discarding casters.
+					proxy.renderOrder = -1
+					terrainProxies.push(proxy)
+					this.scene.add(proxy)
+				}
+				proxy.geometry = view
+				proxy.position.copy(position)
+				proxy.visible = true
+				count++
+				triangles += shadowIndex.count / 3
+				if (edgeFactors[0] > 1 || edgeFactors[1] > 1 || edgeFactors[2] > 1 || edgeFactors[3] > 1) {
+					stitched++
+				}
+			}
+		}
+		for (let proxy = count; proxy < terrainProxies.length; proxy++) {
+			terrainProxies[proxy].visible = false
+		}
+		cascade.terrainCasters = count
+		cascade.terrainTriangles = triangles
+		cascade.stitched = stitched
+	}
+
+	// Edge factor toward the neighbor at (i, j): 1 unless its shadow grid in
+	// this cascade is coarser than `own`.
+	getEdgeFactor(own, requested, i, j) {
+		const segments = this.chunkSegments.get(packChunkCoords(i, j))
+		return getShadowEdgeFactor(
+			own,
+			segments ? getTerrainShadowSegments(requested, segments) : undefined,
+		)
+	}
+
 	// Centers a cascade camera on its sphere, snapped to whole texels in light
 	// space so shadows do not shimmer as the plane moves, and publishes the
 	// matrix the receivers sample with.
@@ -321,6 +457,10 @@ export default class SceneryShadows {
 			casters: this.proxyCount,
 			airplane: Boolean(this.airplane),
 			airplaneTriangles: this.airplane ? getTriangleCount(this.airplane.geometry) : 0,
+			terrainCasters: {
+				...this.settings.terrainCasters,
+				segments: [...this.settings.terrainCasters.segments],
+			},
 			drawCalls: this.lastDrawCalls,
 			updateMs: this.lastRenderMs,
 			cascades: this.cascades.map((cascade, index) => ({
@@ -330,6 +470,10 @@ export default class SceneryShadows {
 				center: this.uniforms.uSceneryShadowCascades.value[index].toArray().slice(0, 2),
 				lastFrame: cascade.lastFrame,
 				drawCalls: cascade.drawCalls,
+				triangles: cascade.triangles,
+				terrainCasters: cascade.terrainCasters,
+				terrainTriangles: cascade.terrainTriangles,
+				stitched: cascade.stitched,
 			})),
 		}
 	}
@@ -341,8 +485,14 @@ export default class SceneryShadows {
 		}
 		this.impostorCaster?.dispose()
 		this.airplaneCaster.dispose()
+		this.terrainCaster.dispose()
 		this.scene.clear()
 	}
+}
+
+// Unique number for chunk coordinates within +-2^25 chunks.
+function packChunkCoords(i, j) {
+	return i * 0x4000000 + j
 }
 
 function getTriangleCount(geometry) {

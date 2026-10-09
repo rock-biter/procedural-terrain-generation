@@ -425,9 +425,9 @@ The features below are implemented; their behavior, parameters, and costs live i
 
 ### `FEAT-005`: Soft Scenery Shadows
 
-- **Rejected:** `renderer.shadowMap` (no cascades or distance fade, and every patched material would need custom depth materials), real meshes as near casters (a CPU selection outside the frustum), and blob decals (no shape, z-fighting on slopes).
-- **Measured:** the constant PCF kernel (2026-10-03) saved about `0.5` ms per frame at `3840 × 2160` on an Apple M1; the simplified airplane caster (2026-10-04) cut the frame's triangles from about `0.99` M to `0.81` M.
-- **Open:** a shimmer review on long flights; the airplane receives no shadows.
+- **Rejected:** `renderer.shadowMap` (no cascades or distance fade, and every patched material would need custom depth materials), real meshes as near casters (a CPU selection outside the frustum), and blob decals (no shape, z-fighting on slopes). For the terrain casters: the drawn chunk grids (up to `32,768` triangles per chunk), front faces with a receiver bias (acne on lit slopes, or a bias that detaches tree shadows), and a separate terrain-only map (a second set of targets and lookups).
+- **Measured:** the constant PCF kernel (2026-10-03) saved about `0.5` ms per frame at `3840 × 2160` on an Apple M1; the simplified airplane caster (2026-10-04) cut the frame's triangles from about `0.99` M to `0.81` M. The terrain casters (2026-10-09, `pnpm bench --compare HEAD`, `--query "seed=s762&time=0.25"` for a low sun) cost `+0.3%` mean frame time at `3840 × 2160`, `+0.6%` at `1920 × 1080`, and `+1.0%` with the mobile preset. Selecting only the chunks within the fade and steeper than the light's elevation cut the far cascade's casters from 19–21 to 12–17 and the `3840 × 2160` frames over `35` ms from 30–37 to 21–23 of 600 (13–16 without terrain casters). A `[32, 32]` grid on desktop changed nothing measurable, so the cost is per draw, not per triangle.
+- **Open:** a shimmer review on long flights; the airplane receives no shadows. Terrain shadows are new: check on long flights at a low sun whether their tips visibly step when the light basis turns (`lightThreshold`), and whether slopes turned away from the light show blotches of the coarse grid where their normals still catch light. Measure them on a real mobile device.
 
 ### `FEAT-006`: Carved-Wood Clouds With Impostors And Cloud Shadows
 

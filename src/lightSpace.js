@@ -1,6 +1,7 @@
-import { DoubleSide, Matrix4, OrthographicCamera, ShaderMaterial, Vector3 } from 'three'
+import { BackSide, DoubleSide, Matrix4, OrthographicCamera, ShaderMaterial, Vector3 } from 'three'
 import casterVertexShader from './shaders/scenery-shadow-caster-vertex.glsl'
 import casterFragmentShader from './shaders/scenery-shadow-caster-fragment.glsl'
+import terrainCasterVertexShader from './shaders/terrain-shadow-caster-vertex.glsl'
 import { getCatalogDefines } from './impostors/impostorCatalogs'
 import { getViewDefines } from './impostors/octahedral'
 import { snapToTexel } from './shadowPolicy'
@@ -122,5 +123,22 @@ export function createImpostorCasterMaterial({
 		},
 		side: DoubleSide,
 		...options,
+	})
+}
+
+// Terrain shadow caster (terrain-shadow-caster-vertex.glsl), depth only. Chunk
+// triangles face +Y, so BackSide draws only the faces turned away from the
+// light. `light` is the LightBasis vector and `offset` the push away from the
+// light in world units.
+export function createTerrainCasterMaterial({ light, offset = 0 }) {
+	return new ShaderMaterial({
+		vertexShader: terrainCasterVertexShader,
+		fragmentShader: 'void main() { gl_FragColor = vec4(1.0); }',
+		uniforms: {
+			uShadowCasterLight: { value: light },
+			uTerrainCasterOffset: { value: offset },
+		},
+		side: BackSide,
+		colorWrite: false,
 	})
 }

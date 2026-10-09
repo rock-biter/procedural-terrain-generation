@@ -1,9 +1,10 @@
 import { smoothstep } from './math.js'
 // Pure rules for the scenery shadows (src/sceneryShadows.js). Shadows are
 // computed in flat world space, before the visual curvature: scenery
-// impostors and the airplane render into light-aligned depth maps in two
-// cascades, and the terrain and scenery shaders sample them with a soft PCF
-// kernel that fades out with distance from the plane.
+// impostors, the airplane, and a coarse grid of the terrain render into
+// light-aligned depth maps in two cascades, and the terrain and scenery
+// shaders sample them with a soft PCF kernel that fades out with distance
+// from the plane.
 
 // Must match the array sizes in scenery-shadow-pars-fragment.glsl.
 export const SCENERY_SHADOW_CASCADE_COUNT = 2
@@ -33,6 +34,11 @@ export function getSceneryShadowTapDefines(near, far = near) {
 //   `mesh` and `impostor` are the scenery receivers.
 // - `fade`: distance from the plane where shadows start to weaken and vanish.
 // - `softness`: penumbra radius in world units, near and at `fade.end`.
+// - `terrainCasters`: `segments` of the terrain's shadow grid per chunk side,
+//   [near, far] cascade (powers of two that divide the LOD 0 and LOD 1
+//   chunk grids, the only LODs inside the cascades), and `maxReach`, the
+//   farthest horizontal distance upstream of a cascade's disk toward the
+//   light where terrain still casts into it.
 export const SCENERY_SHADOW_PRESETS = Object.freeze({
 	desktop: Object.freeze({
 		cascades: Object.freeze([
@@ -41,6 +47,7 @@ export const SCENERY_SHADOW_PRESETS = Object.freeze({
 		]),
 		taps: Object.freeze({ terrain: Object.freeze([8, 4]), mesh: 4, impostor: 2 }),
 		fade: Object.freeze({ start: 220, end: 450 }),
+		terrainCasters: Object.freeze({ segments: Object.freeze([64, 32]), maxReach: 500 }),
 	}),
 	mobile: Object.freeze({
 		cascades: Object.freeze([
@@ -49,6 +56,7 @@ export const SCENERY_SHADOW_PRESETS = Object.freeze({
 		]),
 		taps: Object.freeze({ terrain: Object.freeze([4, 2]), mesh: 2, impostor: 1 }),
 		fade: Object.freeze({ start: 180, end: 360 }),
+		terrainCasters: Object.freeze({ segments: Object.freeze([32, 16]), maxReach: 350 }),
 	}),
 })
 
@@ -57,8 +65,9 @@ export const SCENERY_SHADOW_DEFAULTS = Object.freeze({
 	// Share of the direct light a fully shadowed pixel loses (ambient stays).
 	strength: 0.8,
 	softness: Object.freeze({ near: 0.6, far: 2.5 }),
-	// Constant depth bias in world units. Terrain casts no shadows, so it only
-	// guards caster bases against depth precision.
+	// Constant depth bias in world units. The terrain casts only from faces
+	// turned away from the light, which never receive direct light, so the bias
+	// only guards caster bases against depth precision.
 	bias: 0.05,
 	// World heights every cascade must contain: visible terrain (clamped at
 	// -1), scenery on the highest peaks, and the airplane below its ceiling.
@@ -72,6 +81,10 @@ export const SCENERY_SHADOW_DEFAULTS = Object.freeze({
 	// The light basis is rebuilt only after the light turns this far (radians),
 	// so slow celestial motion does not rotate the texel grid every frame.
 	lightThreshold: 0.0035,
+	// Terrain casters: `offset` pushes them away from the light (world units),
+	// a depth bias for the terrain alone that absorbs the gap between its
+	// coarse shadow grid and the drawn grid.
+	terrainCasters: Object.freeze({ enabled: true, offset: 0.5 }),
 })
 
 export function createSceneryShadowSettings({ isMobile = false } = {}) {
@@ -88,6 +101,11 @@ export function createSceneryShadowSettings({ isMobile = false } = {}) {
 		fade: { ...preset.fade },
 		cascades: preset.cascades.map((cascade) => ({ ...cascade })),
 		taps: { ...preset.taps, terrain: [...preset.taps.terrain] },
+		terrainCasters: {
+			...SCENERY_SHADOW_DEFAULTS.terrainCasters,
+			maxReach: preset.terrainCasters.maxReach,
+			segments: [...preset.terrainCasters.segments],
+		},
 	}
 }
 
@@ -157,6 +175,66 @@ export function getLightAngle(a, b) {
 export function hasLightDirectionChanged(previous, next, threshold) {
 	if (!previous) return true
 	return getLightAngle(previous, next) > threshold
+}
+
+// Terrain shadow casters (src/sceneryShadows.js). Each chunk casts through a
+// coarse grid over its own vertices (createChunkShadowIndex() in
+// src/chunkGeometry.js), drawn from the faces turned away from the light: a
+// ray toward the light can only enter a height field through such a face, so
+// these faces alone give the terrain's shadows, and lit slopes never shadow
+// themselves.
+
+// True when a chunk whose steepest gradient is `maxSlope` (rise over run) can
+// have a face turned away from the light, the only faces that cast: a face
+// with gradient g faces away when g · |L_xz| > L_y, so a chunk no steeper
+// than the light's elevation, such as open sea clamped to one height, would
+// cost a draw call for nothing. A grid face's gradient is a secant of the
+// surface, never steeper than the steepest vertex gradient. Without a
+// `maxSlope` the chunk is kept.
+export function terrainChunkFacesAwayFrom(maxSlope, lightDirection) {
+	if (maxSlope === undefined) return true
+	const [x, y, z] = lightDirection
+	return maxSlope * Math.hypot(x, z) > y
+}
+
+// Grid of a chunk's shadow caster: the cascade's `requested` segments, or the
+// chunk's own grid where it is coarser (far upstream chunks).
+export function getTerrainShadowSegments(requested, chunkSegments) {
+	return Math.min(requested, chunkSegments)
+}
+
+// How much coarser a neighbor's shadow grid is along the shared edge: the
+// factor createChunkShadowIndex() snaps that edge by, or 1 when the neighbor
+// is not coarser or not loaded.
+export function getShadowEdgeFactor(own, neighbor) {
+	return neighbor && neighbor < own ? own / neighbor : 1
+}
+
+// Horizontal distance upstream (toward the light) from which terrain up to
+// height `top` can still shadow a receiver at `minHeight`, capped at
+// `maxReach`. `lightDirection` is the unit [x, y, z] toward the light.
+export function getTerrainCasterReach(top, lightDirection, minHeight, maxReach) {
+	const [x, y, z] = lightDirection
+	if (y <= 1e-6) return Math.max(maxReach, 0)
+	const reach = ((top - minHeight) * Math.hypot(x, z)) / y
+	return Math.min(Math.max(reach, 0), Math.max(maxReach, 0))
+}
+
+// True when a chunk centered at (chunkX, chunkZ), of half side `halfSize`, can
+// cast into a cascade's receiver disk: its footprint's circle meets the disk
+// swept `reach` toward the light (horizontal direction towardX, towardZ, not
+// necessarily unit). Chunks downstream of the disk never shadow it.
+export function terrainChunkCastsIntoDisk(chunkX, chunkZ, halfSize, disk, towardX, towardZ, reach) {
+	const length = Math.hypot(towardX, towardZ)
+	let dx = chunkX - disk.x
+	let dz = chunkZ - disk.z
+	if (length > 1e-6 && reach > 0) {
+		const along = Math.min(Math.max((dx * towardX + dz * towardZ) / length, 0), reach)
+		dx -= (towardX / length) * along
+		dz -= (towardZ / length) * along
+	}
+	const limit = disk.diskRadius + halfSize * Math.SQRT2
+	return dx * dx + dz * dz <= limit * limit
 }
 
 // Cascades with an interval above 1 render on staggered frames, so two

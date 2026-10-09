@@ -12,7 +12,7 @@ import terrainParsVertex from './shaders/terrain-pars-vertex.glsl'
 import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
 import { TERRAIN_SHADER_DEFINES } from './terrainBands'
 import { createSceneryLighting } from './curvedLights'
-import { getCurvedBoxSphere } from './chunkPolicy'
+import { getCurvedBoxSphere, getFlatBoxHalfHeight } from './chunkPolicy'
 import { replaceChunks } from './shaderChunks'
 import { createImpostorMesh } from './impostors/impostorMaterial'
 import { disposeChunkGeometry } from './chunkTopology'
@@ -70,8 +70,9 @@ export default class Chunk extends Mesh {
 	}
 
 	onBeforeCompile() {
-		// Every chunk shares the material and the same tap counts. Terrain casts
-		// no shadows, so it needs no self-shadow bias.
+		// Every chunk shares the material and the same tap counts. The terrain
+		// casts only from faces turned away from the light (src/sceneryShadows.js),
+		// which get no direct light, so it needs no self-shadow bias.
 		const lighting = createSceneryLighting({
 			shadows: {
 				taps: this.params.shadows.taps.terrain,
@@ -133,13 +134,11 @@ export default class Chunk extends Mesh {
 
 	// The terrain and its scenery are drawn lower the farther they are from the
 	// eye (the airplane), so their culling spheres follow every frame; with flat
-	// ones a camera pitched down culls distant chunks it can see. The worker's
-	// flat sphere encloses the box of the footprint and height range, which
-	// gives the box's half height.
+	// ones a camera pitched down culls distant chunks it can see.
 	updateCurvedBounds(eye, curvature) {
 		const flat = this.geometry.boundingSphere
 		const horizontal = this.size * Math.SQRT1_2
-		const halfHeight = Math.sqrt(Math.max(flat.radius ** 2 - horizontal ** 2, 0))
+		const halfHeight = getFlatBoxHalfHeight(flat.radius, this.size)
 		const distance = Math.hypot(
 			this.position.x + flat.center.x - eye.x,
 			this.position.y + flat.center.y - eye.y,

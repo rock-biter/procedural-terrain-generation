@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
+	BackSide,
 	BoxGeometry,
 	BufferGeometry,
 	Color,
@@ -24,6 +25,7 @@ import TerrainSampleDebug from '../src/terrainSampleDebug.js'
 import { AIRPLANE_MODELS } from '../src/airplaneModels.js'
 import { replaceChunks } from '../src/shaderChunks.js'
 import { createSceneryShadowSettings } from '../src/shadowPolicy.js'
+import { createTerrainCasterMaterial } from '../src/lightSpace.js'
 import {
 	createCloudMeshSettings,
 	createSceneryMeshSettings,
@@ -87,6 +89,17 @@ test('the terrain patches fit the standard material', () => {
 	assert.match(terrain.vertexShader, /vIceValue = getIceValue\(/)
 	assert.match(terrain.vertexShader, /getSeaIceStill\(height, vIceValue\)/)
 	assert.match(terrain.fragmentShader, /float iceValue = vIceValue;/)
+})
+
+test('the terrain shadow caster draws back faces only and flattens onto the near plane', () => {
+	const light = new Vector3(0, 1, 0)
+	const material = createTerrainCasterMaterial({ light, offset: 0.5 })
+	assert.equal(material.side, BackSide)
+	assert.equal(material.colorWrite, false)
+	assert.equal(material.uniforms.uShadowCasterLight.value, light)
+	assert.equal(material.uniforms.uTerrainCasterOffset.value, 0.5)
+	assert.match(material.vertexShader, /world\.xyz -= uShadowCasterLight \* uTerrainCasterOffset;/)
+	assert.match(material.vertexShader, /gl_Position\.z = max\(gl_Position\.z, -gl_Position\.w\);/)
 })
 
 test('the scenery and cloud impostor patches fit the standard material', () => {

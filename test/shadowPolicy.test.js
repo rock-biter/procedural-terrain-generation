@@ -16,12 +16,19 @@ import {
 	getCascadeSphere,
 	getLightAngle,
 	getSceneryShadowTapDefines,
+	getShadowEdgeFactor,
 	getShadowStrength,
+	getTerrainCasterReach,
+	getTerrainShadowSegments,
 	hasLightDirectionChanged,
 	selectShadowLight,
 	shouldRenderCascade,
 	snapToTexel,
+	terrainChunkCastsIntoDisk,
+	terrainChunkFacesAwayFrom,
 } from '../src/shadowPolicy.js'
+import { getChunkSegments } from '../src/chunkGeometry.js'
+import { CHUNK_SIZE } from '../src/worldConstants.js'
 
 function direction(elevation, azimuth = 0) {
 	return [
@@ -39,13 +46,97 @@ test('settings are fresh copies of the device preset', () => {
 	assert.deepEqual(desktop.cascades, SCENERY_SHADOW_PRESETS.desktop.cascades)
 	assert.deepEqual(mobile.taps.terrain, SCENERY_SHADOW_PRESETS.mobile.taps.terrain)
 
+	assert.deepEqual(mobile.terrainCasters, {
+		enabled: true,
+		offset: 0.5,
+		maxReach: SCENERY_SHADOW_PRESETS.mobile.terrainCasters.maxReach,
+		segments: SCENERY_SHADOW_PRESETS.mobile.terrainCasters.segments,
+	})
+
 	desktop.cascades[0].radius = 1
 	desktop.taps.terrain[0] = 1
 	desktop.fade.end = 1
+	desktop.terrainCasters.segments[0] = 1
+	desktop.terrainCasters.offset = 2
 	const again = createSceneryShadowSettings()
 	assert.equal(again.cascades[0].radius, SCENERY_SHADOW_PRESETS.desktop.cascades[0].radius)
 	assert.equal(again.taps.terrain[0], SCENERY_SHADOW_PRESETS.desktop.taps.terrain[0])
 	assert.equal(again.fade.end, SCENERY_SHADOW_PRESETS.desktop.fade.end)
+	assert.equal(
+		again.terrainCasters.segments[0],
+		SCENERY_SHADOW_PRESETS.desktop.terrainCasters.segments[0],
+	)
+	assert.equal(again.terrainCasters.offset, 0.5)
+})
+
+test('terrain shadow grids divide the LOD 0 and LOD 1 chunk grids', () => {
+	// Grid densities of src/chunkManager.js.
+	for (const [device, density] of [
+		['desktop', 2],
+		['mobile', 4],
+	]) {
+		const { segments } = SCENERY_SHADOW_PRESETS[device].terrainCasters
+		assert.equal(segments.length, SCENERY_SHADOW_CASCADE_COUNT)
+		for (const shadowSegments of segments) {
+			for (const LOD of [0, 1]) {
+				const ratio = getChunkSegments(CHUNK_SIZE, LOD, density) / shadowSegments
+				assert.ok(Number.isInteger(Math.log2(ratio)), `${device} ${shadowSegments} LOD ${LOD}`)
+			}
+		}
+	}
+	assert.equal(getTerrainShadowSegments(64, 128), 64)
+	assert.equal(getTerrainShadowSegments(64, 16), 16)
+})
+
+test('an edge snaps only to a coarser loaded neighbor', () => {
+	assert.equal(getShadowEdgeFactor(64, 16), 4)
+	assert.equal(getShadowEdgeFactor(64, 64), 1)
+	assert.equal(getShadowEdgeFactor(16, 64), 1)
+	assert.equal(getShadowEdgeFactor(64, undefined), 1)
+})
+
+test('terrain reaches farther upstream under a lower light, up to the cap', () => {
+	const minHeight = -2
+	const low = getTerrainCasterReach(38, direction(0.2), minHeight, 1e6)
+	assert.ok(Math.abs(low - 40 / Math.tan(0.2)) < 1e-9)
+	assert.ok(getTerrainCasterReach(38, direction(0.1), minHeight, 1e6) > low)
+	assert.equal(getTerrainCasterReach(38, direction(0.1), minHeight, 300), 300)
+	assert.equal(getTerrainCasterReach(-3, direction(0.2), minHeight, 300), 0)
+	assert.equal(getTerrainCasterReach(38, [0, 1, 0], minHeight, 300), 0)
+	// Below the horizon the shadows are off; the cap keeps every caster.
+	assert.equal(getTerrainCasterReach(38, direction(-0.1), minHeight, 300), 300)
+})
+
+test('only chunks steeper than the light elevation cast terrain shadows', () => {
+	// Open sea is clamped flat.
+	assert.ok(!terrainChunkFacesAwayFrom(0, direction(0.06)))
+	// A 30-degree slope faces away from a light below 30 degrees only.
+	const slope = Math.tan(Math.PI / 6)
+	assert.ok(terrainChunkFacesAwayFrom(slope, direction(Math.PI / 6 - 0.01)))
+	assert.ok(!terrainChunkFacesAwayFrom(slope, direction(Math.PI / 6 + 0.01)))
+	assert.ok(!terrainChunkFacesAwayFrom(10, [0, 1, 0]))
+	assert.ok(terrainChunkFacesAwayFrom(undefined, [0, 1, 0]))
+})
+
+test('terrain chunks cast into a disk from inside it or upstream within reach', () => {
+	const disk = { x: 0, z: 0, diskRadius: 150 }
+	const halfSize = 128
+	const casts = (x, z, reach) => terrainChunkCastsIntoDisk(x, z, halfSize, disk, 1, 0, reach)
+	assert.ok(casts(0, 0, 0))
+	// Within the disk plus the footprint's circle.
+	assert.ok(casts(300, 0, 0))
+	assert.ok(!casts(340, 0, 0))
+	// Upstream (toward the light, +X) within reach.
+	assert.ok(casts(600, 0, 400))
+	assert.ok(!casts(800, 0, 400))
+	// Downstream never casts into the disk.
+	assert.ok(!casts(-600, 0, 400))
+	// Beside the swept disk.
+	assert.ok(!casts(400, 400, 400))
+	// The light direction need not be unit length.
+	assert.ok(terrainChunkCastsIntoDisk(600, 0, halfSize, disk, 0.2, 0, 400))
+	// A vertical light keeps only the disk.
+	assert.ok(!terrainChunkCastsIntoDisk(600, 0, halfSize, disk, 0, 0, 400))
 })
 
 test('every preset fades shadows out inside the far cascade', () => {

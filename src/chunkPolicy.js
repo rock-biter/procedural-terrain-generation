@@ -149,6 +149,14 @@ export function getCurvatureDrop(distance, curvature) {
 	return curvature * (1 - Math.cos(distance / curvature))
 }
 
+// Half height of a chunk's terrain box from its flat bounding sphere: the
+// worker's sphere (generateChunkGeometryData()) encloses the box of the
+// footprint, `size` wide, and the height range.
+export function getFlatBoxHalfHeight(radius, size) {
+	const horizontal = size * Math.SQRT1_2
+	return Math.sqrt(Math.max(radius ** 2 - horizontal ** 2, 0))
+}
+
 // Bounding sphere, on the curved world, of a box whose center is `distance`
 // (3D) from the eye: `horizontal` is the half diagonal of its footprint and
 // `halfHeight` its half height. Each point drops by the curvature at its own

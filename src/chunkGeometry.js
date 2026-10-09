@@ -291,7 +291,9 @@ function writeNormal(target, offset, left, right, back, front) {
 // rotated flat: row-major, rows along +Z, local coordinates rounded to
 // float32. Index and uv depend only on `segments`, so the main thread shares
 // them per LOD (src/chunkTopology.js); the worker sends position, normal, and
-// height, plus the bounding sphere so the main thread never reads positions.
+// height, plus the bounding sphere so the main thread never reads positions,
+// and `maxSlope`, the steepest surface gradient (rise over run) at any vertex,
+// which tells the shadow casters whether the chunk can face away from a light.
 export function generateChunkGeometryData({
 	size,
 	LOD,
@@ -338,6 +340,7 @@ export function generateChunkGeometryData({
 
 	let minY = Infinity
 	let maxY = -Infinity
+	let maxSlope = 0
 	for (let row = 0; row < columns; row++) {
 		const z = zs[row]
 		// Right sample (x + epsilon) of the previous vertex in this row.
@@ -359,6 +362,8 @@ export function generateChunkGeometryData({
 			const back = sharesZ[row] ? previousFront[column] : sample(x, z - NORMAL_EPSILON)
 			const front = sample(x, z + NORMAL_EPSILON)
 			writeNormal(normal, index * 3, left, right, back, front)
+			const slope = Math.hypot(left - right, back - front) / (2 * NORMAL_EPSILON)
+			if (slope > maxSlope) maxSlope = slope
 			previousRight = right
 			previousFront[column] = front
 		}
@@ -377,6 +382,7 @@ export function generateChunkGeometryData({
 			centerY: minY + halfHeight,
 			radius: Math.hypot(half, half, halfHeight),
 		},
+		maxSlope,
 	}
 }
 
@@ -402,6 +408,82 @@ export function createChunkIndex(segments) {
 		}
 	}
 	return index
+}
+
+// Order of the `edgeFactors` of createChunkShadowIndex(): the edges at the
+// first row (-Z), last row (+Z), first column (-X), and last column (+X).
+export const CHUNK_EDGES = Object.freeze(['back', 'front', 'left', 'right'])
+const NO_STITCHING = Object.freeze([1, 1, 1, 1])
+
+function isPowerOfTwo(value) {
+	return Number.isInteger(value) && value > 0 && (value & (value - 1)) === 0
+}
+
+// Triangle indices of a coarser grid over the vertices of a chunk grid of
+// `segments`: every (segments / shadowSegments)-th row and column, in the
+// winding of createChunkIndex(), for the terrain shadow casters. Chunks sample
+// the same world points at every LOD, so two neighbors with the same
+// `shadowSegments` share their edge vertices. An edge whose neighbor is
+// coarser by `edgeFactors[edge]` (in CHUNK_EDGES order) snaps its vertices
+// down to that neighbor's, which removes the T-junctions without new
+// vertices: triangles that collapse are dropped, and the rest still tile the
+// chunk. Uint16 while every vertex index fits.
+export function createChunkShadowIndex(segments, shadowSegments, edgeFactors = NO_STITCHING) {
+	const stride = segments / shadowSegments
+	if (!isPowerOfTwo(stride)) {
+		throw new RangeError(
+			`Shadow segments must divide ${segments} by a power of two: ${shadowSegments}`,
+		)
+	}
+	for (const factor of edgeFactors) {
+		if (!isPowerOfTwo(factor) || factor > shadowSegments) {
+			throw new RangeError(`Edge factors must be powers of two up to ${shadowSegments}: ${factor}`)
+		}
+	}
+	const [back, front, left, right] = edgeFactors
+	const last = shadowSegments
+	const columns = segments + 1
+	const snap = (value, factor) => Math.floor(value / factor) * factor
+	// Shadow-grid point (row, column) snapped on its edge, as [row, column].
+	// Corners are multiples of every factor, so they never move.
+	const point = (row, column) => {
+		if (row === 0) column = snap(column, back)
+		else if (row === last) column = snap(column, front)
+		else if (column === 0) row = snap(row, left)
+		else if (column === last) row = snap(row, right)
+		return [row, column]
+	}
+	const ArrayType = columns * columns > 65536 ? Uint32Array : Uint16Array
+	const index = new ArrayType(last * last * 6)
+	let offset = 0
+	const isPoint = (p, q) => p[0] === q[0] && p[1] === q[1]
+	const isCollapsed = (p, q, r) => isPoint(p, q) || isPoint(q, r) || isPoint(p, r)
+	// Twice the area seen from above, positive for the grid's winding.
+	const getArea = (p, q, r) => (q[0] - p[0]) * (r[1] - p[1]) - (q[1] - p[1]) * (r[0] - p[0])
+	const isFolded = (p, q, r) => !isCollapsed(p, q, r) && getArea(p, q, r) <= 0
+	const push = (p, q, r) => {
+		if (isCollapsed(p, q, r)) return
+		for (const [row, column] of [p, q, r]) index[offset++] = (row * columns + column) * stride
+	}
+	for (let row = 0; row < last; row++) {
+		for (let column = 0; column < last; column++) {
+			const a = point(row, column)
+			const b = point(row + 1, column)
+			const c = point(row + 1, column + 1)
+			const d = point(row, column + 1)
+			// Where two snapped edges meet, the usual diagonal can fold a
+			// triangle over the cell's free corner or lay it on a line through
+			// it; the other diagonal shares that corner instead.
+			if (isFolded(a, b, d) || isFolded(b, c, d)) {
+				push(a, b, c)
+				push(a, c, d)
+			} else {
+				push(a, b, d)
+				push(b, c, d)
+			}
+		}
+	}
+	return offset === index.length ? index : index.slice(0, offset)
 }
 
 // Chunk uv in PlaneGeometry order: u along +X, v from 1 at the first row
