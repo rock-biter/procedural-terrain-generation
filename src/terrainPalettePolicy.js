@@ -31,7 +31,7 @@ function variation(color, amount) {
 }
 
 // The forest and desert colors reproduce the former shader constants; the ice
-// is in shades of blue, from a deep navy shore up to bright icy peaks.
+// runs from a white shore through pale blues to deep blue peaks.
 export function createTerrainPaletteSettings() {
 	return {
 		temperate: {
@@ -72,11 +72,11 @@ export function createTerrainPaletteSettings() {
 		},
 		ice: {
 			colors: {
-				sand: '#064260',
-				grass: '#42bff5',
-				land: '#4b8fb9',
-				rocks: '#81b6df',
-				snow: '#3da1ff',
+				sand: '#ffffff',
+				grass: '#82b9ce',
+				land: '#7ddbf2',
+				rocks: '#2985db',
+				snow: '#0064c2',
 			},
 			variation: {
 				sand: variation('#a9c4d6', 0),

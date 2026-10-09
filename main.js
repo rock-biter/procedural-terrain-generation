@@ -23,6 +23,9 @@ const isMobile = window.innerWidth < 768
 const urlParams = new URLSearchParams(window.location.search)
 const debug = isDebugEnabled(urlParams)
 const showGui = urlParams.get('gui') === '1'
+// Either debug flag: the day starts at a fixed time and the airplane waits
+// still until Play.
+const debugMode = debug || showGui
 // Debug-only modules load only behind their URL flags, so the default bundle
 // carries neither lil-gui nor OrbitControls (used by the flight pause). They
 // load before any asset request: an await between two requests could let the
@@ -30,7 +33,7 @@ const showGui = urlParams.get('gui') === '1'
 const FlightPauseDebug = debug ? (await import('./src/flightPauseDebug')).default : null
 const debugGui = showGui ? await import('./src/debug/debugGui') : null
 
-const params = createAppParams({ urlParams, isMobile })
+const params = createAppParams({ urlParams, isMobile, debug: debugMode })
 const seed = parseWorldSeed(urlParams) ?? pickCuratedSeed()
 const uniforms = createSharedUniforms(params, seed)
 const setup = new RenderSetup({ params, urlParams, isMobile })
@@ -58,8 +61,7 @@ const world = new World({
 	isMobile,
 	terrainSamples: debug,
 	FlightPauseDebug,
-	// The debug modes start with the airplane still, until Play.
-	holdUntilPlay: debug || showGui,
+	holdUntilPlay: debugMode,
 })
 window.__INFINITE_WORLD__ = world.createStatsApi()
 debugGui?.createDebugGui({ params, uniforms, setup, world })

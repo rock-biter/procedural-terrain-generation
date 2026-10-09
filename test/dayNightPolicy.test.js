@@ -12,6 +12,8 @@ import {
 	getHorizonDip,
 	getPaletteTime,
 	getTimeOfDayForPaletteTime,
+	getLocalTimeOfDay,
+	getStartTimeOfDay,
 	parseTimeOfDay,
 	wrapTimeOfDay,
 } from '../src/dayNightPolicy.js'
@@ -200,4 +202,27 @@ test('parses the time URL parameter', () => {
 	assert.equal(parse('time=noon'), null)
 	assert.equal(parse('time='), null)
 	assert.equal(parse(''), null)
+})
+
+test('starts from the local clock', () => {
+	const at = (hours, minutes = 0, seconds = 0) =>
+		getLocalTimeOfDay(new Date(2026, 9, 9, hours, minutes, seconds))
+	assert.equal(at(0), 0)
+	assert.equal(at(6), 0.25)
+	assert.equal(at(12), 0.5)
+	assert.equal(at(18), 0.75)
+	assertClose(at(7, 12), 0.3)
+	const lastSecond = at(23, 59, 59)
+	assert.ok(lastSecond > 0.9998 && lastSecond < 1)
+})
+
+test('starts at ?time=, else the fixed debug time, else the local clock', () => {
+	const date = new Date(2026, 9, 9, 18, 0, 0)
+	const start = (query, debug) => getStartTimeOfDay(new URLSearchParams(query), { debug, date })
+	assert.equal(start('', false), 0.75)
+	assert.equal(start('', true), DAY_NIGHT_DEFAULTS.debugTimeOfDay)
+	assert.equal(DAY_NIGHT_DEFAULTS.debugTimeOfDay, 0.3)
+	assert.equal(start('time=0.6', false), 0.6)
+	assert.equal(start('time=0.6', true), 0.6)
+	assert.equal(start('time=noon', true), 0.3)
 })

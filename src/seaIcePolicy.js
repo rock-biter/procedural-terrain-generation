@@ -30,7 +30,7 @@ export const SEA_ICE_DEFAULTS = Object.freeze({
 	crackMax: 4.3,
 	edgeNoise: 1.1,
 	edgeFrequency: 0.145,
-	colors: Object.freeze({ sheet: '#93bdd2', floe: '#c3dfee', water: '#2fe1ee' }),
+	colors: Object.freeze({ sheet: '#aed3e5', floe: '#ffffff', water: '#2fe1ee' }),
 })
 
 // A mutable copy of SEA_ICE_DEFAULTS (params.seaIce).

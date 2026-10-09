@@ -2,7 +2,7 @@ import { ACESFilmicToneMapping } from 'three'
 import { createAdaptivePixelRatioSettings, parsePixelRatio } from './adaptivePixelRatio'
 import { createTerrainSettings } from './chunkGeometry'
 import { createCloudSettings } from './cloudPlacement'
-import { createDayNightPalette, DAY_NIGHT_DEFAULTS, parseTimeOfDay } from './dayNightPolicy'
+import { createDayNightPalette, DAY_NIGHT_DEFAULTS, getStartTimeOfDay } from './dayNightPolicy'
 import {
 	createCloudMeshSettings,
 	createSceneryMeshSettings,
@@ -18,8 +18,9 @@ import { createTerrainPaletteSettings } from './terrainPalettePolicy'
 
 // The mutable parameters of the app, edited live by the ?gui=1 debug panel
 // (src/debug/debugGui.js) and read by every system. `urlParams` supplies
-// ?time= and ?dpr=; `isMobile` picks the mobile presets.
-export function createAppParams({ urlParams, isMobile }) {
+// ?time= and ?dpr=; `isMobile` picks the mobile presets; `debug` (either
+// debug flag) starts the day at a fixed time.
+export function createAppParams({ urlParams, isMobile, debug = false }) {
 	return {
 		speedEffect: 0,
 		// Peak intensities; the day/night cycle scales them every frame.
@@ -27,7 +28,7 @@ export function createAppParams({ urlParams, isMobile }) {
 		moonLight: 1.2,
 		ambientLight: 1.5,
 		dayNight: {
-			timeOfDay: parseTimeOfDay(urlParams) ?? DAY_NIGHT_DEFAULTS.startTimeOfDay,
+			timeOfDay: getStartTimeOfDay(urlParams, { debug }),
 			cycleDuration: DAY_NIGHT_DEFAULTS.cycleDuration,
 			paused: false,
 			// Editable copy of DAY_NIGHT_DEFAULTS.keyframes (sRGB colors).

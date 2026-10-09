@@ -150,7 +150,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 
 export const DAY_NIGHT_DEFAULTS = Object.freeze({
 	cycleDuration: 240,
-	startTimeOfDay: 0.3,
+	// Fixed start in the debug modes (?debug=1, ?gui=1); otherwise the local clock.
+	debugTimeOfDay: 0.3,
 	// Tilts the celestial arc toward +Z so the sun crosses the initial view.
 	orbitTilt: 0.5,
 	// Sun/moon light fades in over this apparent-elevation band, in radians.
@@ -352,6 +353,20 @@ export function getDayNightState(
 	out.moonIntensity *= smoothstep(0, 1, (out.moonElevation - options.lightFadeStart) / fadeRange)
 
 	return out
+}
+
+// The user's local clock as a time of day (0 midnight, 0.5 noon).
+export function getLocalTimeOfDay(date = new Date()) {
+	const seconds = date.getHours() * 3600 + date.getMinutes() * 60 + date.getSeconds()
+	return wrapTimeOfDay(seconds / 86400)
+}
+
+// Where the cycle starts, then runs at its own pace: ?time=, else
+// `debugTimeOfDay` in the debug modes, else the local clock at `date`.
+export function getStartTimeOfDay(urlParams, { debug = false, date = new Date() } = {}) {
+	const time = parseTimeOfDay(urlParams)
+	if (time !== null) return time
+	return debug ? DAY_NIGHT_DEFAULTS.debugTimeOfDay : getLocalTimeOfDay(date)
 }
 
 export function parseTimeOfDay(urlParams) {
