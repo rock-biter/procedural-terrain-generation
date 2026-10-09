@@ -120,14 +120,14 @@ export function createSceneryPaletteSettings() {
 					{ label: 'Deep ocean', color: '#e3c9a0', weight: 1 },
 				],
 			},
-			// The deep ocean's islets rise from dark basalt reefs.
+			// The deep ocean's islets rise from warm grey reefs.
 			seaRock: {
 				byBiome: true,
 				colors: [
 					{ label: 'Forest', color: '#5f3b2b', weight: 1 },
 					{ label: 'Desert', color: '#e27865', weight: 1 },
 					{ label: 'Ice', color: '#8fa9bd', weight: 1 },
-					{ label: 'Deep ocean', color: '#3f4652', weight: 1 },
+					{ label: 'Deep ocean', color: '#70605c', weight: 1 },
 				],
 			},
 			// Both ice spike types; they stand only in the ice, so the other slots
@@ -141,9 +141,9 @@ export function createSceneryPaletteSettings() {
 					{ label: 'Deep ocean', color: '#c6ecfa', weight: 1 },
 				],
 			},
-			// The deep ocean's palms: sun-bleached fronds over a light trunk.
+			// The deep ocean's palms: green fronds over an orange trunk.
 			palm: {
-				trunk: '#b08a5a',
+				trunk: '#eb7047',
 				colors: [
 					{ label: 'Green wood', color: '#4f9a3a', weight: 1 },
 					{ label: 'Light green wood', color: '#9cc24a', weight: 1 },

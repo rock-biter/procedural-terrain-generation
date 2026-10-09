@@ -13,8 +13,8 @@ float heightPixel = fwidth(wPosition.y);
 float iceValue = vIceValue;
 float oceanValue = vOceanValue;
 
-// The abyss color fills the deep ocean's floor: the rest of the sea never
-// reaches its depths (about -53 at most), so no biome is evaluated for it.
+// The abyss color fills the deep ocean's floor: the rest of the sea (about
+// -53 at most) takes at most a trace of it, so no biome is evaluated for it.
 float pctAbyss = smoothstep(- uSeaAbyssDepth.x, - uSeaAbyssDepth.y, wPosition.y);
 float pctDeep = smoothstep(- 24., - 40., wPosition.y);
 diffuseColor.rgb = mix(mix(uSeaColors[1], uSeaColors[2], pctDeep), uSeaColors[3], pctAbyss);

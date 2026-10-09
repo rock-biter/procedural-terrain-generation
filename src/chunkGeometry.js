@@ -63,15 +63,15 @@ export const ICE_TERRAIN_DEFAULTS = Object.freeze({
 // ISLET_HEIGHT_CAP, below the rocks band).
 export const DEEP_OCEAN_TERRAIN_DEFAULTS = Object.freeze({
 	depth: 110,
-	blend: 0.08,
-	isletSpacing: 1600,
+	blend: 0.075,
+	isletSpacing: 900,
 	isletChance: 0.25,
 	isletMargin: 0.06,
-	bankRadius: 260,
-	bankDepth: 16,
+	bankRadius: 395,
+	bankDepth: 9.5,
 	isletCount: Object.freeze({ min: 2, max: 4 }),
-	isletRadius: 60,
-	isletHeight: 14,
+	isletRadius: 136,
+	isletHeight: 10,
 })
 
 // Default rocky coast (src/coast.js): the relief's mound height in world

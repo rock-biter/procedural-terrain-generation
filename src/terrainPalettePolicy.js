@@ -25,8 +25,8 @@ export const TERRAIN_PALETTE_BIOMES = Object.freeze({
 
 // Sea colors from the shore down: shallow water, open sea (from 6 to 16
 // units deep), deep sea (from 24 to 40), and the abyss of the deep ocean
-// (from abyssDepth.start to abyssDepth.end; the rest of the sea never gets
-// that deep).
+// (from abyssDepth.start to abyssDepth.end; the rest of the sea, about 53
+// deep at most, takes at most a trace of it).
 export const TERRAIN_SEA_COLORS = Object.freeze(['shallow', 'mid', 'deep', 'abyss'])
 
 function variation(color, amount) {
@@ -95,8 +95,8 @@ export function createTerrainPaletteSettings() {
 		},
 		deepOcean: {
 			colors: {
-				sand: '#fff3d1',
-				grass: '#8fd16a',
+				sand: '#fff6bd',
+				grass: '#ffb98a',
 				land: '#3e9c56',
 				rocks: '#8a7563',
 				snow: '#f4f4f4',
@@ -111,8 +111,8 @@ export function createTerrainPaletteSettings() {
 			colorNoise: 0.6,
 			lines: 1,
 		},
-		sea: { shallow: '#88fbe4', mid: '#368eba', deep: '#04578b', abyss: '#06284f' },
-		abyssDepth: { start: 60, end: 90 },
+		sea: { shallow: '#88fbe4', mid: '#368eba', deep: '#04578b', abyss: '#002f61' },
+		abyssDepth: { start: 45, end: 125 },
 	}
 }
 

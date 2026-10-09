@@ -13,7 +13,12 @@ import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
 import { ISLET_HEIGHT_CAP } from '../deepOcean'
 import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
-import { SCENERY_CATEGORIES, SCENERY_CELL_SIZES, SCENERY_TYPE_KEYS } from '../sceneryPlacement'
+import {
+	PALM_MAX_SPOTS,
+	SCENERY_CATEGORIES,
+	SCENERY_CELL_SIZES,
+	SCENERY_TYPE_KEYS,
+} from '../sceneryPlacement'
 import { BIOME, TERRAIN_BANDS } from '../terrainBands'
 import { updateTerrainNormalUniforms } from '../terrainNormals'
 import { TERRAIN_PALETTE_BANDS, TERRAIN_SEA_COLORS } from '../terrainPalettePolicy'
@@ -553,7 +558,10 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	// the lowest ground, and the spacing; the release re-places the scenery.
 	function addPalmControls(folder) {
 		const { palms } = params.scenery
-		folder.add(palms, 'maxPerIslet', 0, 6, 1).name('Max per islet').onFinishChange(updateScenery)
+		folder
+			.add(palms, 'maxPerIslet', 0, PALM_MAX_SPOTS, 1)
+			.name('Max per islet')
+			.onFinishChange(updateScenery)
 		folder.add(palms, 'minHeight', 0, 8, 0.1).name('Min height').onFinishChange(updateScenery)
 		folder.add(palms, 'spacing', 0, 12, 0.1).name('Spacing').onFinishChange(updateScenery)
 	}

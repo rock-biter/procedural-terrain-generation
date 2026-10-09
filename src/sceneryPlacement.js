@@ -209,7 +209,7 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	boat: 1.65,
 	iceSpikesTwo: 1,
 	iceSpikesThree: 1,
-	palm: 1.3,
+	palm: 1.78,
 })
 
 // Default sea rock settings. Rocks stand where the sea is at most `maxDepth`
@@ -309,13 +309,17 @@ export function createBoatSettings() {
 	}
 }
 
+// Most spots an islet offers: every spot draws 32 salts of the islet's hash,
+// and every islet has room for this many.
+export const PALM_MAX_SPOTS = 32
+
 // Default palm settings: each deep ocean islet offers `maxPerIslet` spots
 // (SCENERY_CONFIG.palm), whose palms stand at least `minHeight` above the sea
 // and `spacing` units from each other.
 export const PALM_DEFAULTS = Object.freeze({
-	maxPerIslet: 3,
-	minHeight: 0.6,
-	spacing: 3.5,
+	maxPerIslet: 10,
+	minHeight: 1,
+	spacing: 5,
 })
 
 // A mutable copy of PALM_DEFAULTS.
@@ -342,7 +346,7 @@ export function createScenerySettings({ isMobile = false } = {}) {
 			seaRocks: 0.7,
 			boats: 0.13,
 			iceSpikes: 1,
-			palms: 0.75,
+			palms: 0.9,
 		},
 		size: { ...SCENERY_DEFAULT_SIZES },
 		seaRocks: createSeaRockSettings(),
@@ -786,12 +790,14 @@ function getIsletPalms(islet, context) {
 	const type = rules.type
 	const { maxPerIslet, spacing } = settings.palms
 	const density = settings.density[TYPE_CATEGORY[type]]
-	const random = (salt) => cellRandom(palmHash, islet.cellX, islet.cellZ, islet.index * 128 + salt)
+	const random = (salt) =>
+		cellRandom(palmHash, islet.cellX, islet.cellZ, islet.index * PALM_MAX_SPOTS * 32 + salt)
 	const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
 	const reach = rules.reach * islet.waterline
 	const fields = {}
 	const palms = []
-	for (let spot = 0; spot < Math.floor(maxPerIslet); spot++) {
+	const spots = Math.min(Math.floor(maxPerIslet), PALM_MAX_SPOTS)
+	for (let spot = 0; spot < spots; spot++) {
 		const salt = spot * 32
 		if (random(salt) >= density) continue
 		const scale =
