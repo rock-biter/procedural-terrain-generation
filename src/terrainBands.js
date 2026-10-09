@@ -41,9 +41,11 @@ export const BIOME_OCEAN_LAYERS = Object.freeze([
 // Offset of the deep ocean field from the ice's seeded noise space
 // (createBiomeOffset()), in noise units: it decorrelates the two fields, and
 // stays small so the shader's float32 noise coordinates keep their precision.
-// Chosen so the spawn of every curated seed (src/worldSeed.js) lies well
-// outside the deep ocean and its slope (field at most -0.38), with the deep
-// ocean 2.5 to 6.5 km away.
+// Chosen so the spawn of each of the first eleven curated seeds
+// (src/worldSeed.js) lies well outside the deep ocean and its slope (field at
+// most -0.38), with the deep ocean 2.5 to 6.5 km away; the twelfth,
+// `9r1bk278`, was added later because it starts inside it, by an
+// archipelago (DEEP_OCEAN_SEEDS).
 export const OCEAN_NOISE_OFFSET = Object.freeze([-0.98, -0.53])
 
 // Offset of the rocky coast mask (src/coast.js) from the seeded biome

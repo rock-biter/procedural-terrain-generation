@@ -60,6 +60,6 @@ test('picks the starting seed from the curated list', () => {
 	)
 	assert.equal(
 		pickCuratedSeed(() => 0.5),
-		CURATED_SEEDS[5],
+		CURATED_SEEDS[Math.floor(CURATED_SEEDS.length / 2)],
 	)
 })

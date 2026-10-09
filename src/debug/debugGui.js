@@ -28,7 +28,7 @@ import {
 	updateSeaIceUniforms,
 	updateTerrainPaletteUniforms,
 } from '../sharedUniforms'
-import { createRandomSeed, CURATED_SEEDS, normalizeWorldSeed } from '../worldSeed'
+import { createRandomSeed, CURATED_SEEDS, DEEP_OCEAN_SEEDS, normalizeWorldSeed } from '../worldSeed'
 import BiomeMap from './biomeMap'
 
 // The ?gui=1 tuning panel (lil-gui), loaded only behind that flag so the
@@ -72,8 +72,10 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			// A blank value restores the current seed.
 			applySeed(normalizeWorldSeed(value) ?? world.seed)
 		})
+	// The curated seeds, then the deep ocean's showcase seeds not among them.
+	const seedList = [...new Set([...CURATED_SEEDS, ...DEEP_OCEAN_SEEDS])]
 	const seedListController = worldFolder
-		.add(worldSettings, 'seed', CURATED_SEEDS)
+		.add(worldSettings, 'seed', seedList)
 		.name('Seed list')
 		.onChange(applySeed)
 	worldFolder.add(worldSettings, 'randomSeed').name('Random seed')
@@ -578,6 +580,21 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.name('Small rock bias')
 			.onFinishChange(updateScenery)
 		addSatelliteControls(folder, seaRocks.satellites)
+		// The rocks ringing the deep ocean's banks, as on an atoll.
+		const reef = folder.addFolder('Reef (deep ocean)')
+		reef.add(seaRocks.reef, 'density', 0, 1, 0.01).name('Density').onFinishChange(updateScenery)
+		reef
+			.add(seaRocks.reef, 'width', 0, 0.3, 0.005)
+			.name('Width (bank radii)')
+			.onFinishChange(updateScenery)
+		reef
+			.add(seaRocks.reef, 'patchFrequency', 0.001, 0.05, 0.001)
+			.name('Gap frequency')
+			.onFinishChange(updateScenery)
+		reef
+			.add(seaRocks.reef, 'patchThreshold', -1, 1, 0.01)
+			.name('Gap threshold')
+			.onFinishChange(updateScenery)
 	}
 
 	// The ice spikes' patches, scale range, and satellites

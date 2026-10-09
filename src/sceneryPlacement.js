@@ -11,7 +11,7 @@ import { snoise } from './noise.js'
 import { cellRandom, hashSeed, pickWeighted } from './random.js'
 import { SEA_SURFACE_Y, getHeight, getSurfaceNormal } from './chunkGeometry.js'
 import { getCoastRockMask } from './coast.js'
-import { getArchipelagoIslets, getIsletInfluence } from './deepOcean.js'
+import { getArchipelagoIslets, getIsletInfluence, getReefInfluence } from './deepOcean.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from './terrainBands.js'
 import { SCENERY_BIOME_SLOTS } from './sceneryPalettePolicy.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
@@ -93,9 +93,10 @@ export const SCENERY_CONFIG = Object.freeze({
 	// rocky coast (getCoastRockMask() in src/coast.js, with params.coast.mask).
 	// Acceptance grows from `baseDensity` (isolated rocks on any coast) to
 	// `maxDensity` where the mask is 1; in the deep ocean it is
-	// `deepOceanDensity`, and only on an islet's slope (getIsletInfluence() in
-	// src/deepOcean.js), so the rocks gather around the islets, never on the
-	// banks. The base sits `sink` (in scale units)
+	// `deepOceanDensity` on an islet's slope (getIsletInfluence() in
+	// src/deepOcean.js), and settings.seaRocks.reef.density on the reefs that
+	// ring the banks' rims (getReefInfluence()), never elsewhere on the banks or
+	// the open floor. The base sits `sink` (in scale units)
 	// below the ground, or below the sea surface over deeper water, so every
 	// rock rises above the sea. `footprint` is the source's horizontal radius
 	// at scale 1 (src/impostors/impostorArchetypes.js), which spaces the
@@ -217,7 +218,10 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 // the seaRock size), drawn as random ** scale.bias, so above 1 small rocks
 // are common and large ones rare. Each rock brings up to `satellites.count`
 // smaller ones around it, at `satellites.distance` (× footprint × scale) from
-// it and `satellites.scale` of its scale.
+// it and `satellites.scale` of its scale. In the deep ocean, `reef` rings the
+// archipelagos' banks with rocks, as on an atoll: accepted with up to
+// `density` per cell along the rim, deeper than `maxDepth` (see
+// getReefInfluence() in src/deepOcean.js for its width and gaps).
 export const SEA_ROCK_DEFAULTS = Object.freeze({
 	maxDepth: 8.5,
 	scale: Object.freeze({
@@ -229,6 +233,12 @@ export const SEA_ROCK_DEFAULTS = Object.freeze({
 		count: 2,
 		distance: Object.freeze({ min: 1.1, max: 1.8 }),
 		scale: Object.freeze({ min: 0.4, max: 0.7 }),
+	}),
+	reef: Object.freeze({
+		density: 0.12,
+		width: 0.06,
+		patchFrequency: 0.012,
+		patchThreshold: -0.2,
 	}),
 })
 
@@ -243,6 +253,7 @@ export function createSeaRockSettings() {
 			distance: { ...satellites.distance },
 			scale: { ...satellites.scale },
 		},
+		reef: { ...SEA_ROCK_DEFAULTS.reef },
 	}
 }
 
@@ -421,9 +432,11 @@ function getCellCandidate(cellX, cellZ, { seedHash, noises, params, biomeOffset,
 }
 
 // Whether a cell candidate may bring sea rocks: on the sand or the sea, no
-// deeper than settings.seaRocks.maxDepth.
-function isSeaRockCandidate({ band, height }, settings) {
-	return isCoastBand(band) && height >= -settings.seaRocks.maxDepth
+// deeper than settings.seaRocks.maxDepth, or anywhere in the deep ocean, whose
+// reefs lie deeper (getSeaRockGroup() keeps only its islets and reefs).
+function isSeaRockCandidate({ band, height, fields }, settings) {
+	if (!isCoastBand(band)) return false
+	return height >= -settings.seaRocks.maxDepth || getBiome(fields) === BIOME.DEEP_OCEAN
 }
 
 // The instance values of a sea rock (from getSeaRockGroup()).
@@ -486,10 +499,20 @@ function getSeaRockGroup({ x, z, height, cellX, cellZ, fields }, context) {
 	// The palette gives the hue, from the biome of the group's first rock.
 	const biome = getBiome(fields)
 	let share
+	// A reef group's satellites may stand deeper, along the reef.
+	let reef = false
 	if (biome === BIOME.DEEP_OCEAN) {
-		// Only on an islet's slope: the open deep ocean and its banks stay bare.
-		if (getIsletInfluence(x, z, fields.ocean, biomeOffset, params) <= 0) return group
-		share = coast.deepOceanDensity
+		// On an islet's slope or on a reef: the open deep ocean and the rest of
+		// the banks stay bare.
+		const shallow = height >= -rocks.maxDepth
+		if (shallow && getIsletInfluence(x, z, fields.ocean, biomeOffset, params) > 0) {
+			share = coast.deepOceanDensity
+		} else {
+			const influence = getReefInfluence(x, z, fields.ocean, biomeOffset, params, rocks.reef)
+			if (influence <= 0) return group
+			share = rocks.reef.density * influence
+			reef = true
+		}
 	} else {
 		const mask = getCoastRockMask(x, z, biomeOffset, params.coast?.mask)
 		share = coast.baseDensity + (coast.maxDensity - coast.baseDensity) * mask
@@ -520,8 +543,26 @@ function getSeaRockGroup({ x, z, height, cellX, cellZ, fields }, context) {
 		random,
 		tint,
 		stand: (satelliteX, satelliteZ) => {
-			const satelliteHeight = getHeight(satelliteX, satelliteZ, noises, params, biomeOffset)
-			return satelliteHeight < -rocks.maxDepth ? null : satelliteHeight
+			const satelliteFields = {}
+			const satelliteHeight = getHeight(
+				satelliteX,
+				satelliteZ,
+				noises,
+				params,
+				biomeOffset,
+				satelliteFields,
+			)
+			if (satelliteHeight >= -rocks.maxDepth) return satelliteHeight
+			if (!reef) return null
+			const influence = getReefInfluence(
+				satelliteX,
+				satelliteZ,
+				satelliteFields.ocean,
+				biomeOffset,
+				params,
+				rocks.reef,
+			)
+			return influence > 0 ? satelliteHeight : null
 		},
 	})
 	return group

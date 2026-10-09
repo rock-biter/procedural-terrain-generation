@@ -56,6 +56,10 @@ const WARP_FREQUENCY = 1.3
 
 // Offset that decorrelates the archipelagos from the other noise layers.
 const ISLET_OFFSET = [3517.9, -6143.3]
+// And the gaps of their reefs.
+const REEF_OFFSET = [-813.7, 2467.1]
+// Half-width, in noise value, of the edge of a reef's stretches.
+const REEF_SOFTNESS = 0.15
 
 // Integer seed of the archipelago grid, from the seeded biome offset
 // (getHeight() receives the offset, not the seed), salted apart from the ice
@@ -317,8 +321,34 @@ export function getDeepOceanFloor(x, z, ocean, biomeOffset, params) {
 	return lerp(floor, height, getArchipelagoFade(ocean, settings))
 }
 
+// How much (x, z) lies on an archipelago's reef, 0 off it to 1 on its middle:
+// the ring of its bank's rim, where the plateau's shallow water starts to
+// turn deep, broken into stretches by gaps, as on an atoll. `reef` is the sea
+// rocks' reef settings (settings.seaRocks.reef in src/sceneryPlacement.js):
+// the ring is `width` bank radii wide on each side of a line `width / 2`
+// outside the plateau's edge, and its gaps open where a simplex field at
+// `patchFrequency` per unit falls below `patchThreshold`. Sea rocks of the
+// deep ocean deeper than the islets' slopes stand only where it is above 0.
+export function getReefInfluence(x, z, ocean, biomeOffset, params, reef) {
+	const { width, patchFrequency, patchThreshold } = reef
+	if (!(width > 0)) return 0
+	const reaching = getReachingArchipelago(x, z, ocean, biomeOffset, params)
+	if (!reaching) return 0
+	const { archipelago, px, pz } = reaching
+	getWarp(px, pz, params.deepOcean, warp)
+	const distance =
+		Math.hypot(px + warp[0] - archipelago.x, pz + warp[1] - archipelago.z) / archipelago.bankRadius
+	const ring = 1 - smoothstep(0, width, Math.abs(distance - (BANK_CORE + width / 2)))
+	if (ring <= 0) return 0
+	const gaps = snoise(
+		(px + REEF_OFFSET[0]) * patchFrequency,
+		(pz + REEF_OFFSET[1]) * patchFrequency,
+	)
+	return ring * smoothstep(patchThreshold - REEF_SOFTNESS, patchThreshold + REEF_SOFTNESS, gaps)
+}
+
 // How far up an islet's slope (x, z) lies, 0 off every islet to 1 on a top:
-// sea rocks of the deep ocean stand only where it is above 0.
+// sea rocks of the deep ocean stand there, or on a reef (getReefInfluence()).
 export function getIsletInfluence(x, z, ocean, biomeOffset, params) {
 	const reaching = getReachingArchipelago(x, z, ocean, biomeOffset, params)
 	if (!reaching) return 0

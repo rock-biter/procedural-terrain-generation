@@ -19,7 +19,13 @@ export const CURATED_SEEDS = Object.freeze([
 	'329ncxsc',
 	'r69ei8qn',
 	'81fjd6xv',
+	'9r1bk278',
 ])
+
+// Worlds whose spawn lies in the deep ocean with an archipelago just ahead
+// (the airplane starts heading +Z): kept to show the biome at once. Only
+// `9r1bk278` is also curated; the ?gui=1 World folder lists them all.
+export const DEEP_OCEAN_SEEDS = Object.freeze(['9r1bk278', '693vp4f9', 'rchldejw'])
 
 // Returns the trimmed seed, or null for an empty or blank value.
 export function normalizeWorldSeed(value) {
