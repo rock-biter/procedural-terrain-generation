@@ -70,9 +70,9 @@ export const DEEP_OCEAN_TERRAIN_DEFAULTS = Object.freeze({
 	isletMargin: 0.06,
 	bankRadius: 395,
 	bankDepth: 9.5,
-	bankIrregularity: 1,
+	bankIrregularity: 0.5,
 	isletCount: Object.freeze({ min: 2, max: 4 }),
-	isletRadius: 136,
+	isletRadius: 65,
 	isletHeight: 10,
 })
 
