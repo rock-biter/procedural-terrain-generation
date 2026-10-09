@@ -140,7 +140,7 @@ The density divisor is `2` on desktop and `4` on mobile. An LOD job generates a 
 
 The manager does not enqueue an LOD job when the target matches the live chunk. Any new LOD rule must preserve this guard and keep neighboring chunk edges compatible enough to avoid obvious cracks.
 
-The sea's vertices move with its waves only within `params.seaSurface.vertex.fadeEnd` (`200` units, the GUI stops at `240`) of the airplane, horizontally. LOD `0` always covers the airplane's chunk and its eight neighbours, so at least `256` units in every direction: moved vertices never meet a coarser neighbour's T-junctions, where they would open cracks. Any LOD rule that shrinks that block must lower the fade too.
+The sea's vertices move with its waves only within `params.seaSurface.vertex.fadeEnd` (`240` units, where the GUI stops) of the airplane, horizontally. LOD `0` always covers the airplane's chunk and its eight neighbours, so at least `256` units in every direction: moved vertices never meet a coarser neighbour's T-junctions, where they would open cracks. Any LOD rule that shrinks that block must lower the fade too.
 
 ## Terrain Bands
 

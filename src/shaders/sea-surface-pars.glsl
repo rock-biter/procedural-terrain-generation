@@ -23,7 +23,7 @@ uniform vec2 uSeaWaveSizes[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
 // depths where the waves start and are full toward the coast.
 uniform vec4 uSeaWaveShape[SEA_SURFACE_TYPE_COUNT];
 // Per type, how many of the longest waves carry the crest lines
-// (SeaWaves.ridge, getSeaCrestLine()): all of them by default.
+// (SeaWaves.ridge, getSeaCrestLine()).
 uniform float uSeaCrestWaves[SEA_SURFACE_TYPE_COUNT];
 // Regions, x: 1 / wavelength, y: contrast, z, w: drift (world units per
 // second).

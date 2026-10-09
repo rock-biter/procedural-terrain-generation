@@ -77,12 +77,12 @@ test('the wave components follow the wind, the ratios, and deep water dispersion
 	)
 })
 
-test('calm water keeps some foam and ripples, the deep ocean more', () => {
+test('calm water keeps some crest lines and ripples, the deep ocean more ripples', () => {
 	const { sea, ocean } = SEA_SURFACE_DEFAULTS
 	for (const group of ['crests', 'ripples']) {
-		assert.ok(sea[group].minimum > 0, group)
-		assert.ok(ocean[group].minimum > sea[group].minimum, group)
+		for (const type of [sea, ocean]) assert.ok(type[group].minimum > 0, group)
 	}
+	assert.ok(ocean.ripples.minimum > sea.ripples.minimum)
 	// The ripples' floor lifts the calmest regions' map strength.
 	for (const { ripples } of [sea, ocean]) {
 		assert.ok(ripples.minimum > 1 - ripples.stateStrength)

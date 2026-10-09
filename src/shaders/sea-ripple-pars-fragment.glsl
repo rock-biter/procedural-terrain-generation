@@ -100,7 +100,7 @@ float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
 // Foam line coverage along the crests of the waves `waves`, in sea state
 // `state`, for a pixel `pixel` world units wide. The line follows the ridge
 // of the height of the waves that carry it (uSeaCrestWaves, the longest
-// ones; all four by default): its distance is their height gradient over
+// ones): its distance is their height gradient over
 // their curvature across it, exact on a parabola, so it rides their real
 // crests and moves with them. With every wave the lines break into short
 // strokes on every crest; with the longest two alone they run long along the
