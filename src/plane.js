@@ -24,6 +24,8 @@ const V3 = new Vector3(0, 0, 0)
 // the wing trails (src/wingTrails.js).
 export default class Plane extends Object3D {
 	baseSpeed = 35
+	// The cruise speed to restore while hold() keeps the airplane still.
+	heldBaseSpeed = null
 	speed = 0
 	verticalVelocity = 0
 	actualVerticalSpeed = 0
@@ -107,6 +109,23 @@ export default class Plane extends Object3D {
 		this.smoothedMinimumAltitude = null
 		this.terrainBrakeEffect = 0
 		this.terrainSlowdown = 0
+	}
+
+	// Holds the airplane still until release() (?debug=1 and ?gui=1 before
+	// Play, src/world.js): no speed, and no turn, climb, or wheel input.
+	hold() {
+		this.heldBaseSpeed ??= this.baseSpeed
+		this.baseSpeed = 0
+		this.speed = 0
+		this.setInputEnabled(false)
+		this.input.center()
+	}
+
+	release() {
+		if (this.heldBaseSpeed === null) return
+		this.baseSpeed = this.heldBaseSpeed
+		this.heldBaseSpeed = null
+		this.setInputEnabled(true)
 	}
 
 	// Moves the airplane without flying there (the ?gui=1 biome map): the

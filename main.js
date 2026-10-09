@@ -58,6 +58,8 @@ const world = new World({
 	isMobile,
 	terrainSamples: debug,
 	FlightPauseDebug,
+	// The debug modes start with the airplane still, until Play.
+	holdUntilPlay: debug || showGui,
 })
 window.__INFINITE_WORLD__ = world.createStatsApi()
 debugGui?.createDebugGui({ params, uniforms, setup, world })

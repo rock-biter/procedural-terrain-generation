@@ -32,6 +32,7 @@ const SPAWN_CLEARANCE = 60
 // createSharedUniforms(). `airplaneModel` is the AIRPLANE_MODELS entry,
 // `features` WORLD_FEATURES. `terrainSamples` shows the ?debug=1 corridor
 // markers; `FlightPauseDebug` is the lazily loaded ?debug=1 pause class.
+// `holdUntilPlay` keeps the airplane still until Play (releasePlane()).
 export default class World {
 	plane = null
 	chunkManager = null
@@ -53,6 +54,7 @@ export default class World {
 		isMobile = false,
 		terrainSamples = false,
 		FlightPauseDebug = null,
+		holdUntilPlay = false,
 	}) {
 		this.setup = setup
 		this.camera = setup.camera
@@ -65,6 +67,7 @@ export default class World {
 		this.isMobile = isMobile
 		this.terrainSamples = terrainSamples
 		this.FlightPauseDebug = FlightPauseDebug
+		this.holdUntilPlay = holdUntilPlay
 
 		this.dayNight = new DayNight({
 			renderer: setup.renderer,
@@ -164,6 +167,7 @@ export default class World {
 		this.plane.setTerrainSampler((x, z) => this.sampleHeight(x, z))
 
 		this.plane.position.y = this.getSpawnAltitude(0, 0)
+		if (this.holdUntilPlay) this.plane.hold()
 		scene.add(this.plane)
 		// A direct scene child: the ribbon is in world space.
 		scene.add(this.plane.trails)
@@ -181,6 +185,11 @@ export default class World {
 		}
 
 		requestAnimationFrame(this.tic)
+	}
+
+	// On Play (src/intro.js): a held airplane takes its speed and input back.
+	releasePlane() {
+		this.plane.release()
 	}
 
 	// After the Play intro (src/intro.js): the chase camera starts reacting to

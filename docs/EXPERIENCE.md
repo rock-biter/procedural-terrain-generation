@@ -33,7 +33,8 @@ Changing an ID requires updating `index.html` and `intro.js`; `test/domShell.tes
 The play action is the required user gesture for audio and movement (`Intro.play()`):
 
 - Start the looping soundtrack when the debug GUI (`?gui=1`) is disabled. A failed or blocked playback only logs a warning; the flight starts anyway.
-- Animate plane `baseSpeed` and `speed` from the initial values to `55`.
+- Release a held airplane (`World.releasePlane()`). With `?debug=1` or `?gui=1`, `World.init()` holds it still until Play (`Plane.hold()`): `baseSpeed` and `speed` are `0` and the flight input is disabled and centered, so it neither moves, turns, climbs, nor boosts. `Plane.release()` restores the cruise speed and the input. Without either flag the airplane already cruises before Play.
+- Animate plane `baseSpeed` and `speed` from the initial values to `55` (from `0` for a held airplane).
 - Hide the play action.
 - Move camera Z from `-1` to `-18` on desktop or `-16` on mobile in one second with an `expo.out` ease.
 - After the camera transition, call `World.startFlight()`: the chase camera starts reacting to the flight (`FollowCamera.start()`) and the debug pause becomes available.
@@ -49,7 +50,7 @@ Keep audio playback behind a user gesture to comply with browser autoplay polici
 - Vertical positions above `45%` of the screen command a climb. Positions from `45%` through `65%` command zero vertical speed so the plane settles at its reached altitude. Positions below `65%` command a descent. Input strength increases linearly toward the top or bottom edge.
 - Each wheel event holds a request for `0.2` seconds (`FLIGHT_LIMITS.wheelHold`): scrolling down requests a boost (`1`), scrolling up a brake (`-1`). While a request is held, the speed effect eases toward it (`wheelResponse`, about `95%` of the way in `0.2` s), so continuous scrolling holds a full boost; without one it decays toward `0` at `speedEffectDecay` (`0.6`) per second. The effect boosts speed up to three times cruise speed or brakes to no less than `95%` of it. `getNextSpeedEffect()` is the effect's only writer.
 - `touchmove` applies the same vertical bands to the first touch and reduces horizontal input by dividing it by `1.5`.
-- Every flight listener returns early while input is disabled (`Plane.setInputEnabled(false)`, during the debug flight pause and while the pointer is over the debug biome map), which also drops a held wheel request. `FlightInput.center()` returns the input to its neutral start (no turn, the pointer in the middle of the vertical hold band).
+- Every flight listener returns early while input is disabled (`Plane.setInputEnabled(false)`, before Play in the debug modes, during the debug flight pause, and while the pointer is over the debug biome map), which also drops a held wheel request. `FlightInput.center()` returns the input to its neutral start (no turn, the pointer in the middle of the vertical hold band).
 
 There are no player keyboard controls. The only keyboard shortcut is the debug flight pause below. Do not document or expose a control until it is implemented and manually verified.
 

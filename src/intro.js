@@ -56,6 +56,7 @@ export default class Intro {
 
 	play(world) {
 		if (this.playMusic) this.soundtrack.play()
+		world.releasePlane()
 		gsap.fromTo(world.plane, { baseSpeed: 35 }, { duration: 1, baseSpeed: 55, speed: 55 })
 		gsap.to(this.playButton, { duration: 0.2, autoAlpha: 0 })
 		gsap.fromTo(
