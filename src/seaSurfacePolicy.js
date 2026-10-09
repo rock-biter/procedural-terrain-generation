@@ -123,7 +123,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	ocean: Object.freeze({
 		waves: Object.freeze({
 			amplitude: 6,
-			wavelength: 138,
+			wavelength: 72,
 			steepness: 0.7,
 			direction: 35,
 			spread: 30,
