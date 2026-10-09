@@ -31,7 +31,7 @@ export { BIOME, BIOME_COUNT } from './terrainBands.js'
 // the land outside the ice. The ice covers about 7% of the land, in regions
 // about as wide as the forest's.
 export const BIOME_DEFAULTS = Object.freeze({
-	size: 1.8,
+	size: 1.5,
 	desertBias: 0.15,
 	iceSize: 1,
 	iceThreshold: 0.7,
