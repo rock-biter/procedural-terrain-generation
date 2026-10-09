@@ -77,10 +77,20 @@ test('the terrain patches fit the standard material', () => {
 	const chunk = new Chunk(256, params, 0, new Vector3(), uniforms, {}, new BufferGeometry())
 	const terrain = patch(chunk.material, 'physical')
 	assert.match(terrain.fragmentShader, /getSceneryShadow\(vShadowPosition, 0\.0\)/)
-	// The coast and the sea rocks share one sea height for the ripples.
+	// The coast and the sea rocks share one sea height for the foam lines,
+	// whose settings follow the sea type and the sea state.
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz\)/,
+		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz, seaOceanMask, seaState\)/,
+	)
+	// The waves move the sea's vertices, tilt its normals, and stay still
+	// under the frozen sea in both stages.
+	assert.match(terrain.vertexShader, /mvPosition\.xyz \+= seaOffset;/)
+	assert.match(terrain.vertexShader, /vSeaState = getSeaState\(wPosition\.xz\);/)
+	assert.match(terrain.fragmentShader, /getSeaIceStill\(wPosition\.y, iceValue\)/)
+	assert.match(
+		terrain.fragmentShader,
+		/vec3 waveN = vec3\(seaWaveNormal\.x, - seaWaveNormal\.z, seaWaveNormal\.y\);/,
 	)
 	assert.match(terrain.fragmentShader, /getCoastRockMask\(biomeXZ\)/)
 	// The frozen sea covers the sea, and its sheet keeps the vertex waves still.
@@ -116,6 +126,13 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 	assert.ok('SCENERY_PALETTE' in scenery.defines)
 	assert.match(sceneryShader.vertexShader, /getSceneryPaletteTints\(/)
 	assert.match(sceneryShader.fragmentShader, /uImpostorPaint/)
+	// The boats bob with the sea waves; the clouds never compile them.
+	assert.ok('SCENERY_SEA_WAVES' in scenery.defines)
+	assert.match(
+		sceneryShader.vertexShader,
+		/getSceneryFloat\(impostorType, impostorBase, aInstanceB\.z/,
+	)
+	assert.match(sceneryShader.vertexShader, /void getSeaFloatPose\(/)
 	for (const name of ['uImpostorPaint', 'uSceneryPaletteColors', 'uSceneryPaletteWeights']) {
 		assert.ok(name in sceneryShader.uniforms, name)
 	}
@@ -138,6 +155,7 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		/getSceneryShadow\(impostorShadowPosition/,
 	)
 	assert.ok(!('SCENERY_PALETTE' in clouds.defines))
+	assert.ok(!('SCENERY_SEA_WAVES' in clouds.defines))
 })
 
 test('the near scenery and cloud mesh patches fit the standard material', () => {
@@ -164,6 +182,11 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 			if (meshes === scenery) {
 				assert.doesNotMatch(shader.vertexShader, /getIceValue|getClimateNoise/)
 				assert.match(shader.vertexShader, /getSceneryPaletteTints\(sceneryTint, aInstanceB\.z/)
+				// Boats float and tilt with the waves.
+				assert.match(
+					shader.vertexShader,
+					/getSceneryFloat\(sceneryType, sceneryBase, aInstanceB\.z/,
+				)
 			}
 			patch(level.wireframeMaterial, 'physical')
 		}

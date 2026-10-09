@@ -14,6 +14,7 @@ import { getCoastRockMask } from './coast.js'
 import { getArchipelagoIslets, getIsletInfluence, getReefInfluence } from './deepOcean.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from './terrainBands.js'
 import { SCENERY_BIOME_SLOTS } from './sceneryPalettePolicy.js'
+import { SEA_BOAT_DEPTH_STEP } from './seaSurfacePolicy.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 
 // Deterministic scenery placement, run in the chunk worker. Candidates come
@@ -376,6 +377,16 @@ const ICE_SPIKE_OFFSET = [-2719.6, 5381.2]
 export function packTint(r, g, b) {
 	const byte = (value) => Math.min(255, Math.max(0, Math.round((value / 2) * 255)))
 	return byte(r) + byte(g) * 256 + byte(b) * 65536
+}
+
+// A boat's packed tint: white red and green bytes, and in the blue byte its
+// `depth` (world units below the sea surface at its center) in steps of
+// SEA_BOAT_DEPTH_STEP. Boats keep their model's colors, so the shader reads
+// the blue byte as the depth that calms their waves toward the coast like
+// the sea's (getSceneryBoatDepth() in scenery-instance-pars-vertex.glsl).
+export function packBoatTint(depth) {
+	const depthByte = Math.min(255, Math.max(0, Math.round(depth / SEA_BOAT_DEPTH_STEP)))
+	return packTint(1, 1, 0) + depthByte * 65536
 }
 
 // Whether scenery may stand on terrain band `band` (a TERRAIN_BAND index).
@@ -748,7 +759,7 @@ function isBoatClearOfRocks(x, z, sinYaw, cosYaw, scale, context) {
 // the sea is deep enough (isBoatInDepthBand()), no sea rock or kept boat is
 // within the clearance, and the chunk holds fewer than maxPerChunk.
 function placeBoats(context) {
-	const { seed, size, worldX, worldZ, settings, config, params, biomeOffset } = context
+	const { seed, size, worldX, worldZ, settings, config, params, biomeOffset, noises } = context
 	const boatConfig = config.boat
 	const type = boatConfig.type
 	const boats = settings.boats
@@ -805,7 +816,17 @@ function placeBoats(context) {
 		if (crowded) continue
 		if (!isBoatClearOfRocks(x, z, sinYaw, cosYaw, scale, context)) continue
 		kept.push(candidate)
-		candidate.values = [x - worldX, keelY, z - worldZ, scale, yaw, type, packTint(1, 1, 1), stretch]
+		const depth = -getHeight(x, z, noises, params, biomeOffset)
+		candidate.values = [
+			x - worldX,
+			keelY,
+			z - worldZ,
+			scale,
+			yaw,
+			type,
+			packBoatTint(depth),
+			stretch,
+		]
 	}
 	return kept.map(({ values }) => values)
 }

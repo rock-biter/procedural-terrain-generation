@@ -27,6 +27,46 @@ varying float vShadowSelfBias;
 #include ./scenery-facing.glsl
 #include ./curvature-bend.glsl
 
+#ifdef SCENERY_SEA_WAVES
+#include ./sea-surface-pars.glsl
+
+// A boat's depth below the sea surface at its center, in the blue byte of its
+// packed tint (packBoatTint() in src/sceneryPlacement.js).
+float getSceneryBoatDepth(float packedTint) {
+	return floor(packedTint / 65536.0) * SCENERY_BOAT_DEPTH_STEP;
+}
+#endif
+
+// A boat floating on the sea waves (getSeaFloatPose()), for an instance of
+// type `type` at flat world `base` with packed tint `packedTint`: the offset
+// of its base and the rotation (axis, cosine, sine) that tilts +Y onto the
+// water's normal. Every other instance keeps its base and frame.
+void getSceneryFloat(
+	int type,
+	vec3 base,
+	float packedTint,
+	out vec3 offset,
+	out vec3 tiltAxis,
+	out float tiltCos,
+	out float tiltSin
+) {
+	offset = vec3(0.0);
+	tiltAxis = vec3(1.0, 0.0, 0.0);
+	tiltCos = 1.0;
+	tiltSin = 0.0;
+#ifdef SCENERY_SEA_WAVES
+	if (type != SCENERY_BOAT_TYPE) return;
+	vec3 normal;
+	getSeaFloatPose(base.xz, getSceneryBoatDepth(packedTint), offset, normal);
+	float tilt = length(normal.xz);
+	if (tilt > 1e-4) {
+		tiltAxis = vec3(normal.z, 0.0, -normal.x) / tilt;
+		tiltCos = normal.y;
+		tiltSin = tilt;
+	}
+#endif
+}
+
 // Mirrors getSceneryMeshFade() in src/sceneryMeshPolicy.js.
 float getSceneryMeshFade(float eyeDistance) {
 	return 1.0 - smoothstep(uSceneryMeshRange.x, uSceneryMeshRange.y, eyeDistance);
@@ -41,6 +81,11 @@ vec3 getSceneryTint(float packedTint, vec2 baseXZ, int type) {
 		mod(floor(packedTint / 256.0), 256.0),
 		floor(packedTint / 65536.0)
 	) * (2.0 / 255.0);
+#ifdef SCENERY_SEA_WAVES
+	// The boats' blue byte holds their depth (getSceneryBoatDepth()); they
+	// stay white.
+	if (type == SCENERY_BOAT_TYPE) tint.b = tint.r;
+#endif
 
 	// Neighbouring instances share a similar shade while distant groups differ.
 	vec2 variationPosition = baseXZ * uImpostorVariationFrequency;

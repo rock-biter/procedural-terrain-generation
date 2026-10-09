@@ -9,6 +9,12 @@ import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
 import {
+	getSeaRegionDrift,
+	getSeaWaveComponents,
+	SEA_TYPES,
+	SEA_WAVE_COUNT,
+} from './seaSurfacePolicy'
+import {
 	getSeaIceBandAt,
 	getSeaIceCrackScaleAt,
 	getSeaIceShelfAt,
@@ -23,6 +29,8 @@ import {
 import { CURVATURE } from './worldConstants'
 
 const PALETTE_SIZE = BIOME_COUNT * TERRAIN_PALETTE_BANDS.length
+
+const perSeaType = (create) => SEA_TYPES.map(() => create())
 
 // Uniforms shared by the terrain, scenery, clouds, and debug materials: one
 // object whose entries every material references, so a write reaches them
@@ -68,12 +76,33 @@ export function createSharedUniforms(params, seed) {
 		...createCloudShadowUniforms(),
 		// Sea rock distance map and ripple shape; written by SeaFoam.
 		...createSeaFoamUniforms(),
+		// The moving sea (sea-surface-pars.glsl, sea-ripple-pars-fragment.glsl),
+		// one entry per sea type or per wave component; written by
+		// updateSeaSurfaceUniforms().
+		uSeaWaves: {
+			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector4()),
+		},
+		uSeaWaveSizes: {
+			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector2()),
+		},
+		uSeaWaveShape: { value: perSeaType(() => new Vector4()) },
+		uSeaRegions: { value: new Vector4() },
+		uSeaSurface: { value: new Vector4() },
+		uSeaFoamColor: { value: new Color() },
+		uSeaFoamLineBand: { value: perSeaType(() => new Vector4()) },
+		uSeaFoamLineMotion: { value: perSeaType(() => new Vector4()) },
+		uSeaFoamLineStyle: { value: perSeaType(() => new Vector4()) },
+		uSeaFoamLineDash: { value: perSeaType(() => new Vector2()) },
+		uSeaRipples: { value: perSeaType(() => new Vector4()) },
+		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
+		uSeaWhitecaps: { value: perSeaType(() => new Vector4()) },
 	}
 	updateBiomeOffsetUniforms(uniforms, createBiomeOffset(seed))
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
 	updateBiomeUniforms(uniforms, params.biomes)
 	updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
 	updateSeaIceUniforms(uniforms, params.seaIce, params.dayNight?.timeOfDay)
+	updateSeaSurfaceUniforms(uniforms, params.seaSurface)
 	return uniforms
 }
 
@@ -148,4 +177,76 @@ export function updateSeaIceNight(uniforms, settings, timeOfDay) {
 	const crackScale = getSeaIceCrackScaleAt(settings, timeOfDay)
 	uniforms.uSeaIceEdge.value.x = settings.crackMin * crackScale
 	uniforms.uSeaIceEdge.value.y = settings.crackMax * crackScale
+}
+
+// Smallest gap between the two edges of a smoothstep(), which is undefined
+// unless the first is below the second.
+const MIN_EDGE_GAP = 0.01
+
+// Writes the moving sea's settings (params.seaSurface, src/seaSurfacePolicy.js)
+// into their uniforms, in place: the Gerstner components of both sea types
+// (getSeaWaveComponents()), the regions, the vertex fade, the ripples, the
+// whitecaps, and the foam lines, with the foam color converted from sRGB to
+// linear.
+export function updateSeaSurfaceUniforms(uniforms, settings) {
+	const { regions, vertex, oceanBlend, foamColor, debugView } = settings
+	const fadeStart = Math.max(vertex.fadeStart, 0)
+	uniforms.uSeaSurface.value.set(
+		fadeStart,
+		Math.max(vertex.fadeEnd, fadeStart + 1),
+		Math.max(oceanBlend, 1e-4),
+		debugView,
+	)
+	const [driftX, driftZ] = getSeaRegionDrift(regions)
+	uniforms.uSeaRegions.value.set(1 / Math.max(regions.scale, 1), regions.contrast, driftX, driftZ)
+	uniforms.uSeaFoamColor.value.set(foamColor)
+	SEA_TYPES.forEach((key, type) => {
+		const { waves, coast, ripples, whitecaps, foam } = settings[key]
+		getSeaWaveComponents(waves).forEach((component, index) => {
+			const slot = type * SEA_WAVE_COUNT + index
+			uniforms.uSeaWaves.value[slot].set(component.x, component.z, component.k, component.omega)
+			uniforms.uSeaWaveSizes.value[slot].set(component.amplitude, component.reach)
+		})
+		const coastStart = Math.max(coast.start, 0)
+		uniforms.uSeaWaveShape.value[type].set(
+			Math.max(waves.calm, 0),
+			Math.max(waves.rough, 0),
+			coastStart,
+			Math.max(coast.full, coastStart + MIN_EDGE_GAP),
+		)
+		uniforms.uSeaRipples.value[type].set(
+			ripples.amplitude,
+			Math.max(ripples.wavelength, 0.1),
+			ripples.speed,
+			ripples.irregularity,
+		)
+		uniforms.uSeaRippleDetail.value[type].set(ripples.irregularityScale, ripples.stateStrength)
+		uniforms.uSeaWhitecaps.value[type].set(
+			whitecaps.threshold,
+			Math.max(whitecaps.softness, 1e-3),
+			whitecaps.intensity,
+			whitecaps.scale,
+		)
+		const bandStart = Math.max(foam.start, 0)
+		const fadeEdge = Math.max(foam.fadeStart, 0)
+		uniforms.uSeaFoamLineBand.value[type].set(
+			bandStart,
+			Math.max(foam.full, bandStart + MIN_EDGE_GAP),
+			fadeEdge,
+			Math.max(foam.end, fadeEdge + MIN_EDGE_GAP),
+		)
+		uniforms.uSeaFoamLineMotion.value[type].set(
+			foam.frequency,
+			foam.speed,
+			foam.wobbleFrequency,
+			foam.wobbleAmount,
+		)
+		uniforms.uSeaFoamLineStyle.value[type].set(
+			Math.max(foam.sharpness, 0.1),
+			foam.intensity,
+			foam.stateBoost,
+			0,
+		)
+		uniforms.uSeaFoamLineDash.value[type].set(foam.dashScale, foam.dashAmount)
+	})
 }

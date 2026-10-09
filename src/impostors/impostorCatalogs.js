@@ -2,12 +2,14 @@ import { createScenerySources } from './impostorArchetypes.js'
 import { createCloudSources } from './cloudArchetypes.js'
 import { SCENERY_MESH_LOD_COUNT } from '../sceneryMeshPolicy.js'
 import { SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy.js'
+import { SEA_BOAT_DEPTH_STEP } from '../seaSurfacePolicy.js'
 import {
 	CLOUD_ATLAS_COLUMNS,
 	CLOUD_ATLAS_ROWS,
 	CLOUD_TYPE_COUNT,
 	IMPOSTOR_ATLAS_COLUMNS,
 	IMPOSTOR_ATLAS_ROWS,
+	IMPOSTOR_TYPE,
 	IMPOSTOR_TYPE_COUNT,
 } from './impostorTypes.js'
 
@@ -26,6 +28,9 @@ import {
 // paints the trees' crowns, the cacti, and the rocks per instance from their
 // baked paint mask (src/sceneryPalettePolicy.js); the rocks' palettes pick
 // their color by the biome placement stores in the instance tint.
+// SCENERY_SEA_WAVES floats the boats (SCENERY_BOAT_TYPE) on the sea waves
+// (sea-surface-pars.glsl), at the depth their tint stores in steps of
+// SCENERY_BOAT_DEPTH_STEP (packBoatTint() in src/sceneryPlacement.js).
 export const SCENERY_IMPOSTORS = Object.freeze({
 	name: 'scenery',
 	typeCount: IMPOSTOR_TYPE_COUNT,
@@ -36,6 +41,9 @@ export const SCENERY_IMPOSTORS = Object.freeze({
 	defines: Object.freeze({
 		SCENERY_PALETTE: '',
 		SCENERY_PALETTE_SIZE,
+		SCENERY_SEA_WAVES: '',
+		SCENERY_BOAT_TYPE: IMPOSTOR_TYPE.BOAT,
+		SCENERY_BOAT_DEPTH_STEP: SEA_BOAT_DEPTH_STEP.toFixed(4),
 	}),
 })
 

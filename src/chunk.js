@@ -26,8 +26,8 @@ const material = new MeshStandardMaterial({
 	normalMap,
 })
 
-// Largest sea wave displacement in project-vertex.glsl.
-const WAVE_AMPLITUDE = 0.5
+// No sea wave displacement (getSeaWaveBound() in src/seaSurfacePolicy.js).
+const NO_WAVES = Object.freeze({ vertical: 0, horizontal: 0 })
 // Reach of the scenery beyond the terrain's box: instance sizes and their
 // eye-facing quads (createImpostorMesh() pads its flat sphere by as much).
 const SCENERY_MARGIN = 40
@@ -134,8 +134,10 @@ export default class Chunk extends Mesh {
 
 	// The terrain and its scenery are drawn lower the farther they are from the
 	// eye (the airplane), so their culling spheres follow every frame; with flat
-	// ones a camera pitched down culls distant chunks it can see.
-	updateCurvedBounds(eye, curvature) {
+	// ones a camera pitched down culls distant chunks it can see. `waves` is
+	// getSeaWaveBound() of the live sea settings: how far the sea's vertices
+	// may move (project-vertex.glsl).
+	updateCurvedBounds(eye, curvature, waves = NO_WAVES) {
 		const flat = this.geometry.boundingSphere
 		const horizontal = this.size * Math.SQRT1_2
 		const halfHeight = getFlatBoxHalfHeight(flat.radius, this.size)
@@ -144,7 +146,12 @@ export default class Chunk extends Mesh {
 			this.position.y + flat.center.y - eye.y,
 			this.position.z + flat.center.z - eye.z,
 		)
-		const terrain = getCurvedBoxSphere(distance, horizontal, halfHeight + WAVE_AMPLITUDE, curvature)
+		const terrain = getCurvedBoxSphere(
+			distance,
+			horizontal + waves.horizontal,
+			halfHeight + waves.vertical,
+			curvature,
+		)
 		this.boundingSphere.center.set(flat.center.x, flat.center.y - terrain.drop, flat.center.z)
 		this.boundingSphere.radius = terrain.radius
 		if (!this.scenery) return

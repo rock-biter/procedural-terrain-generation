@@ -8,6 +8,15 @@ vec2 impostorInfo = uImpostorTypes[impostorType];
 float frameRadius = impostorInfo.x;
 
 vec3 impostorBase = (modelMatrix * vec4(aInstanceA.xyz, 1.0)).xyz;
+// Boats bob with the sea waves like their near meshes
+// (scenery-mesh-normal-vertex.glsl), without the tilt the baked frames cannot
+// show.
+vec3 impostorFloatOffset;
+vec3 impostorTiltAxis;
+float impostorTiltCos;
+float impostorTiltSin;
+getSceneryFloat(impostorType, impostorBase, aInstanceB.z, impostorFloatOffset, impostorTiltAxis, impostorTiltCos, impostorTiltSin);
+impostorBase += impostorFloatOffset;
 float baseDistance;
 vec3 curvedBase;
 vec3 sphereNormal;

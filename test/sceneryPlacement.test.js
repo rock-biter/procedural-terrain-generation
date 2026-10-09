@@ -30,8 +30,10 @@ import {
 	getIceSpikeMask,
 	isCoastBand,
 	isSceneryBand,
+	packBoatTint,
 	packTint,
 } from '../src/sceneryPlacement.js'
+import { SEA_BOAT_DEPTH_STEP } from '../src/seaSurfacePolicy.js'
 import { SCENERY_BIOME_SLOTS, SCENERY_PAINTED_TYPES } from '../src/sceneryPalettePolicy.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from '../src/terrainBands.js'
 
@@ -66,6 +68,7 @@ function* instances(data, i, j) {
 			scale: data[k + 3],
 			yaw: data[k + 4],
 			type: data[k + 5],
+			tint: data[k + 6],
 		}
 	}
 }
@@ -393,6 +396,27 @@ test('follows the ice spike settings without changing other scenery', () => {
 		iceSpikesOf(results).length
 	assert.equal(others(aloneResults), others(iceChunks))
 	assert.equal(others(noneResults), others(iceChunks))
+})
+
+test('boats stay white and store their depth for the waves', () => {
+	assert.equal(packBoatTint(0) % 65536, packTint(1, 1, 1) % 65536)
+	assert.equal(Math.floor(packBoatTint(7.4) / 65536) * SEA_BOAT_DEPTH_STEP, 7.5)
+	assert.equal(Math.floor(packBoatTint(1000) / 65536), 255)
+	let boats = 0
+	for (let i = -3; i <= 3; i++) {
+		for (let j = -3; j <= 3; j++) {
+			const data = generate(i, j, {}, { density: { ...createScenerySettings().density, boats: 1 } })
+			for (const instance of instances(data, i, j)) {
+				if (instance.type !== IMPOSTOR_TYPE.BOAT) continue
+				boats++
+				const depth = Math.floor(instance.tint / 65536) * SEA_BOAT_DEPTH_STEP
+				const expected = -getHeight(instance.x, instance.z, noises, params, biomeOffset)
+				assert.ok(Math.abs(depth - expected) <= SEA_BOAT_DEPTH_STEP / 2 + 1e-9)
+				assert.equal(instance.tint % 65536, packTint(1, 1, 1) % 65536)
+			}
+		}
+	}
+	assert.ok(boats > 0)
 })
 
 test('keeps boats out of the frozen sea of the ice', () => {

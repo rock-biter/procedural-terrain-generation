@@ -416,7 +416,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 ### `FEAT-003`: Biome Scenery With Octahedral Impostors
 
 - **Rejected:** real instanced meshes for every instance (too many instances; `FEAT-004` uses them near the eye only) and loaded `.glb` models for the procedural types (their sources stay procedural). The boat (2026-10-05) is the one model-based type: two levels simplified offline from a Tripo model, with its color map, given to the catalog through `setCatalogSources()`. An `8 × 8` view grid used about `17` MB but ghosted between its 13–26° frames; desktop used `16 × 16` (about `67` MB) until the near meshes took over the close range.
-- **Open:** density, scale (cacti read small), and palette tuning; foam or ripples around the boats, and boats bobbing with the sea waves; steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
+- **Open:** density, scale (cacti read small), and palette tuning; foam or ripples around the boats (they bob and tilt with the sea waves since the moving sea, [Rendering](RENDERING.md#sea-surface)); steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
 
 ### `FEAT-004`: Near Scenery Meshes
 

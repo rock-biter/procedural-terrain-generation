@@ -17,17 +17,32 @@ wPosition = (modelMatrix * vec4( transformed, 1.0 )).xyz;
 // Visible flat position for the scenery shadow lookup; wPosition.y becomes
 // the raw height below.
 vShadowPosition = wPosition;
-float wave = sin(uTime * 3. - height * 1.);
 
-float pctWave = smoothstep(-1.,-4.,height) - smoothstep(-10.,-40., height);
 // The ice field, broad enough to interpolate across triangles: the fragment
 // reads it instead of evaluating the noise per pixel. The frozen sea stays
 // still (sea-ice-pars.glsl).
 vIceValue = getIceValue(wPosition.xz + uBiomeOffset.xy);
-pctWave *= 1.0 - getSeaIceStill(height, vIceValue);
-// The deep ocean field, as broad: only the land branch of the fragment reads
-// it, for the islets' biome.
+// The deep ocean field, as broad: the fragment reads it for the islets'
+// biome and the deep ocean's sea settings.
 vOceanValue = getOceanValue(wPosition.xz + uBiomeOffset.xy, vIceValue);
+// The sea state and the ripples' phase noise, as broad
+// (sea-surface-pars.glsl); land needs no ripples.
+vSeaState = getSeaState(wPosition.xz);
+float seaOceanMask = getSeaOceanMask(vOceanValue);
+vSeaRippleNoise = height < 0.0 ? getSeaRippleNoise(wPosition.xz, seaOceanMask) : 0.0;
+
+// Near the airplane the sea's vertices follow its waves, calm toward the
+// coast and still under the frozen sea; farther, inside the LOD 0 block, they
+// rest and the waves live in the fragment's normals alone.
+vec3 seaOffset = vec3(0.0);
+if (height < 0.0) {
+	float seaFade = getSeaVertexFade(wPosition.xz);
+	if (seaFade > 0.0) {
+		float seaStill = getSeaIceStill(height, vIceValue);
+		SeaWaves seaWaves = getSeaWaves(wPosition.xz, -height, seaOceanMask, vSeaState, seaStill, 0.0);
+		seaOffset = seaWaves.offset * seaFade;
+	}
+}
 
 
 float dist = length(wPosition.xyz - uCamera);
@@ -52,8 +67,7 @@ if (horizontalLength > 0.0001) {
 }
 vNormal = normalize(normalMatrix * bentNormal);
 vSphereNormal = normalize(normalMatrix * sphereNormal);
-// mvPosition.y += wave * (1. - smoothstep(0.,1500., dist )) * 2.;
-mvPosition.y += wave * pctWave * 0.5;
+mvPosition.xyz += seaOffset;
 
 mvPosition.y -= getCurvatureDrop(dist);
 

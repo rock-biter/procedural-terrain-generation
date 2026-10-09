@@ -14,6 +14,11 @@ import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
 import { ISLET_HEIGHT_CAP } from '../deepOcean'
 import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
 import {
+	copySeaSurfaceSettings,
+	createSeaSurfaceSettings,
+	SEA_SURFACE_DEBUG_VIEWS,
+} from '../seaSurfacePolicy'
+import {
 	PALM_MAX_SPOTS,
 	SCENERY_CATEGORIES,
 	SCENERY_CELL_SIZES,
@@ -26,6 +31,7 @@ import {
 	updateBiomeUniforms,
 	updateCoastMaskUniforms,
 	updateSeaIceUniforms,
+	updateSeaSurfaceUniforms,
 	updateTerrainPaletteUniforms,
 } from '../sharedUniforms'
 import { createRandomSeed, CURATED_SEEDS, DEEP_OCEAN_SEEDS, normalizeWorldSeed } from '../worldSeed'
@@ -143,32 +149,6 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.name(label)
 			.onFinishChange(updateCoastMask)
 	}
-	// Live; the reach and radius render the map again.
-	const updateSeaFoam = () => world.seaFoam?.applySettings()
-	const seaFoamFolder = coastFolder.addFolder('Sea foam')
-	seaFoamFolder.add(params.seaFoam, 'enabled').name('Enabled').onChange(updateSeaFoam)
-	seaFoamFolder.add(params.seaFoam, 'strength', 0, 1, 0.01).name('Strength').onChange(updateSeaFoam)
-	seaFoamFolder
-		.add(params.seaFoam, 'reach', 1, 30, 0.5)
-		.name('Reach (units)')
-		.onChange(updateSeaFoam)
-	seaFoamFolder
-		.add(params.seaFoam, 'edgeDepth', -8, -2, 0.05)
-		.name('Edge depth')
-		.onChange(updateSeaFoam)
-	seaFoamFolder
-		.add(params.seaFoam, 'slope', 0.05, 2, 0.01)
-		.name('Depth per unit')
-		.onChange(updateSeaFoam)
-	seaFoamFolder
-		.add(params.seaFoam, 'blend', 0, 6, 0.05)
-		.name('Blend with coast')
-		.onChange(updateSeaFoam)
-	seaFoamFolder
-		.add(params.seaFoam, 'radius', 100, 1500, 10)
-		.name('Radius (units)')
-		.onChange(updateSeaFoam)
-
 	const updateTerrainNormals = () => updateTerrainNormalUniforms(uniforms, params.terrainNormals)
 	const terrainNormalsFolder = terrainFolder.addFolder('Normal maps')
 	terrainNormalsFolder
@@ -188,6 +168,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		folder.add(layer, 'strength', 0, 5, 0.01).name('Strength').onChange(updateTerrainNormals)
 		folder.add(layer, 'rotation', 0, 360, 1).name('Rotation (°)').onChange(updateTerrainNormals)
 	}
+
+	addSeaSurfaceControls()
 
 	const lightsFolder = gui.addFolder('Lights')
 	lightsFolder.add(params, 'directionalLight', 0, 10, 0.1)
@@ -1110,6 +1092,174 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	const oscillationFolder = trailsFolder.addFolder('Oscillation')
 	oscillationFolder.add(params.trails.oscillation, 'frequency', 0.01, 0.3, 0.005)
 	oscillationFolder.add(params.trails.oscillation, 'amplitude', 0, 0.5, 0.005)
+
+	// Live: the moving sea of both sea types (src/seaSurfacePolicy.js), then
+	// the foam around the sea rocks (src/seaFoam.js).
+	function addSeaSurfaceControls() {
+		const settings = params.seaSurface
+		const apply = () => updateSeaSurfaceUniforms(uniforms, settings)
+		const folder = gui.addFolder('Sea surface')
+		const debugViews = {
+			None: SEA_SURFACE_DEBUG_VIEWS.none,
+			'Sea state (white rough)': SEA_SURFACE_DEBUG_VIEWS.seaState,
+			'Deep ocean mask (red)': SEA_SURFACE_DEBUG_VIEWS.oceanMask,
+			'Wave amount (coast, ice)': SEA_SURFACE_DEBUG_VIEWS.waveAmount,
+			'Crest squeeze': SEA_SURFACE_DEBUG_VIEWS.crestSqueeze,
+		}
+		folder.add(settings, 'debugView', debugViews).name('Debug view').onChange(apply)
+		folder.addColor(settings, 'foamColor').name('Foam color').onChange(apply)
+		folder
+			.add(settings, 'oceanBlend', 0.001, 0.3, 0.001)
+			.name('Deep ocean blend (field)')
+			.onChange(apply)
+
+		const regionsFolder = folder.addFolder('Regions (sea state)')
+		for (const [key, label, min, max, step] of [
+			['scale', 'Wavelength (units)', 200, 10000, 50],
+			['contrast', 'Contrast', 0, 4, 0.05],
+			['drift', 'Drift (units/s)', 0, 50, 0.5],
+			['direction', 'Drift direction (°)', 0, 360, 1],
+		]) {
+			regionsFolder.add(settings.regions, key, min, max, step).name(label).onChange(apply)
+		}
+		// Capped inside the LOD 0 block (256 units around the airplane's chunk),
+		// so moved vertices never meet a coarser neighbour.
+		const vertexFolder = folder.addFolder('Moving vertices')
+		vertexFolder
+			.add(settings.vertex, 'fadeStart', 0, 240, 1)
+			.name('Fade from (units)')
+			.onChange(apply)
+		vertexFolder
+			.add(settings.vertex, 'fadeEnd', 1, 240, 1)
+			.name('Still beyond (units)')
+			.onChange(apply)
+
+		addSeaTypeControls(folder.addFolder('Sea'), settings.sea, apply)
+		addSeaTypeControls(folder.addFolder('Deep ocean'), settings.ocean, apply)
+
+		// Live; the reach and radius render the map again.
+		const updateSeaFoam = () => world.seaFoam?.applySettings()
+		const seaFoamFolder = folder.addFolder('Foam around rocks')
+		seaFoamFolder.add(params.seaFoam, 'enabled').name('Enabled').onChange(updateSeaFoam)
+		seaFoamFolder
+			.add(params.seaFoam, 'strength', 0, 1, 0.01)
+			.name('Strength')
+			.onChange(updateSeaFoam)
+		seaFoamFolder
+			.add(params.seaFoam, 'reach', 1, 30, 0.5)
+			.name('Reach (units)')
+			.onChange(updateSeaFoam)
+		seaFoamFolder
+			.add(params.seaFoam, 'edgeDepth', -8, -2, 0.05)
+			.name('Edge depth')
+			.onChange(updateSeaFoam)
+		seaFoamFolder
+			.add(params.seaFoam, 'slope', 0.05, 2, 0.01)
+			.name('Depth per unit')
+			.onChange(updateSeaFoam)
+		seaFoamFolder
+			.add(params.seaFoam, 'blend', 0, 6, 0.05)
+			.name('Blend with coast')
+			.onChange(updateSeaFoam)
+		seaFoamFolder
+			.add(params.seaFoam, 'radius', 100, 1500, 10)
+			.name('Radius (units)')
+			.onChange(updateSeaFoam)
+
+		const presets = {
+			copy() {
+				const json = JSON.stringify(
+					settings,
+					(key, value) => (typeof value === 'number' ? Math.round(value * 1000) / 1000 : value),
+					'\t',
+				)
+				console.log(json)
+				navigator.clipboard?.writeText(json).catch(() => {})
+			},
+			reset() {
+				copySeaSurfaceSettings(createSeaSurfaceSettings(), settings)
+				for (const controller of folder.controllersRecursive()) controller.updateDisplay()
+				apply()
+			},
+		}
+		folder.add(presets, 'copy').name('Copy sea JSON')
+		folder.add(presets, 'reset').name('Reset sea')
+	}
+
+	// One sea type's settings (params.seaSurface.sea or .ocean).
+	function addSeaTypeControls(folder, type, apply) {
+		const groups = [
+			[
+				'waves',
+				'Waves',
+				[
+					['amplitude', 'Amplitude (units)', 0, 6, 0.05],
+					['wavelength', 'Wavelength (units)', 4, 300, 1],
+					['steepness', 'Steepness', 0, 1, 0.01],
+					['direction', 'Wind direction (°)', 0, 360, 1],
+					['spread', 'Spread (°)', 0, 90, 1],
+					['speed', 'Speed', 0, 4, 0.05],
+					['calm', 'Calm regions ×', 0, 2, 0.01],
+					['rough', 'Rough regions ×', 0, 3, 0.01],
+				],
+			],
+			[
+				'coast',
+				'Toward the coast',
+				[
+					['start', 'Waves from (depth)', 0, 20, 0.1],
+					['full', 'Full at (depth)', 0.1, 40, 0.1],
+				],
+			],
+			[
+				'ripples',
+				'Ripples (normal map)',
+				[
+					['amplitude', 'Snake across ribs (units)', 0, 3, 0.01],
+					['wavelength', 'Wavelength along ribs (units)', 0.5, 80, 0.5],
+					['speed', 'Speed (units/s)', -10, 10, 0.1],
+					['irregularity', 'Irregularity (rad)', 0, 8, 0.05],
+					['irregularityScale', 'Irregularity frequency', 0.001, 0.2, 0.001],
+					['stateStrength', 'Strength by sea state ±', 0, 1, 0.01],
+				],
+			],
+			[
+				'whitecaps',
+				'Whitecaps',
+				[
+					['threshold', 'Crest squeeze from', 0, 1, 0.01],
+					['softness', 'Softness', 0.001, 0.3, 0.001],
+					['intensity', 'Intensity', 0, 1, 0.01],
+					['scale', 'Breakup frequency', 0.005, 1, 0.005],
+				],
+			],
+			[
+				'foam',
+				'Foam lines',
+				[
+					['intensity', 'Intensity', 0, 2, 0.01],
+					['start', 'Band from (depth)', 0, 20, 0.1],
+					['full', 'Band full at (depth)', 0, 20, 0.1],
+					['fadeStart', 'Band fades from (depth)', 0, 30, 0.1],
+					['end', 'Band ends at (depth)', 0, 30, 0.1],
+					['frequency', 'Lines per unit of depth', 0.5, 30, 0.1],
+					['speed', 'Speed', -20, 20, 0.1],
+					['sharpness', 'Sharpness', 0.1, 16, 0.1],
+					['wobbleFrequency', 'Wobble frequency', 0, 3, 0.01],
+					['wobbleAmount', 'Wobble (rad)', 0, 4, 0.05],
+					['dashScale', 'Dash frequency', 0.001, 0.5, 0.001],
+					['dashAmount', 'Dashes', 0, 2, 0.01],
+					['stateBoost', 'Boost by sea state ±', 0, 1, 0.01],
+				],
+			],
+		]
+		for (const [group, label, controls] of groups) {
+			const groupFolder = folder.addFolder(label)
+			for (const [key, name, min, max, step] of controls) {
+				groupFolder.add(type[group], key, min, max, step).name(name).onChange(apply)
+			}
+		}
+	}
 
 	// Every panel starts closed.
 	for (const folder of gui.foldersRecursive()) folder.close()

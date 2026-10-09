@@ -25,6 +25,9 @@ const terrainShaders = [
 	'terrain-normal-pars.glsl',
 	'sea-ice-pars.glsl',
 	'sea-ice-pars-fragment.glsl',
+	'sea-surface-pars.glsl',
+	'sea-ripple-pars-fragment.glsl',
+	'normal-fragment-map.glsl',
 	'project-vertex.glsl',
 ]
 

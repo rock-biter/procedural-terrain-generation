@@ -13,6 +13,7 @@ import {
 } from './chunkPolicy'
 import { createChunkGeometry } from './chunkTopology'
 import ChunkWorkerPool from './chunkWorkerPool'
+import { getSeaWaveBound } from './seaSurfacePolicy'
 import { updateBiomeOffsetUniforms } from './sharedUniforms'
 
 // New buffers a worker result adds, uploaded on the next render.
@@ -380,8 +381,9 @@ export default class ChunkManager {
 		// After the commits, so new chunks are culled where they are drawn.
 		const curvature = this.uniforms.uCurvature?.value
 		if (curvature) {
+			const waves = getSeaWaveBound(this.params.seaSurface)
 			for (const chunk of this.chunks.values()) {
-				chunk.updateCurvedBounds(this.camera.position, curvature)
+				chunk.updateCurvedBounds(this.camera.position, curvature, waves)
 			}
 		}
 	}

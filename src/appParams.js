@@ -13,6 +13,7 @@ import { createSceneryPaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createSeaIceSettings } from './seaIcePolicy'
+import { createSeaSurfaceSettings } from './seaSurfacePolicy'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
 import { createTerrainPaletteSettings } from './terrainPalettePolicy'
@@ -131,6 +132,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// The coast's ripples around the sea rocks, from a top-down map of the
 		// distance to the nearest rock; see createSeaFoamSettings().
 		seaFoam: createSeaFoamSettings({ isMobile }),
+		// Shader-side, applied live: the moving sea of both sea types (waves,
+		// regions, ripples, whitecaps, foam lines); see createSeaSurfaceSettings().
+		seaSurface: createSeaSurfaceSettings(),
 		// Shader-side, applied live: brightness change per type in stops (1 = half
 		// to double brightness) and the world frequency of the noise that drives it.
 		// The trees and cacti vary less, so their palette colors stay recognizable;

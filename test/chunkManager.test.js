@@ -11,6 +11,7 @@ import { getChunkShadowView } from '../src/chunkTopology.js'
 import { runChunkJob } from '../src/chunkWorkerJob.js'
 import { createScenerySettings } from '../src/sceneryPlacement.js'
 import { createSceneryShadowSettings } from '../src/shadowPolicy.js'
+import { createSeaSurfaceSettings } from '../src/seaSurfacePolicy.js'
 
 const CHUNK_SIZE = 256
 
@@ -38,6 +39,7 @@ function createManager({ failures } = {}) {
 		...createTerrainSettings(),
 		scenery: createScenerySettings({ isMobile: true }),
 		shadows: createSceneryShadowSettings({ isMobile: true }),
+		seaSurface: createSeaSurfaceSettings(),
 	}
 	const manager = new ChunkManager(
 		CHUNK_SIZE,

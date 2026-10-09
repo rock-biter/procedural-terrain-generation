@@ -8,6 +8,14 @@ int sceneryType = int(aInstanceB.y + 0.5);
 float sceneryStretch = aInstanceB.w;
 // Instance bases are already in world space (sceneryMeshes.js).
 vec3 sceneryBase = aInstanceA.xyz;
+// Boats float on the sea waves: their base follows the water and the hull
+// tilts with its surface. Every other instance keeps its base and frame.
+vec3 sceneryFloatOffset;
+vec3 sceneryTiltAxis;
+float sceneryTiltCos;
+float sceneryTiltSin;
+getSceneryFloat(sceneryType, sceneryBase, aInstanceB.z, sceneryFloatOffset, sceneryTiltAxis, sceneryTiltCos, sceneryTiltSin);
+sceneryBase += sceneryFloatOffset;
 
 float baseDistance;
 vec3 curvedBase;
@@ -62,7 +70,12 @@ vTint = sceneryTint;
 
 // Normals transform with the inverse transpose of the stretch.
 vec3 objectNormal = rotateAroundAxis(
-	rotateYaw(normalize(vec3(normal.x, normal.y / sceneryStretch, normal.z)), yawCos, yawSin),
+	rotateAroundAxis(
+		rotateYaw(normalize(vec3(normal.x, normal.y / sceneryStretch, normal.z)), yawCos, yawSin),
+		sceneryTiltAxis,
+		sceneryTiltCos,
+		sceneryTiltSin
+	),
 	bendAxis,
 	bendCos,
 	bendSin

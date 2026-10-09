@@ -27,7 +27,7 @@ if (wPosition.y > 0.0) diffuseColor.rgb = iceValue >= 0.0 ? getTerrainColor(BIOM
 float pctSand = step(wPosition.y, TERRAIN_SAND_LEVEL);
 
 // The frozen sea (sea-ice-pars-fragment.glsl): its coverage also stills the
-// ripples and picks the snow normal layer below.
+// waves and the foam lines and picks the snow normal layer below.
 float seaIce = 0.0;
 if (wPosition.y < TERRAIN_SAND_LEVEL && iceValue > 0.0) {
 	seaIce = applySeaIce(diffuseColor.rgb, wPosition.y, wPosition.xz, iceValue, groundPixel, heightPixel);
@@ -141,11 +141,31 @@ if (pctRock < 0.5) terrainBand = TERRAIN_BAND_ROCKS;
 if (pct3 < 0.5) terrainBand = TERRAIN_BAND_SNOW;
 if (seaIce > 0.5) terrainBand = TERRAIN_BAND_SNOW;
 
-// Sea ripples (sea-ripple-pars-fragment.glsl) on one sea height: the raw
+// The moving sea (sea-surface-pars.glsl): its waves, calm toward the coast
+// and still under the frozen sea, tilt the normals (normal-fragment-map.glsl)
+// and foam on their sharpest crests. The deep ocean's settings take over
+// inside its border.
+float seaState = vSeaState;
+float seaOceanMask = getSeaOceanMask(oceanValue);
+SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), 0.0, 0.0);
+if (wPosition.y < 0.0) {
+	float seaStill = iceValue > 0.0 ? max(getSeaIceStill(wPosition.y, iceValue), seaIce) : 0.0;
+	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel);
+	float whitecap = getSeaWhitecap(seaWaves.squeeze, wPosition.xz, seaOceanMask, groundPixel);
+	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, whitecap);
+}
+vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
+
+// Foam lines (sea-ripple-pars-fragment.glsl) on one sea height: the raw
 // height fused with the sea rocks' virtual height from the foam map. The ice
 // stills them.
-float onda = getSeaRipple(getSeaFoamHeight(wPosition.y, wPosition.xz), wPosition.xz) * (1.0 - seaIce);
-diffuseColor.rgb = mix(vec3(onda), diffuseColor.rgb, 1. - onda);
+float onda = getSeaRipple(getSeaFoamHeight(wPosition.y, wPosition.xz), wPosition.xz, seaOceanMask, seaState) * (1.0 - seaIce);
+diffuseColor.rgb = mix(uSeaFoamColor * onda, diffuseColor.rgb, 1. - onda);
+
+int seaDebugView = int(uSeaSurface.w + 0.5);
+if (seaDebugView > 0 && wPosition.y < 0.0) {
+	diffuseColor.rgb = getSeaSurfaceDebug(seaDebugView, seaState, seaOceanMask, seaWaves);
+}
 
 // Distant terrain is capped by the day/night atmosphere color.
 diffuseColor.rgb = mix(min(uAtmosphere, diffuseColor.rgb), diffuseColor.rgb, smoothstep(700., 200., distanceFromCamera));
