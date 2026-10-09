@@ -1,5 +1,5 @@
 import { BIOME_DEFAULTS, getBiomeFields } from './biome.js'
-import { lerp, smoothstep } from './math.js'
+import { clamp01, lerp, smoothstep } from './math.js'
 import { snoise } from './noise.js'
 import { cellRandom } from './random.js'
 import { TERRAIN_HEIGHT_BANDS } from './terrainBands.js'
@@ -32,8 +32,19 @@ export const ISLET_HEIGHT_CAP =
 const RADIUS_RANGE = [0.55, 1]
 const SUMMIT_RANGE = [0.5, 1]
 // Share of the bank's radius where its plateau ends and where its slope
-// starts; the islets stand inside the plateau.
+// starts on a round bank; the islets are laid out inside it.
 const BANK_CORE = 0.55
+// An irregular bank's plateau edge wanders within this range of bank radii,
+// following two simplex layers of the position (BANK_SHAPE: frequency per bank
+// radius, then the detail layer's frequency multiple and weight), so its
+// outline grows lobes and bays and may leave shoals apart. The slope always
+// ends at one bank radius, inside the archipelago's cell.
+const BANK_EDGE_RANGE = [0.25, 0.8]
+const BANK_SHAPE = Object.freeze({ frequency: 1.8, detail: 2.7, detailWeight: 0.35 })
+// The islets' pedestals: under an irregular bank, every islet keeps the
+// plateau within its radius and slopes to the floor over this share of the
+// bank radius beyond it, still inside the cell, so the islets never move or
+// sink whatever the outline does.
 // Share of an islet's radius that its flat top covers.
 const ISLET_TOP = 0.25
 // Least distance between two islet centers, as a share of their radii summed:
@@ -56,8 +67,9 @@ const WARP_FREQUENCY = 1.3
 
 // Offset that decorrelates the archipelagos from the other noise layers.
 const ISLET_OFFSET = [3517.9, -6143.3]
-// And the gaps of their reefs.
+// And the gaps of their reefs, and the outlines of their banks.
 const REEF_OFFSET = [-813.7, 2467.1]
+const BANK_SHAPE_OFFSET = [1931.7, -4410.3]
 // Half-width, in noise value, of the edge of a reef's stretches.
 const REEF_SOFTNESS = 0.15
 
@@ -205,14 +217,57 @@ function getIslets(archipelago, seed, settings) {
 
 const warp = [0, 0]
 
+// The bank's plateau edge at grid point (qx, qz), already warped, in bank
+// radii: BANK_CORE on a round bank (`bankIrregularity` 0), wandering within
+// BANK_EDGE_RANGE on a fully irregular one (1).
+function getBankEdge(archipelago, qx, qz, irregularity) {
+	if (irregularity <= 0) return BANK_CORE
+	const frequency = BANK_SHAPE.frequency / archipelago.bankRadius
+	const x = (qx + BANK_SHAPE_OFFSET[0]) * frequency
+	const z = (qz + BANK_SHAPE_OFFSET[1]) * frequency
+	const detail = BANK_SHAPE.detail
+	const shape = snoise(x, z) + snoise(x * detail + 17.1, z * detail - 9.4) * BANK_SHAPE.detailWeight
+	const edge = lerp(BANK_EDGE_RANGE[0], BANK_EDGE_RANGE[1], smoothstep(-0.6, 0.6, shape))
+	return lerp(BANK_CORE, edge, irregularity)
+}
+
+// The bank's shape at grid point (qx, qz), already warped, written to `out`:
+// `shallow`, 1 on the plateau to 0 on the floor, and `rim`, how far outside
+// the plateau's edge the point lies, in bank radii (negative inside). An
+// irregular bank joins its wandering plateau with the islets' pedestals
+// (1 - (1 - a)(1 - b): exactly 1 wherever either is, smooth where they meet).
+const bankShape = { shallow: 0, rim: 0 }
+
+function getBankShape(archipelago, islets, qx, qz, settings, out = bankShape) {
+	const radius = archipelago.bankRadius
+	const irregularity = clamp01(settings.bankIrregularity ?? 0)
+	const distance = Math.hypot(qx - archipelago.x, qz - archipelago.z) / radius
+	const edge = getBankEdge(archipelago, qx, qz, irregularity)
+	let deep = smoothstep(edge, 1, distance)
+	let rim = distance - edge
+	const pedestal = (1 - BANK_CORE) * irregularity * radius
+	if (pedestal > 0) {
+		for (const islet of islets) {
+			const isletDistance = Math.hypot(qx - islet.x, qz - islet.z)
+			rim = Math.min(rim, (isletDistance - islet.radius) / radius)
+			if (isletDistance < islet.radius + pedestal) {
+				deep *= smoothstep(islet.radius, islet.radius + pedestal, isletDistance)
+			}
+		}
+	}
+	out.shallow = 1 - deep
+	out.rim = rim
+	return out
+}
+
 // The archipelago's terrain at grid point (px, pz), already warped, before the
 // fade: the bank on the floor, and the islets on the bank. `islet` receives
 // the islets' highest rise (0 to 1), when given.
 function getArchipelagoHeight(archipelago, islets, qx, qz, settings, islet) {
 	const floor = -Math.max(settings.depth, 0)
 	const bank = Math.max(-Math.max(settings.bankDepth, 0), floor)
-	const bankDistance = Math.hypot(qx - archipelago.x, qz - archipelago.z) / archipelago.bankRadius
-	let height = lerp(floor, bank, 1 - smoothstep(BANK_CORE, 1, bankDistance))
+	const { shallow } = getBankShape(archipelago, islets, qx, qz, settings)
+	let height = lerp(floor, bank, shallow)
 	// The islets stand on the bank's plateau, where `height` is `bank`.
 	let union = 0
 	let rise = 0
@@ -326,7 +381,8 @@ export function getDeepOceanFloor(x, z, ocean, biomeOffset, params) {
 // turn deep, broken into stretches by gaps, as on an atoll. `reef` is the sea
 // rocks' reef settings (settings.seaRocks.reef in src/sceneryPlacement.js):
 // the ring is `width` bank radii wide on each side of a line `width / 2`
-// outside the plateau's edge, and its gaps open where a simplex field at
+// outside the plateau's edge (getBankShape(), which follows an irregular
+// outline), and its gaps open where a simplex field at
 // `patchFrequency` per unit falls below `patchThreshold`. Sea rocks of the
 // deep ocean deeper than the islets' slopes stand only where it is above 0.
 export function getReefInfluence(x, z, ocean, biomeOffset, params, reef) {
@@ -334,11 +390,10 @@ export function getReefInfluence(x, z, ocean, biomeOffset, params, reef) {
 	if (!(width > 0)) return 0
 	const reaching = getReachingArchipelago(x, z, ocean, biomeOffset, params)
 	if (!reaching) return 0
-	const { archipelago, px, pz } = reaching
+	const { archipelago, islets, px, pz } = reaching
 	getWarp(px, pz, params.deepOcean, warp)
-	const distance =
-		Math.hypot(px + warp[0] - archipelago.x, pz + warp[1] - archipelago.z) / archipelago.bankRadius
-	const ring = 1 - smoothstep(0, width, Math.abs(distance - (BANK_CORE + width / 2)))
+	const { rim } = getBankShape(archipelago, islets, px + warp[0], pz + warp[1], params.deepOcean)
+	const ring = 1 - smoothstep(0, width, Math.abs(rim - width / 2))
 	if (ring <= 0) return 0
 	const gaps = snoise(
 		(px + REEF_OFFSET[0]) * patchFrequency,

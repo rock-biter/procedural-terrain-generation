@@ -160,6 +160,33 @@ test('follows settings edited in place, as the panel edits them', () => {
 	assert.ok(getHeight(islet.x, islet.z, noises, live, biomeOffset) > -depth)
 })
 
+test('frays the banks without moving or reshaping a single islet', () => {
+	const round = createTerrainSettings()
+	round.deepOcean.bankIrregularity = 0
+	let onIslet = 0
+	let banks = 0
+	for (const { x: cx, z: cz, radius } of islets.slice(0, 12)) {
+		for (let index = 0; index < 300; index++) {
+			const angle = index * 2.399
+			const distance = Math.sqrt(index / 300) * radius * 3
+			const x = cx + Math.cos(angle) * distance
+			const z = cz + Math.sin(angle) * distance
+			const fields = getFields(x, z)
+			const height = getHeight(x, z, noises, params, biomeOffset)
+			const roundHeight = getHeight(x, z, noises, round, biomeOffset)
+			if (getIsletInfluence(x, z, fields.ocean, biomeOffset, params) > 0 || height > 0) {
+				onIslet++
+				assert.equal(height, roundHeight)
+			} else if (height !== roundHeight) {
+				banks++
+			}
+		}
+	}
+	assert.ok(onIslet > 0)
+	// The banks around them did change shape.
+	assert.ok(banks > 0)
+})
+
 test('writes every biome field, also where the floor skips the land terms', () => {
 	const [[x, z]] = findPoints((px, pz) => getFields(px, pz).ocean > 0.1, 1)
 	const fields = { climate: NaN, ice: NaN, ocean: NaN, ringDriven: null }

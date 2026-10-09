@@ -813,6 +813,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			['isletMargin', 'Border margin', 0.005, 0.3, 0.005],
 			['bankRadius', 'Bank radius', 40, 800, 5],
 			['bankDepth', 'Bank depth', 1, 40, 0.5],
+			['bankIrregularity', 'Bank irregularity', 0, 1, 0.01],
 			['isletRadius', 'Islet radius', 10, 150, 1],
 			['isletHeight', 'Islet height', 1, ISLET_HEIGHT_CAP, 0.1],
 		]

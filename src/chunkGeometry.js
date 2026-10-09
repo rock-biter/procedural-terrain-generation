@@ -58,7 +58,8 @@ export const ICE_TERRAIN_DEFAULTS = Object.freeze({
 // units just outside the biome, so no land reaches its border. Inside, a grid
 // cell of `isletSpacing` holds an archipelago with probability `isletChance`
 // where the field at its center is at least `isletMargin`: a bank
-// `bankDepth` deep of radius up to `bankRadius`, carrying `isletCount` islets
+// `bankDepth` deep of radius up to `bankRadius` (its outline frayed by
+// `bankIrregularity`, 0 round to 1 fully irregular), carrying `isletCount` islets
 // of radius up to `isletRadius` and summit up to `isletHeight` (never above
 // ISLET_HEIGHT_CAP, below the rocks band).
 export const DEEP_OCEAN_TERRAIN_DEFAULTS = Object.freeze({
@@ -69,6 +70,7 @@ export const DEEP_OCEAN_TERRAIN_DEFAULTS = Object.freeze({
 	isletMargin: 0.06,
 	bankRadius: 395,
 	bankDepth: 9.5,
+	bankIrregularity: 1,
 	isletCount: Object.freeze({ min: 2, max: 4 }),
 	isletRadius: 136,
 	isletHeight: 10,
