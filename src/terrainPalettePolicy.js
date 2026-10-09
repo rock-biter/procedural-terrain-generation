@@ -88,7 +88,7 @@ export function createTerrainPaletteSettings() {
 			colorNoise: 0.3,
 			lines: 1,
 		},
-		sea: { shallow: '#007ccb', mid: '#0000bc', deep: '#000027' },
+		sea: { shallow: '#88fbe4', mid: '#368eba', deep: '#04578b' },
 	}
 }
 

@@ -107,3 +107,20 @@ test('samples a curved path by distance without skipping the turn', () => {
 	assert.equal(row[0], 5)
 	assert.equal(row[2], 0)
 })
+
+test('starts a new path after clear, without a segment from the old place', () => {
+	const history = new TrailHistory()
+	const row = new Float64Array(13)
+	history.push(center(0), forward, levelWing, 1, 1, 0)
+	history.push(center(10), forward, levelWing, 1, 1, 0)
+	history.clear()
+	assert.equal(history.count, 0)
+	assert.equal(history.availableDistance, 0)
+	assert.equal(history.sample(0, row), false)
+
+	history.push(center(5000), forward, levelWing, 1, 1, 0)
+	history.push(center(5001), forward, levelWing, 1, 1, 0)
+	assert.equal(history.availableDistance, 1)
+	history.sample(10, row)
+	assert.equal(row[0], 5000)
+})

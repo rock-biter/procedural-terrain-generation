@@ -89,6 +89,14 @@ export default class FlightPauseDebug {
 		this.plane.setInputEnabled(true)
 	}
 
+	// Keeps the paused orbit around the airplane after it moves by `offset`
+	// without flying (World.teleportPlane()).
+	moveBy(offset) {
+		if (!this.#paused) return
+		this.camera.position.add(offset)
+		this.controls.target.add(offset)
+	}
+
 	update() {
 		if (!this.#paused) return
 

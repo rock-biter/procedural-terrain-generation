@@ -232,6 +232,17 @@ export default class World {
 		plane.resetTerrainState()
 	}
 
+	// Moves the airplane to world point (x, z), SPAWN_CLEARANCE above the
+	// ground, for the ?gui=1 biome map's double click. The chunks, scenery, and
+	// clouds stream in around it as after a long flight. Ignored before init().
+	teleportPlane(x, z) {
+		const { plane } = this
+		if (!plane) return
+		const offset = plane.position.clone()
+		plane.teleport(x, this.getSpawnAltitude(x, z), z)
+		this.flightPause?.moveBy(offset.subVectors(plane.position, offset))
+	}
+
 	// Shows or recolors the debug wireframe on the near meshes and impostors.
 	applySceneryWireframe() {
 		this.sceneryImpostors?.applyWireframe()

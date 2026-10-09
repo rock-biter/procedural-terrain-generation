@@ -23,14 +23,14 @@ import { SAND_LEVEL } from './terrainBands.js'
 //   the ice meets the water without any dark line.
 export const SEA_ICE_DEFAULTS = Object.freeze({
 	shelf: 15.3,
-	fade: 0.065,
+	fade: 0.19,
 	band: 9,
 	cellSize: 15,
 	crackMin: 0.25,
 	crackMax: 4.3,
 	edgeNoise: 1.1,
 	edgeFrequency: 0.145,
-	colors: Object.freeze({ sheet: '#93bdd2', floe: '#c3dfee', water: '#249af5' }),
+	colors: Object.freeze({ sheet: '#93bdd2', floe: '#c3dfee', water: '#2fe1ee' }),
 })
 
 // A mutable copy of SEA_ICE_DEFAULTS (params.seaIce).

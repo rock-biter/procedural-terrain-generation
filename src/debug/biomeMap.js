@@ -6,6 +6,7 @@ import {
 	getLandShares,
 	getScaleLength,
 	hasFollowMoved,
+	mapToWorld,
 	panView,
 	worldToMap,
 	zoomView,
@@ -15,7 +16,8 @@ import {
 // and the sea around the airplane in flat colors (src/debug/biomeMapPolicy.js),
 // to tune the Biomes > Distribution settings. The wheel zooms about the
 // pointer, a drag pans (and stops following the airplane), and a double click
-// follows the airplane again. While the pointer is over the map, the flight
+// teleports the airplane to that point (World.teleportPlane()) and follows it
+// again. While the pointer is over the map, the flight
 // input holds a neutral course and no event reaches it. A worker rasterizes
 // the map; until a raster arrives, the previous one is drawn moved and scaled
 // into the current view, so zoom and pan respond at once.
@@ -79,6 +81,9 @@ export default class BiomeMap {
 			font: '11px/1.35 system-ui, sans-serif',
 			userSelect: 'none',
 			touchAction: 'none',
+			// Tailwind's preflight makes every box border-box, which would leave
+			// the padding no room beside the canvas.
+			boxSizing: 'content-box',
 			width: `${this.cssSize}px`,
 		})
 		const canvas = document.createElement('canvas')
@@ -115,7 +120,7 @@ export default class BiomeMap {
 		shares.style.opacity = '0.85'
 		const hint = document.createElement('div')
 		hint.style.opacity = '0.6'
-		hint.textContent = 'Wheel: zoom · drag: pan · double click: follow'
+		hint.textContent = 'Wheel: zoom · drag: pan · double click: teleport'
 		root.append(canvas, legend, shares, hint)
 		document.body.append(root)
 
@@ -165,7 +170,10 @@ export default class BiomeMap {
 		}
 		canvas.addEventListener('pointerup', endDrag)
 		canvas.addEventListener('pointercancel', endDrag)
-		canvas.addEventListener('dblclick', () => {
+		canvas.addEventListener('dblclick', (event) => {
+			const [u, v] = this.getMapPoint(event)
+			const [x, z] = mapToWorld(this.view, u, v)
+			this.world.teleportPlane(x, z)
 			this.settings.follow = true
 			this.invalidate()
 		})

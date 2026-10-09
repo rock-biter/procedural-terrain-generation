@@ -32,7 +32,7 @@ export const BIOME_MAP_COLORS = Object.freeze([
 export const BIOME_MAP_LABELS = Object.freeze(['Sea', 'Frozen sea', 'Desert', 'Forest', 'Ice'])
 
 // World width of the map, in units: from a few chunks to the scale of the ice.
-export const BIOME_MAP_SPAN = Object.freeze({ min: 500, max: 400000, initial: 40000 })
+export const BIOME_MAP_SPAN = Object.freeze({ min: 500, max: 400000, initial: 10000 })
 
 // A followed view renders again once its center moved this share of the span.
 export const BIOME_MAP_FOLLOW_STEP = 0.05

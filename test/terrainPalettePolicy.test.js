@@ -43,7 +43,6 @@ const FORMER = {
 		rocks: [0.35, 0.16, 0.07],
 		snow: [0.18, 0.08, 0.035],
 	},
-	sea: { shallow: [0, 0.2, 0.6], mid: [0, 0, 0.5], deep: [0, 0, 0.02] },
 	variation: { grass: [0.33, 0.2, 0], land: [0.1, 0.25, 0.1], rocks: [0.01, 0, 0.01] },
 }
 
@@ -55,16 +54,13 @@ function assertLinear(hex, expected, label) {
 	)
 }
 
-test('the forest, desert, and sea keep the former shader colors', () => {
+test('the forest and desert keep the former shader colors', () => {
 	const settings = createTerrainPaletteSettings()
 	for (const [band, rgb] of Object.entries(FORMER.temperate)) {
 		assertLinear(settings.temperate.colors[band], rgb, `forest ${band}`)
 	}
 	for (const [band, rgb] of Object.entries(FORMER.desert)) {
 		assertLinear(settings.desert.colors[band], rgb, `desert ${band}`)
-	}
-	for (const [name, rgb] of Object.entries(FORMER.sea)) {
-		assertLinear(settings.sea[name], rgb, `sea ${name}`)
 	}
 	// The forest's variation: grass and land halfway, rocks fully.
 	for (const [band, rgb] of Object.entries(FORMER.variation)) {

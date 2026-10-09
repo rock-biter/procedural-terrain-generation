@@ -109,6 +109,16 @@ export default class Plane extends Object3D {
 		this.terrainSlowdown = 0
 	}
 
+	// Moves the airplane without flying there (the ?gui=1 biome map): the
+	// heading stays, the corridor, climb, and wing trails start over.
+	teleport(x, y, z) {
+		this.position.set(x, y, z)
+		this.verticalVelocity = 0
+		this.actualVerticalSpeed = 0
+		this.resetTerrainState()
+		this.wingTrails.clear()
+	}
+
 	updateAltitude(dt) {
 		if (!this.terrainSampler) return
 

@@ -182,6 +182,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	lightsFolder.add(params, 'moonLight', 0, 3, 0.05)
 	lightsFolder.add(params, 'ambientLight', 0, 10, 0.1)
 
+	// Tuning starts with the cycle paused, at the start (or ?time=) time.
+	params.dayNight.paused = true
 	const dayNightFolder = gui.addFolder('Day/night')
 	dayNightFolder.add(params.dayNight, 'timeOfDay', 0, 0.9999, 0.0001).name('Time of day').listen()
 	dayNightFolder.add(params.dayNight, 'cycleDuration', 10, 1200, 1).name('Cycle duration (s)')

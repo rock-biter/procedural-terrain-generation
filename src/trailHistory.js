@@ -101,6 +101,14 @@ export default class TrailHistory {
 		}
 	}
 
+	// Forgets every pose: the next push() starts a new path.
+	clear() {
+		this.start = 0
+		this.count = 0
+		this.distance = 0
+		this.lastCommittedDistance = 0
+	}
+
 	get availableDistance() {
 		return this.count ? this.distance - this.values[this.index(0)] : 0
 	}

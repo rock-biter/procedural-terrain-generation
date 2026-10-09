@@ -126,6 +126,13 @@ export default class WingTrails {
 		)
 	}
 
+	// Drops the recorded path, so no ribbon joins the old place to the new one
+	// after the airplane moves without flying.
+	clear() {
+		this.history.clear()
+		this.refresh()
+	}
+
 	// Applies the settings to the uniforms and rebuilds the ribbon from the
 	// recorded history without adding a pose, so it is safe while flight is paused.
 	refresh() {
