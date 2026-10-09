@@ -10,8 +10,9 @@ import { SAND_LEVEL } from '../terrainBands.js'
 // draws it and src/debug/biomeMap.worker.js rasterizes it.
 //
 // A view is { centerX, centerZ, span }: the world point at the middle of the
-// map and the world width the square covers. +X points right and +Z down, as
-// seen from above with north (-Z) up.
+// map and the world width the square covers. The map is turned like the chase
+// camera's first view, so the airplane's start heading points up: +Z up and +X
+// to the left (seen from above, not mirrored).
 
 export const BIOME_MAP_CATEGORY = Object.freeze({
 	SEA: 0,
@@ -43,12 +44,17 @@ export function clampSpan(span) {
 
 // World point at map coordinates (u, v), each 0 to 1 from the top left.
 export function mapToWorld(view, u, v) {
-	return [view.centerX + (u - 0.5) * view.span, view.centerZ + (v - 0.5) * view.span]
+	return [view.centerX - (u - 0.5) * view.span, view.centerZ - (v - 0.5) * view.span]
 }
 
 // Map coordinates of world point (x, z); outside [0, 1] beyond the map.
 export function worldToMap(view, x, z) {
-	return [(x - view.centerX) / view.span + 0.5, (z - view.centerZ) / view.span + 0.5]
+	return [0.5 - (x - view.centerX) / view.span, 0.5 - (z - view.centerZ) / view.span]
+}
+
+// Map direction (right, down) of world direction (dx, dz).
+export function getMapDirection(dx, dz) {
+	return [-dx, -dz]
 }
 
 // The view scaled by `factor` (above 1 zooms out) about map point (u, v),
@@ -56,14 +62,14 @@ export function worldToMap(view, x, z) {
 export function zoomView(view, u, v, factor) {
 	const span = clampSpan(view.span * factor)
 	const [x, z] = mapToWorld(view, u, v)
-	return { centerX: x - (u - 0.5) * span, centerZ: z - (v - 0.5) * span, span }
+	return { centerX: x + (u - 0.5) * span, centerZ: z + (v - 0.5) * span, span }
 }
 
 // The view dragged by (du, dv) in map units: the world follows the pointer.
 export function panView(view, du, dv) {
 	return {
-		centerX: view.centerX - du * view.span,
-		centerZ: view.centerZ - dv * view.span,
+		centerX: view.centerX + du * view.span,
+		centerZ: view.centerZ + dv * view.span,
 		span: view.span,
 	}
 }
@@ -113,16 +119,18 @@ export function rasterizeBiomeMap({
 	const fields = {}
 	const samples = BIOME_MAP_SUPERSAMPLE
 	const step = view.span / (size * samples)
-	const left = view.centerX - view.span / 2 + step / 2
-	const top = view.centerZ - view.span / 2 + step / 2
+	// The first sample, at the top left, lies at the view's largest X and Z
+	// (mapToWorld()); both fall from there.
+	const left = view.centerX + view.span / 2 - step / 2
+	const top = view.centerZ + view.span / 2 - step / 2
 	const sum = [0, 0, 0]
 	for (let row = 0; row < size; row++) {
 		for (let column = 0; column < size; column++) {
 			sum.fill(0)
 			for (let j = 0; j < samples; j++) {
-				const z = top + (row * samples + j) * step
+				const z = top - (row * samples + j) * step
 				for (let i = 0; i < samples; i++) {
-					const x = left + (column * samples + i) * step
+					const x = left - (column * samples + i) * step
 					const height = getHeight(x, z, noises, params, biomeOffset, fields)
 					const category = classifyBiomeSample(height, fields, seaIce)
 					counts[category]++

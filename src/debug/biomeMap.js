@@ -4,6 +4,7 @@ import {
 	BIOME_MAP_LABELS,
 	BIOME_MAP_SPAN,
 	getLandShares,
+	getMapDirection,
 	getScaleLength,
 	hasFollowMoved,
 	mapToWorld,
@@ -279,14 +280,11 @@ export default class BiomeMap {
 		if (this.rendered) {
 			// The last raster, placed where its view falls in the current one.
 			const rendered = this.rendered.view
-			const [u, v] = worldToMap(
-				view,
-				rendered.centerX - rendered.span / 2,
-				rendered.centerZ - rendered.span / 2,
-			)
 			const scale = rendered.span / view.span
+			const [u, v] = worldToMap(view, rendered.centerX, rendered.centerZ)
+			const corner = (center) => (center - scale / 2) * size
 			context.imageSmoothingEnabled = false
-			context.drawImage(this.rasterCanvas, u * size, v * size, scale * size, scale * size)
+			context.drawImage(this.rasterCanvas, corner(u), corner(v), scale * size, scale * size)
 		}
 
 		// Scale bar: a round length of at most a third of the map.
@@ -322,10 +320,10 @@ export default class BiomeMap {
 		if (u < 0 || u > 1 || v < 0 || v > 1) return
 		const pixelRatio = size / this.cssSize
 		const yaw = plane.rotation.y
+		const [right, down] = getMapDirection(Math.sin(yaw), Math.cos(yaw))
 		context.save()
 		context.translate(u * size, v * size)
-		// Screen x follows world +X and screen y world +Z.
-		context.rotate(Math.atan2(Math.cos(yaw), Math.sin(yaw)))
+		context.rotate(Math.atan2(down, right))
 		context.scale(pixelRatio, pixelRatio)
 		context.beginPath()
 		context.moveTo(7, 0)

@@ -10,6 +10,7 @@ import {
 	BIOME_MAP_SUPERSAMPLE,
 	classifyBiomeSample,
 	getLandShares,
+	getMapDirection,
 	getScaleLength,
 	hasFollowMoved,
 	mapToWorld,
@@ -23,7 +24,7 @@ import { createSeaIceSettings } from '../src/seaIcePolicy.js'
 const view = { centerX: 1200, centerZ: -800, span: 10000 }
 const close = (a, b) => Math.abs(a - b) < 1e-9
 
-test('map and world coordinates round-trip, +X right and +Z down', () => {
+test('map and world coordinates round-trip, +Z up and +X left', () => {
 	for (const [u, v] of [
 		[0, 0],
 		[0.5, 0.5],
@@ -34,7 +35,11 @@ test('map and world coordinates round-trip, +X right and +Z down', () => {
 		assert.ok(close(backU, u) && close(backV, v))
 	}
 	assert.deepEqual(mapToWorld(view, 0.5, 0.5), [1200, -800])
-	assert.deepEqual(mapToWorld(view, 1, 1), [6200, 4200])
+	assert.deepEqual(mapToWorld(view, 1, 1), [-3800, -5800])
+	assert.deepEqual(mapToWorld(view, 0, 0), [6200, 4200])
+	// The airplane's start heading (+Z) points up, as the chase camera sees it.
+	assert.deepEqual(getMapDirection(0, 1), [-0, -1])
+	assert.deepEqual(getMapDirection(1, 0), [-1, -0])
 })
 
 test('zooming keeps the world point under the pointer and clamps the span', () => {
@@ -106,6 +111,28 @@ test('rasterizes a deterministic map with its category counts', () => {
 	// The distribution settings change the map.
 	const lessIce = { ...request.params, biomes: { ...BIOME_DEFAULTS, iceThreshold: 2 } }
 	assert.equal(rasterizeBiomeMap({ ...request, params: lessIce }).counts[BIOME_MAP_CATEGORY.ICE], 0)
+})
+
+test('the raster follows the map coordinates: a one-pixel drag shifts it by one pixel', () => {
+	const size = 8
+	const request = {
+		view: { centerX: 0, centerZ: 0, span: 30000 },
+		size,
+		seed: 'ice194',
+		params: createTerrainSnapshot(TERRAIN_DEFAULTS),
+		seaIce: createSeaIceSettings(),
+	}
+	const pixel = ({ pixels }, row, column) =>
+		Array.from(pixels.subarray((row * size + column) * 4, (row * size + column) * 4 + 4))
+	const original = rasterizeBiomeMap(request)
+	const right = rasterizeBiomeMap({ ...request, view: panView(request.view, 1 / size, 0) })
+	const down = rasterizeBiomeMap({ ...request, view: panView(request.view, 0, 1 / size) })
+	for (let row = 0; row < size - 1; row++) {
+		for (let column = 0; column < size - 1; column++) {
+			assert.deepEqual(pixel(right, row, column + 1), pixel(original, row, column))
+			assert.deepEqual(pixel(down, row + 1, column), pixel(original, row, column))
+		}
+	}
 })
 
 test('land shares and scale lengths', () => {
