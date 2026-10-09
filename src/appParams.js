@@ -133,7 +133,7 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// distance to the nearest rock; see createSeaFoamSettings().
 		seaFoam: createSeaFoamSettings({ isMobile }),
 		// Shader-side, applied live: the moving sea of both sea types (waves,
-		// regions, ripples, whitecaps, foam lines); see createSeaSurfaceSettings().
+		// regions, ripples, crest lines, foam lines); see createSeaSurfaceSettings().
 		seaSurface: createSeaSurfaceSettings(),
 		// Shader-side, applied live: brightness change per type in stops (1 = half
 		// to double brightness) and the world frequency of the noise that drives it.

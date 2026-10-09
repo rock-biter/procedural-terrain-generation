@@ -1,5 +1,5 @@
 // Pure rules of the moving sea surface (three-free): the waves, the ripples
-// of the sea's normal map, the whitecaps, and the coast's foam lines, drawn by
+// of the sea's normal map, the crest lines, and the coast's foam lines, drawn by
 // the terrain shader (sea-surface-pars.glsl, sea-ripple-pars-fragment.glsl,
 // color-fragment.glsl) with the uniforms of updateSeaSurfaceUniforms()
 // (src/sharedUniforms.js), and the boats that float on the waves.
@@ -32,11 +32,14 @@
 //   (`irregularity` radians, `irregularityScale` per world unit). The map's
 //   strength grows with the sea state by up to ± `stateStrength`, never below
 //   `minimum`, so calm water keeps its ripples.
-// - Whitecaps foam where the crests squeeze the surface by more than
-//   `threshold` (at most the steepness), over `softness`, broken by a noise of
-//   `scale` per world unit, up to `intensity`. A thinner foam, `minimum` of
-//   it, stays on the highest crests of any open water, so calm water keeps
-//   some.
+// - Crest lines: foam lines `width` world units wide on each side along the
+//   ridges of the `waves` longest waves (all four: short strokes on every
+//   crest; two: long lines along the swell), `intensity` bright, where the
+//   crest rises above `threshold` of the highest those waves reach there,
+//   over `softness`; they lengthen as crests meet, shorten as they part, and
+//   narrow toward their ends. In the calmest regions only `minimum` of that presence stays: the
+//   threshold rises toward the very top, so calm water keeps a few short
+//   lines.
 // - Foam lines: the coast's animated contour lines (getSeaRipple()), from
 //   `start` to `full` and from `fadeStart` to `end` units of depth,
 //   `frequency` lines per unit of depth moving at `speed`, sharpened by the
@@ -44,7 +47,7 @@
 //   at `wobbleFrequency` per world unit, and broken into dashes by a noise of
 //   `dashScale` per world unit weighted by `dashAmount`. The sea state scales
 //   them by up to ± `stateBoost`.
-// - `foamColor` (sRGB) colors the lines and the whitecaps; `debugView` paints
+// - `foamColor` (sRGB) colors the foam lines of the coast and the crests; `debugView` paints
 //   the sea with one of SEA_SURFACE_DEBUG_VIEWS.
 
 export const SEA_TYPES = Object.freeze(['sea', 'ocean'])
@@ -111,12 +114,13 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			stateStrength: 0.35,
 			minimum: 0.8,
 		}),
-		whitecaps: Object.freeze({
-			threshold: 0.44,
-			softness: 0.06,
-			intensity: 0.6,
-			scale: 0.12,
-			minimum: 0.25,
+		crests: Object.freeze({
+			threshold: 0.45,
+			softness: 0.15,
+			width: 0.5,
+			intensity: 0.85,
+			minimum: 0.35,
+			waves: 4,
 		}),
 		foam: FOAM_LINE_DEFAULTS,
 	}),
@@ -141,18 +145,19 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			stateStrength: 0.45,
 			minimum: 1,
 		}),
-		whitecaps: Object.freeze({
-			threshold: 0.5,
-			softness: 0.06,
-			intensity: 0.75,
-			scale: 0.08,
-			minimum: 0.45,
+		crests: Object.freeze({
+			threshold: 0.4,
+			softness: 0.15,
+			width: 0.9,
+			intensity: 0.9,
+			minimum: 0.5,
+			waves: 4,
 		}),
 		foam: FOAM_LINE_DEFAULTS,
 	}),
 })
 
-const GROUPS = ['waves', 'coast', 'ripples', 'whitecaps', 'foam']
+const GROUPS = ['waves', 'coast', 'ripples', 'crests', 'foam']
 
 // A mutable copy of SEA_SURFACE_DEFAULTS (params.seaSurface).
 export function createSeaSurfaceSettings(defaults = SEA_SURFACE_DEFAULTS) {

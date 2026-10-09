@@ -86,6 +86,7 @@ export function createSharedUniforms(params, seed) {
 			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector2()),
 		},
 		uSeaWaveShape: { value: perSeaType(() => new Vector4()) },
+		uSeaCrestWaves: { value: perSeaType(() => 0) },
 		uSeaRegions: { value: new Vector4() },
 		uSeaSurface: { value: new Vector4() },
 		uSeaFoamColor: { value: new Color() },
@@ -95,7 +96,7 @@ export function createSharedUniforms(params, seed) {
 		uSeaFoamLineDash: { value: perSeaType(() => new Vector2()) },
 		uSeaRipples: { value: perSeaType(() => new Vector4()) },
 		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
-		uSeaWhitecaps: { value: perSeaType(() => new Vector4()) },
+		uSeaCrestLines: { value: perSeaType(() => new Vector4()) },
 		uSeaMinimum: { value: perSeaType(() => new Vector2()) },
 	}
 	updateBiomeOffsetUniforms(uniforms, createBiomeOffset(seed))
@@ -187,7 +188,7 @@ const MIN_EDGE_GAP = 0.01
 // Writes the moving sea's settings (params.seaSurface, src/seaSurfacePolicy.js)
 // into their uniforms, in place: the Gerstner components of both sea types
 // (getSeaWaveComponents()), the regions, the vertex fade, the ripples, the
-// whitecaps, and the foam lines, with the foam color converted from sRGB to
+// crest lines, and the foam lines, with the foam color converted from sRGB to
 // linear.
 export function updateSeaSurfaceUniforms(uniforms, settings) {
 	const { regions, vertex, oceanBlend, foamColor, debugView } = settings
@@ -202,7 +203,7 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 	uniforms.uSeaRegions.value.set(1 / Math.max(regions.scale, 1), regions.contrast, driftX, driftZ)
 	uniforms.uSeaFoamColor.value.set(foamColor)
 	SEA_TYPES.forEach((key, type) => {
-		const { waves, coast, ripples, whitecaps, foam } = settings[key]
+		const { waves, coast, ripples, crests, foam } = settings[key]
 		getSeaWaveComponents(waves).forEach((component, index) => {
 			const slot = type * SEA_WAVE_COUNT + index
 			uniforms.uSeaWaves.value[slot].set(component.x, component.z, component.k, component.omega)
@@ -222,13 +223,14 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 			ripples.irregularity,
 		)
 		uniforms.uSeaRippleDetail.value[type].set(ripples.irregularityScale, ripples.stateStrength)
-		uniforms.uSeaWhitecaps.value[type].set(
-			whitecaps.threshold,
-			Math.max(whitecaps.softness, 1e-3),
-			whitecaps.intensity,
-			whitecaps.scale,
+		uniforms.uSeaCrestLines.value[type].set(
+			crests.threshold,
+			Math.max(crests.softness, 1e-3),
+			crests.width,
+			crests.intensity,
 		)
-		uniforms.uSeaMinimum.value[type].set(whitecaps.minimum, ripples.minimum)
+		uniforms.uSeaMinimum.value[type].set(crests.minimum, ripples.minimum)
+		uniforms.uSeaCrestWaves.value[type] = crests.waves
 		const bandStart = Math.max(foam.start, 0)
 		const fadeEdge = Math.max(foam.fadeStart, 0)
 		uniforms.uSeaFoamLineBand.value[type].set(

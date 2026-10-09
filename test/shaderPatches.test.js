@@ -88,6 +88,11 @@ test('the terrain patches fit the standard material', () => {
 	assert.match(terrain.vertexShader, /mvPosition\.xyz \+= seaOffset;/)
 	assert.match(terrain.vertexShader, /vSeaState = getSeaState\(wPosition\.xz\);/)
 	assert.match(terrain.fragmentShader, /getSeaIceStill\(wPosition\.y, iceValue\)/)
+	// Foam lines ride the waves' crests.
+	assert.match(
+		terrain.fragmentShader,
+		/getSeaCrestLine\(seaWaves, seaOceanMask, seaState, groundPixel\)/,
+	)
 	assert.match(
 		terrain.fragmentShader,
 		/vec3 waveN = vec3\(seaWaveNormal\.x, - seaWaveNormal\.z, seaWaveNormal\.y\);/,

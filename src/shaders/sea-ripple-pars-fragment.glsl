@@ -1,5 +1,5 @@
 // The sea's fragment details (color-fragment.glsl, normal-fragment-map.glsl):
-// the moving surface (sea-surface-pars.glsl), its whitecaps and ribbed ripples,
+// the moving surface (sea-surface-pars.glsl), its crest lines and ribbed ripples,
 // and the foam lines of the coast and the sea rocks. Every setting comes per
 // sea type (0 the sea, 1 the deep ocean), blended by getSeaOceanMask(); see
 // src/seaSurfacePolicy.js.
@@ -10,7 +10,7 @@
 varying float vSeaState;
 varying float vSeaRippleNoise;
 
-// Linear color of the foam lines and the whitecaps.
+// Linear color of the foam lines of the coast and the crests.
 uniform vec3 uSeaFoamColor;
 // Foam lines, per type. Band: depths (positive) where the lines start, are
 // full, start fading, and end.
@@ -26,12 +26,12 @@ uniform vec2 uSeaFoamLineDash[SEA_SURFACE_TYPE_COUNT];
 // y: wavelength along them (world units), z: speed (world units per second),
 // w: irregularity (radians of phase noise).
 uniform vec4 uSeaRipples[SEA_SURFACE_TYPE_COUNT];
-// Whitecaps, per type. x: crest squeeze where they start, y: softness, z:
-// intensity, w: frequency of the breakup noise (per world unit).
-uniform vec4 uSeaWhitecaps[SEA_SURFACE_TYPE_COUNT];
+// Foam lines along the crests, per type. x: crest height, as a share of the
+// highest the waves that carry them (uSeaCrestWaves) reach there, where they
+// start, y: softness, z: half-width (world units), w: intensity.
+uniform vec4 uSeaCrestLines[SEA_SURFACE_TYPE_COUNT];
 // The least of the sea's details, per type, whatever the sea state. x: the
-// whitecaps' share left on the highest crests of calm water, y: the ribbed
-// map's strength.
+// crest lines' presence in calm water, y: the ribbed map's strength.
 uniform vec2 uSeaMinimum[SEA_SURFACE_TYPE_COUNT];
 
 // The sea rock ripples: the foam lines also circle the sea rocks, on one sea
@@ -89,25 +89,39 @@ vec2 getSeaRippleWarp(vec2 uv, float noise, float oceanMask, float strength) {
 	return across * (ripples.x * strength * sin(phase));
 }
 
-// Whitecap coverage of the waves `waves` at flat world `xz`: they break where
-// the crests squeeze the surface beyond the threshold, in rough water, and a
-// thinner foam (the type's minimum) stays on the highest crests of any water,
-// placed by the squeeze over its peak, so calm open water keeps some. Both
-// are broken by a slowly drifting noise, the thinner foam into sparser dabs,
-// and fade out before the noise gets finer than a few pixels (`pixel`, the
-// pixel's size on the ground), instead of sparkling. The coast and the ice
-// calm the thinner foam with the waves.
-float getSeaWhitecap(SeaWaves waves, vec2 xz, float oceanMask, float pixel) {
-	vec4 caps = mix(uSeaWhitecaps[0], uSeaWhitecaps[1], oceanMask);
-	float fade = 1.0 - smoothstep(0.15, 0.35, pixel * caps.w);
-	float breaking = smoothstep(caps.x - caps.y, caps.x + caps.y, waves.squeeze);
-	float minimum = mix(uSeaMinimum[0].x, uSeaMinimum[1].x, oceanMask);
-	float crest = waves.squeeze / max(waves.peak, 1e-5);
-	float calm = minimum * waves.amount * smoothstep(0.5, 0.8, crest);
-	if (max(breaking, calm) * fade <= 0.0) return 0.0;
-	float noise = snoise(xz * caps.w + uTime * 0.05);
-	float foam = max(breaking * smoothstep(0.0, 0.6, noise), calm * smoothstep(0.25, 0.7, noise));
-	return foam * fade * caps.z;
+// Share of a pixel `pixel` world units wide, `distance` from a line's
+// center, covered by the line `halfWidth` wide on each side: a box filter,
+// so lines thinner than a pixel fade instead of flickering.
+float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
+	float overlap = min(distance + pixel * 0.5, halfWidth) - max(distance - pixel * 0.5, -halfWidth);
+	return clamp(overlap / max(pixel, 1e-4), 0.0, 1.0);
+}
+
+// Foam line coverage along the crests of the waves `waves`, in sea state
+// `state`, for a pixel `pixel` world units wide. The line follows the ridge
+// of the height of the waves that carry it (uSeaCrestWaves, the longest
+// ones; all four by default): its distance is their height gradient over
+// their curvature across it, exact on a parabola, so it rides their real
+// crests and moves with them. With every wave the lines break into short
+// strokes on every crest; with the longest two alone they run long along the
+// swell. A line shows where the crest rises above the threshold share of the
+// highest those waves reach there, so it lengthens as crests meet and
+// shortens as they part, and it narrows toward its ends. Calm water raises the threshold toward the top,
+// keeping only the highest crests' lines (the type's minimum presence); the
+// coast and the ice calm the lines with the waves.
+float getSeaCrestLine(SeaWaves waves, float oceanMask, float state, float pixel) {
+	if (waves.ridge.w <= 0.0) return 0.0;
+	vec4 lines = mix(uSeaCrestLines[0], uSeaCrestLines[1], oceanMask);
+	float presence = mix(mix(uSeaMinimum[0].x, uSeaMinimum[1].x, oceanMask), 1.0, state);
+	float threshold = mix(1.0, lines.x, presence);
+	float crest = smoothstep(threshold, threshold + lines.y, waves.ridge.z / waves.ridge.w);
+	if (crest <= 0.0) return 0.0;
+	float gradient = length(waves.ridge.xy);
+	vec2 across = gradient > 1e-6 ? waves.ridge.xy / gradient : vec2(1.0, 0.0);
+	float bend = dot(across * across, waves.curvature.xz) + 2.0 * across.x * across.y * waves.curvature.y;
+	if (bend >= 0.0) return 0.0;
+	float coverage = getSeaLineCoverage(gradient / -bend, lines.z * crest, pixel);
+	return coverage * lines.w * min(waves.amount * 2.0, 1.0);
 }
 
 // The sea painted by the debug view `view` (SEA_SURFACE_DEBUG_VIEWS in

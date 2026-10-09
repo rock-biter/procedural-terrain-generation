@@ -79,7 +79,7 @@ test('the wave components follow the wind, the ratios, and deep water dispersion
 
 test('calm water keeps some foam and ripples, the deep ocean more', () => {
 	const { sea, ocean } = SEA_SURFACE_DEFAULTS
-	for (const group of ['whitecaps', 'ripples']) {
+	for (const group of ['crests', 'ripples']) {
 		assert.ok(sea[group].minimum > 0, group)
 		assert.ok(ocean[group].minimum > sea[group].minimum, group)
 	}
@@ -123,17 +123,15 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 				component.omega,
 			])
 		})
-		const { waves, coast, whitecaps, ripples } = settings[key]
+		const { waves, coast, crests, ripples } = settings[key]
 		assert.deepEqual(uniforms.uSeaWaveShape.value[type].toArray(), [
 			waves.calm,
 			waves.rough,
 			coast.start,
 			coast.full,
 		])
-		assert.deepEqual(uniforms.uSeaMinimum.value[type].toArray(), [
-			whitecaps.minimum,
-			ripples.minimum,
-		])
+		assert.deepEqual(uniforms.uSeaMinimum.value[type].toArray(), [crests.minimum, ripples.minimum])
+		assert.equal(uniforms.uSeaCrestWaves.value[type], crests.waves)
 	})
 
 	settings.vertex.fadeStart = 300

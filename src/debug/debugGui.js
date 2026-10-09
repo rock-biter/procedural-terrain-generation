@@ -1225,14 +1225,15 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				],
 			],
 			[
-				'whitecaps',
-				'Whitecaps',
+				'crests',
+				'Crest lines',
 				[
-					['threshold', 'Crest squeeze from', 0, 1, 0.01],
-					['softness', 'Softness', 0.001, 0.3, 0.001],
+					['threshold', 'Crest height from (share)', 0, 1, 0.01],
+					['softness', 'Softness', 0.001, 0.5, 0.001],
+					['width', 'Half-width (units)', 0, 4, 0.01],
 					['intensity', 'Intensity', 0, 1, 0.01],
-					['scale', 'Breakup frequency', 0.005, 1, 0.005],
-					['minimum', 'Minimum in calm water', 0, 1, 0.01],
+					['minimum', 'Presence in calm water', 0, 1, 0.01],
+					['waves', 'Follow longest waves', 1, 4, 1],
 				],
 			],
 			[

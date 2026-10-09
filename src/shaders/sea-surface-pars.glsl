@@ -1,5 +1,5 @@
 // The moving sea surface, shared by the terrain's vertex (moving vertices,
-// project-vertex.glsl) and fragment (normals and whitecaps,
+// project-vertex.glsl) and fragment (normals and crest lines,
 // color-fragment.glsl) shaders and by the boats floating on it
 // (scenery-instance-pars-vertex.glsl). The settings are params.seaSurface,
 // written by updateSeaSurfaceUniforms() (src/sharedUniforms.js); the rules
@@ -22,6 +22,9 @@ uniform vec2 uSeaWaveSizes[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
 // Per type, x, y: wave scale in the calmest and roughest regions, z, w:
 // depths where the waves start and are full toward the coast.
 uniform vec4 uSeaWaveShape[SEA_SURFACE_TYPE_COUNT];
+// Per type, how many of the longest waves carry the crest lines
+// (SeaWaves.ridge, getSeaCrestLine()): all of them by default.
+uniform float uSeaCrestWaves[SEA_SURFACE_TYPE_COUNT];
 // Regions, x: 1 / wavelength, y: contrast, z, w: drift (world units per
 // second).
 uniform vec4 uSeaRegions;
@@ -40,12 +43,16 @@ struct SeaWaves {
 	vec3 offset;
 	// Height gradient along world x and z.
 	vec2 slope;
+	// The longest waves that carry the crest lines (uSeaCrestWaves), alone:
+	// their height gradient (xy), height (z), and the highest they rise here,
+	// when their crests meet (w), so z / w places the point on them whatever
+	// their size.
+	vec4 ridge;
+	// Their second derivatives of the height: xx, xz, zz.
+	vec3 curvature;
 	// How much the crests compress the surface: 1 minus the Jacobian of the
 	// horizontal displacement, at most the steepness.
 	float squeeze;
-	// The largest squeeze the waves reach here, when every crest meets: the
-	// squeeze over it places the point on the waves whatever their size.
-	float peak;
 	// Share of the full waves the coast and the frozen sea leave.
 	float amount;
 };
@@ -81,7 +88,7 @@ float getSeaVertexFade(vec2 xz) {
 // ground: components shorter than a few pixels fade instead of aliasing (0
 // keeps them all).
 SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float still, float pixel) {
-	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), 0.0, 0.0, 0.0);
+	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, 0.0);
 	vec4 shape = uSeaWaveShape[type];
 	waves.amount = smoothstep(shape.z, shape.w, depth) * (1.0 - still);
 	if (waves.amount <= 0.0) return waves;
@@ -89,6 +96,7 @@ SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float stil
 	float height = waves.amount * scale;
 	// The steepness is reached in the roughest regions.
 	float reach = waves.amount * min(scale / max(shape.y, 1e-4), 1.0);
+	float ridgeWaves = uSeaCrestWaves[type];
 	for (int i = 0; i < SEA_SURFACE_WAVE_COUNT; i++) {
 		int index = type * SEA_SURFACE_WAVE_COUNT + i;
 		vec4 wave = uSeaWaves[index];
@@ -99,10 +107,14 @@ SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float stil
 		float s = sin(theta);
 		float a = size.x * height * detail;
 		float h = size.y * reach * detail;
+		vec2 wavevector = wave.xy * wave.z;
 		waves.offset += vec3(wave.x * h * c, a * s, wave.y * h * c);
-		waves.slope += wave.xy * (wave.z * a * c);
+		waves.slope += wavevector * (a * c);
 		waves.squeeze += wave.z * h * s;
-		waves.peak += wave.z * h;
+		if (float(i) < ridgeWaves) {
+			waves.ridge += vec4(wavevector * (a * c), a * s, a);
+			waves.curvature -= vec3(wavevector.x * wavevector.x, wavevector.x * wavevector.y, wavevector.y * wavevector.y) * (a * s);
+		}
 	}
 	return waves;
 }
@@ -117,8 +129,9 @@ SeaWaves getSeaWaves(vec2 xz, float depth, float oceanMask, float state, float s
 	return SeaWaves(
 		mix(sea.offset, ocean.offset, oceanMask),
 		mix(sea.slope, ocean.slope, oceanMask),
+		mix(sea.ridge, ocean.ridge, oceanMask),
+		mix(sea.curvature, ocean.curvature, oceanMask),
 		mix(sea.squeeze, ocean.squeeze, oceanMask),
-		mix(sea.peak, ocean.peak, oceanMask),
 		mix(sea.amount, ocean.amount, oceanMask)
 	);
 }
