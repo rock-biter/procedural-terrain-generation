@@ -16,6 +16,7 @@ import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePol
 import {
 	copySeaSurfaceSettings,
 	createSeaSurfaceSettings,
+	SEA_CREST_FOAM_STYLES,
 	SEA_SURFACE_DEBUG_VIEWS,
 } from '../seaSurfacePolicy'
 import {
@@ -1108,6 +1109,12 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		}
 		folder.add(settings, 'debugView', debugViews).name('Debug view').onChange(apply)
 		folder.addColor(settings, 'foamColor').name('Foam color').onChange(apply)
+		const crestFoamStyles = {
+			Lines: SEA_CREST_FOAM_STYLES.lines,
+			Breaking: SEA_CREST_FOAM_STYLES.breaking,
+			Both: SEA_CREST_FOAM_STYLES.both,
+		}
+		folder.add(settings, 'crestFoam', crestFoamStyles).name('Crest foam').onChange(apply)
 		folder
 			.add(settings, 'oceanBlend', 0.001, 0.3, 0.001)
 			.name('Deep ocean blend (field)')
@@ -1234,6 +1241,18 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['intensity', 'Intensity', 0, 1, 0.01],
 					['minimum', 'Presence in calm water', 0, 1, 0.01],
 					['waves', 'Follow longest waves', 1, 4, 1],
+				],
+			],
+			[
+				'breaking',
+				'Breaking foam',
+				[
+					['threshold', 'Crest squeeze from (share)', 0, 1, 0.01],
+					['softness', 'Softness', 0.001, 0.5, 0.001],
+					['intensity', 'Intensity', 0, 1, 0.01],
+					['scale', 'Lace frequency', 0.01, 1, 0.005],
+					['trail', 'Trail (s)', 0, 10, 0.1],
+					['minimum', 'Presence in calm water', 0, 1, 0.01],
 				],
 			],
 			[

@@ -30,9 +30,17 @@ uniform vec4 uSeaRipples[SEA_SURFACE_TYPE_COUNT];
 // highest the waves that carry them (uSeaCrestWaves) reach there, where they
 // start, y: softness, z: half-width (world units), w: intensity.
 uniform vec4 uSeaCrestLines[SEA_SURFACE_TYPE_COUNT];
+// Breaking foam, per type. x: crest squeeze, as a share of the largest the
+// waves reach there, where the crests break, y: softness, z: intensity, w:
+// frequency of the foam's lace (per world unit).
+uniform vec4 uSeaBreaking[SEA_SURFACE_TYPE_COUNT];
 // The least of the sea's details, per type, whatever the sea state. x: the
-// crest lines' presence in calm water, y: the ribbed map's strength.
-uniform vec2 uSeaMinimum[SEA_SURFACE_TYPE_COUNT];
+// crest lines' presence in calm water, y: the ribbed map's strength, z: the
+// breaking foam's presence in calm water.
+uniform vec3 uSeaMinimum[SEA_SURFACE_TYPE_COUNT];
+// Which foam the crests carry: 0 lines (getSeaCrestLine()), 1 breaking foam
+// (getSeaBreakingFoam()), 2 both.
+uniform float uSeaCrestFoam;
 
 // The sea rock ripples: the foam lines also circle the sea rocks, on one sea
 // height: the coast's raw height fused with the sea rocks (src/seaFoam.js,
@@ -122,6 +130,39 @@ float getSeaCrestLine(SeaWaves waves, float oceanMask, float state, float pixel)
 	if (bend >= 0.0) return 0.0;
 	float coverage = getSeaLineCoverage(gradient / -bend, lines.z * crest, pixel);
 	return coverage * lines.w * min(waves.amount * 2.0, 1.0);
+}
+
+// Breaking foam coverage of the waves `waves` at flat world `xz`, in sea
+// state `state`, for a pixel `pixel` world units wide. The crests break where
+// they squeeze the surface beyond the threshold share of the largest squeeze
+// the waves reach there; calm water raises the threshold toward the top, as
+// for the crest lines. The foam stays where it formed while the crest moves
+// on, and dissolves over the trail: it is the strongest breaking now and at
+// the four lags of the recent past (SeaWaves.squeezeLag), weakened by its
+// age, so it trails behind the crests. Fresh foam is solid; as it ages, a
+// lace of two drifting noise octaves opens holes in it until it is gone. The
+// lace is drawn on the rest position, so it rides the water's orbits, and its
+// octaves drift apart, so it changes shape; far away, where it would alias,
+// the foam turns into its mean coverage. The coast and the ice calm it with
+// the waves.
+float getSeaBreakingFoam(SeaWaves waves, vec2 xz, float oceanMask, float state, float pixel) {
+	if (waves.peak <= 0.0) return 0.0;
+	vec4 breaking = mix(uSeaBreaking[0], uSeaBreaking[1], oceanMask);
+	float presence = mix(mix(uSeaMinimum[0].z, uSeaMinimum[1].z, oceanMask), 1.0, state);
+	float threshold = mix(1.0, breaking.x, presence);
+	vec2 edges = vec2(threshold - breaking.y, threshold + breaking.y);
+	float now = smoothstep(edges.x, edges.y, waves.squeeze / waves.peak);
+	vec4 past = smoothstep(edges.xxxx, edges.yyyy, waves.squeezeLag / waves.peak) * vec4(0.8, 0.6, 0.4, 0.2);
+	float foam = max(now, max(max(past.x, past.y), max(past.z, past.w))) * min(waves.amount * 2.0, 1.0);
+	if (foam <= 0.0) return 0.0;
+	float detail = 1.0 - smoothstep(0.15, 0.35, pixel * breaking.w);
+	float coverage = foam;
+	if (detail > 0.0) {
+		vec2 p = xz * breaking.w;
+		float lace = 0.5 + 0.5 * (snoise(p + uTime * vec2(0.05, 0.02)) * 0.65 + snoise(p * 2.7 + uTime * vec2(-0.04, 0.07) + 11.0) * 0.35);
+		coverage = mix(foam, smoothstep(0.92 - foam, 1.08 - foam, lace), detail);
+	}
+	return coverage * breaking.z;
 }
 
 // The sea painted by the debug view `view` (SEA_SURFACE_DEBUG_VIEWS in

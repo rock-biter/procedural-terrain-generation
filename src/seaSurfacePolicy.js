@@ -37,9 +37,16 @@
 //   crest; two: long lines along the swell), `intensity` bright, where the
 //   crest rises above `threshold` of the highest those waves reach there,
 //   over `softness`; they lengthen as crests meet, shorten as they part, and
-//   narrow toward their ends. In the calmest regions only `minimum` of that presence stays: the
-//   threshold rises toward the very top, so calm water keeps a few short
-//   lines.
+//   narrow toward their ends. In the calmest regions only `minimum` of that
+//   presence stays: the threshold rises toward the very top, so calm water
+//   keeps a few short lines.
+// - Breaking foam: the crests break where they squeeze the surface beyond
+//   `threshold` of the largest squeeze the waves reach there, over
+//   `softness`, `intensity` bright, with the same calm-water `minimum`. The
+//   foam stays where it formed and dissolves over `trail` seconds, sampled at
+//   SEA_BREAKING_LAGS lags of the recent past (getSeaBreakingLags()); as it
+//   ages, a lace `scale` per world unit opens holes in it.
+// - `crestFoam` picks which foam the crests carry: SEA_CREST_FOAM_STYLES.
 // - Foam lines: the coast's animated contour lines (getSeaRipple()), from
 //   `start` to `full` and from `fadeStart` to `end` units of depth,
 //   `frequency` lines per unit of depth moving at `speed`, sharpened by the
@@ -47,8 +54,8 @@
 //   at `wobbleFrequency` per world unit, and broken into dashes by a noise of
 //   `dashScale` per world unit weighted by `dashAmount`. The sea state scales
 //   them by up to ± `stateBoost`.
-// - `foamColor` (sRGB) colors the foam lines of the coast and the crests; `debugView` paints
-//   the sea with one of SEA_SURFACE_DEBUG_VIEWS.
+// - `foamColor` (sRGB) colors the foam of the coast and the crests;
+//   `debugView` paints the sea with one of SEA_SURFACE_DEBUG_VIEWS.
 
 export const SEA_TYPES = Object.freeze(['sea', 'ocean'])
 export const SEA_WAVE_COUNT = 4
@@ -62,6 +69,12 @@ export const SEA_GRAVITY = 9.81
 // Boats store their depth (world units) in steps of this size (packBoatTint()
 // in src/sceneryPlacement.js).
 export const SEA_BOAT_DEPTH_STEP = 0.25
+
+export const SEA_CREST_FOAM_STYLES = Object.freeze({ lines: 0, breaking: 1, both: 2 })
+
+// Lags of the breaking foam's trail into the recent past, sampled by the
+// shader with weights 0.8, 0.6, 0.4, and 0.2.
+export const SEA_BREAKING_LAGS = 4
 
 export const SEA_SURFACE_DEBUG_VIEWS = Object.freeze({
 	none: 0,
@@ -92,6 +105,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	vertex: Object.freeze({ fadeStart: 183, fadeEnd: 240 }),
 	oceanBlend: 0.05,
 	foamColor: '#ffffff',
+	crestFoam: SEA_CREST_FOAM_STYLES.lines,
 	debugView: SEA_SURFACE_DEBUG_VIEWS.none,
 	sea: Object.freeze({
 		waves: Object.freeze({
@@ -121,6 +135,14 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			intensity: 0.85,
 			minimum: 0.55,
 			waves: 3,
+		}),
+		breaking: Object.freeze({
+			threshold: 0.62,
+			softness: 0.12,
+			intensity: 0.9,
+			scale: 0.15,
+			trail: 2.5,
+			minimum: 0.35,
 		}),
 		foam: FOAM_LINE_DEFAULTS,
 	}),
@@ -153,11 +175,19 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			minimum: 0.48,
 			waves: 3,
 		}),
+		breaking: Object.freeze({
+			threshold: 0.6,
+			softness: 0.12,
+			intensity: 0.95,
+			scale: 0.1,
+			trail: 1.5,
+			minimum: 0.45,
+		}),
 		foam: FOAM_LINE_DEFAULTS,
 	}),
 })
 
-const GROUPS = ['waves', 'coast', 'ripples', 'crests', 'foam']
+const GROUPS = ['waves', 'coast', 'ripples', 'crests', 'breaking', 'foam']
 
 // A mutable copy of SEA_SURFACE_DEFAULTS (params.seaSurface).
 export function createSeaSurfaceSettings(defaults = SEA_SURFACE_DEFAULTS) {
@@ -167,6 +197,7 @@ export function createSeaSurfaceSettings(defaults = SEA_SURFACE_DEFAULTS) {
 		vertex: { ...defaults.vertex },
 		oceanBlend: defaults.oceanBlend,
 		foamColor: defaults.foamColor,
+		crestFoam: defaults.crestFoam,
 		debugView: defaults.debugView,
 		sea: copyType(defaults.sea),
 		ocean: copyType(defaults.ocean),
@@ -180,6 +211,7 @@ export function copySeaSurfaceSettings(source, target) {
 	Object.assign(target.vertex, source.vertex)
 	target.oceanBlend = source.oceanBlend
 	target.foamColor = source.foamColor
+	target.crestFoam = source.crestFoam
 	target.debugView = source.debugView
 	for (const type of SEA_TYPES) {
 		for (const group of GROUPS) Object.assign(target[type][group], source[type][group])
@@ -188,6 +220,14 @@ export function copySeaSurfaceSettings(source, target) {
 }
 
 const degrees = Math.PI / 180
+
+// The SEA_BREAKING_LAGS lags (seconds into the past) of a breaking foam
+// `trail` seconds long: evenly spaced, the last one a fifth of the trail
+// before its end, where its weight would reach 0.
+export function getSeaBreakingLags(trail) {
+	const step = Math.max(trail, 0) / (SEA_BREAKING_LAGS + 1)
+	return Array.from({ length: SEA_BREAKING_LAGS }, (_, index) => (index + 1) * step)
+}
 
 // The SEA_WAVE_COUNT Gerstner components of one type's `waves` settings:
 // unit direction (x, z), wavenumber k, angular speed omega, amplitude (world

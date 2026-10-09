@@ -19,6 +19,11 @@ uniform vec4 uSeaWaves[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
 // Per component, x: amplitude, y: horizontal reach at full steepness (world
 // units).
 uniform vec2 uSeaWaveSizes[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
+// Per component, the cosine and sine of its phase change over the four lags
+// of the breaking foam's trail (getSeaBreakingFoam()), so the squeeze of the
+// recent past costs no trigonometry: sin(θ + ωΔ) = sin θ cos ωΔ + cos θ sin ωΔ.
+uniform vec4 uSeaWaveLagCos[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
+uniform vec4 uSeaWaveLagSin[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
 // Per type, x, y: wave scale in the calmest and roughest regions, z, w:
 // depths where the waves start and are full toward the coast.
 uniform vec4 uSeaWaveShape[SEA_SURFACE_TYPE_COUNT];
@@ -53,6 +58,11 @@ struct SeaWaves {
 	// How much the crests compress the surface: 1 minus the Jacobian of the
 	// horizontal displacement, at most the steepness.
 	float squeeze;
+	// The same squeeze at the four lags of the breaking foam's trail, in the
+	// recent past (uSeaWaveLagCos, uSeaWaveLagSin).
+	vec4 squeezeLag;
+	// The largest squeeze the waves reach here, when every crest meets.
+	float peak;
 	// Share of the full waves the coast and the frozen sea leave.
 	float amount;
 };
@@ -88,7 +98,7 @@ float getSeaVertexFade(vec2 xz) {
 // ground: components shorter than a few pixels fade instead of aliasing (0
 // keeps them all).
 SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float still, float pixel) {
-	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, 0.0);
+	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, vec4(0.0), 0.0, 0.0);
 	vec4 shape = uSeaWaveShape[type];
 	waves.amount = smoothstep(shape.z, shape.w, depth) * (1.0 - still);
 	if (waves.amount <= 0.0) return waves;
@@ -111,6 +121,8 @@ SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float stil
 		waves.offset += vec3(wave.x * h * c, a * s, wave.y * h * c);
 		waves.slope += wavevector * (a * c);
 		waves.squeeze += wave.z * h * s;
+		waves.squeezeLag += (wave.z * h) * (s * uSeaWaveLagCos[index] + c * uSeaWaveLagSin[index]);
+		waves.peak += wave.z * h;
 		if (float(i) < ridgeWaves) {
 			waves.ridge += vec4(wavevector * (a * c), a * s, a);
 			waves.curvature -= vec3(wavevector.x * wavevector.x, wavevector.x * wavevector.y, wavevector.y * wavevector.y) * (a * s);
@@ -132,6 +144,8 @@ SeaWaves getSeaWaves(vec2 xz, float depth, float oceanMask, float state, float s
 		mix(sea.ridge, ocean.ridge, oceanMask),
 		mix(sea.curvature, ocean.curvature, oceanMask),
 		mix(sea.squeeze, ocean.squeeze, oceanMask),
+		mix(sea.squeezeLag, ocean.squeezeLag, oceanMask),
+		mix(sea.peak, ocean.peak, oceanMask),
 		mix(sea.amount, ocean.amount, oceanMask)
 	);
 }

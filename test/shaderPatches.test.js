@@ -93,6 +93,12 @@ test('the terrain patches fit the standard material', () => {
 		terrain.fragmentShader,
 		/getSeaCrestLine\(seaWaves, seaOceanMask, seaState, groundPixel\)/,
 	)
+	// Or breaking foam trailing behind them, from the squeeze of the recent past.
+	assert.match(
+		terrain.fragmentShader,
+		/getSeaBreakingFoam\(seaWaves, wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
+	)
+	assert.match(terrain.fragmentShader, /waves\.squeezeLag \+= /)
 	assert.match(
 		terrain.fragmentShader,
 		/vec3 waveN = vec3\(seaWaveNormal\.x, - seaWaveNormal\.z, seaWaveNormal\.y\);/,

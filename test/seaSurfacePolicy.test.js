@@ -4,9 +4,11 @@ import { createAppParams } from '../src/appParams.js'
 import {
 	copySeaSurfaceSettings,
 	createSeaSurfaceSettings,
+	getSeaBreakingLags,
 	getSeaRegionDrift,
 	getSeaWaveBound,
 	getSeaWaveComponents,
+	SEA_BREAKING_LAGS,
 	SEA_GRAVITY,
 	SEA_SURFACE_DEFAULTS,
 	SEA_TYPES,
@@ -79,7 +81,7 @@ test('the wave components follow the wind, the ratios, and deep water dispersion
 
 test('calm water keeps some crest lines and ripples, the deep ocean more ripples', () => {
 	const { sea, ocean } = SEA_SURFACE_DEFAULTS
-	for (const group of ['crests', 'ripples']) {
+	for (const group of ['crests', 'breaking', 'ripples']) {
 		for (const type of [sea, ocean]) assert.ok(type[group].minimum > 0, group)
 	}
 	assert.ok(ocean.ripples.minimum > sea.ripples.minimum)
@@ -100,6 +102,12 @@ test('the bound covers the largest displacement of both types', () => {
 	}
 	settings.ocean.waves.calm = 5
 	assert.equal(getSeaWaveBound(settings).vertical, settings.ocean.waves.amplitude * 5)
+})
+
+test('the breaking foam samples its trail evenly, short of its end', () => {
+	assert.deepEqual(getSeaBreakingLags(2.5), [0.5, 1, 1.5, 2])
+	assert.deepEqual(getSeaBreakingLags(-1), [0, 0, 0, 0])
+	assert.equal(getSeaBreakingLags(1).length, SEA_BREAKING_LAGS)
 })
 
 test('the regions drift along their direction', () => {
@@ -130,7 +138,28 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 			coast.start,
 			coast.full,
 		])
-		assert.deepEqual(uniforms.uSeaMinimum.value[type].toArray(), [crests.minimum, ripples.minimum])
+		assert.deepEqual(uniforms.uSeaMinimum.value[type].toArray(), [
+			crests.minimum,
+			ripples.minimum,
+			settings[key].breaking.minimum,
+		])
+		// The breaking foam's trail: each component's phase turns over the lags.
+		const lags = getSeaBreakingLags(settings[key].breaking.trail)
+		getSeaWaveComponents(waves).forEach((component, index) => {
+			const slot = type * SEA_WAVE_COUNT + index
+			lags.forEach((lag, step) => {
+				close(
+					uniforms.uSeaWaveLagCos.value[slot].getComponent(step),
+					Math.cos(component.omega * lag),
+					'cos',
+				)
+				close(
+					uniforms.uSeaWaveLagSin.value[slot].getComponent(step),
+					Math.sin(component.omega * lag),
+					'sin',
+				)
+			})
+		})
 		assert.equal(uniforms.uSeaCrestWaves.value[type], crests.waves)
 	})
 

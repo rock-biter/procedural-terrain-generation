@@ -9,6 +9,7 @@ import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
 import {
+	getSeaBreakingLags,
 	getSeaRegionDrift,
 	getSeaWaveComponents,
 	SEA_TYPES,
@@ -85,6 +86,12 @@ export function createSharedUniforms(params, seed) {
 		uSeaWaveSizes: {
 			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector2()),
 		},
+		uSeaWaveLagCos: {
+			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector4()),
+		},
+		uSeaWaveLagSin: {
+			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector4()),
+		},
 		uSeaWaveShape: { value: perSeaType(() => new Vector4()) },
 		uSeaCrestWaves: { value: perSeaType(() => 0) },
 		uSeaRegions: { value: new Vector4() },
@@ -97,7 +104,9 @@ export function createSharedUniforms(params, seed) {
 		uSeaRipples: { value: perSeaType(() => new Vector4()) },
 		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
 		uSeaCrestLines: { value: perSeaType(() => new Vector4()) },
-		uSeaMinimum: { value: perSeaType(() => new Vector2()) },
+		uSeaBreaking: { value: perSeaType(() => new Vector4()) },
+		uSeaMinimum: { value: perSeaType(() => new Vector3()) },
+		uSeaCrestFoam: { value: 0 },
 	}
 	updateBiomeOffsetUniforms(uniforms, createBiomeOffset(seed))
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
@@ -191,7 +200,7 @@ const MIN_EDGE_GAP = 0.01
 // crest lines, and the foam lines, with the foam color converted from sRGB to
 // linear.
 export function updateSeaSurfaceUniforms(uniforms, settings) {
-	const { regions, vertex, oceanBlend, foamColor, debugView } = settings
+	const { regions, vertex, oceanBlend, foamColor, crestFoam, debugView } = settings
 	const fadeStart = Math.max(vertex.fadeStart, 0)
 	uniforms.uSeaSurface.value.set(
 		fadeStart,
@@ -202,12 +211,17 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 	const [driftX, driftZ] = getSeaRegionDrift(regions)
 	uniforms.uSeaRegions.value.set(1 / Math.max(regions.scale, 1), regions.contrast, driftX, driftZ)
 	uniforms.uSeaFoamColor.value.set(foamColor)
+	uniforms.uSeaCrestFoam.value = crestFoam
 	SEA_TYPES.forEach((key, type) => {
-		const { waves, coast, ripples, crests, foam } = settings[key]
+		const { waves, coast, ripples, crests, breaking, foam } = settings[key]
+		const lags = getSeaBreakingLags(breaking.trail)
 		getSeaWaveComponents(waves).forEach((component, index) => {
 			const slot = type * SEA_WAVE_COUNT + index
 			uniforms.uSeaWaves.value[slot].set(component.x, component.z, component.k, component.omega)
 			uniforms.uSeaWaveSizes.value[slot].set(component.amplitude, component.reach)
+			const turns = lags.map((lag) => component.omega * lag)
+			uniforms.uSeaWaveLagCos.value[slot].fromArray(turns.map(Math.cos))
+			uniforms.uSeaWaveLagSin.value[slot].fromArray(turns.map(Math.sin))
 		})
 		const coastStart = Math.max(coast.start, 0)
 		uniforms.uSeaWaveShape.value[type].set(
@@ -229,7 +243,13 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 			crests.width,
 			crests.intensity,
 		)
-		uniforms.uSeaMinimum.value[type].set(crests.minimum, ripples.minimum)
+		uniforms.uSeaBreaking.value[type].set(
+			breaking.threshold,
+			Math.max(breaking.softness, 1e-3),
+			breaking.intensity,
+			breaking.scale,
+		)
+		uniforms.uSeaMinimum.value[type].set(crests.minimum, ripples.minimum, breaking.minimum)
 		uniforms.uSeaCrestWaves.value[type] = crests.waves
 		const bandStart = Math.max(foam.start, 0)
 		const fadeEdge = Math.max(foam.fadeStart, 0)

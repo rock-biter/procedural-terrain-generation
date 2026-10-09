@@ -147,12 +147,14 @@ if (seaIce > 0.5) terrainBand = TERRAIN_BAND_SNOW;
 // The deep ocean's settings take over inside its border.
 float seaState = vSeaState;
 float seaOceanMask = getSeaOceanMask(oceanValue);
-SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, 0.0);
+SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, vec4(0.0), 0.0, 0.0);
 if (wPosition.y < 0.0) {
 	float seaStill = iceValue > 0.0 ? max(getSeaIceStill(wPosition.y, iceValue), seaIce) : 0.0;
 	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel);
-	float crestLine = getSeaCrestLine(seaWaves, seaOceanMask, seaState, groundPixel);
-	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestLine);
+	int crestFoamStyle = int(uSeaCrestFoam + 0.5);
+	float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, seaOceanMask, seaState, groundPixel) : 0.0;
+	if (crestFoamStyle > 0) crestFoam = max(crestFoam, getSeaBreakingFoam(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel));
+	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam);
 }
 vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
 
