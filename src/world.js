@@ -1,5 +1,6 @@
 import { MathUtils, Timer } from 'three'
-import { createBiomeOffset } from './biome'
+import Aurora from './aurora'
+import { createBiomeOffset, getIceValue } from './biome'
 import { getHeight } from './chunkGeometry'
 import ChunkManager from './chunkManager'
 import Clouds from './clouds'
@@ -24,10 +25,9 @@ const SPAWN_CLEARANCE = 60
 // so the loading screen already has its colors), then, once the startup
 // assets have loaded (init()), the airplane, scenery impostors (with the boat
 // model's sources) and shadows, the sea foam around the sea rocks, clouds,
-// terrain chunks, and the debug
-// helpers. It owns the frame loop and
-// its update order, the world seed, and the runtime terrain actions the
-// ?gui=1 panel calls.
+// terrain chunks, the aurora over the ice, and the debug helpers. It owns the
+// frame loop and its update order, the world seed, and the runtime terrain
+// and aurora actions the ?gui=1 panel calls.
 //
 // `setup` is the RenderSetup, `params` createAppParams(), `uniforms`
 // createSharedUniforms(). `airplaneModel` is the AIRPLANE_MODELS entry,
@@ -42,6 +42,7 @@ export default class World {
 	seaFoam = null
 	clouds = null
 	cloudShadows = null
+	aurora = null
 	terrainSampleDebug = null
 	flightPause = null
 
@@ -167,6 +168,16 @@ export default class World {
 		)
 		this.plane.setTerrainSampler((x, z) => this.sampleHeight(x, z))
 
+		if (this.features.aurora) {
+			// The ice field with the live biome offset, which a new seed replaces.
+			this.aurora = new Aurora({
+				uniforms,
+				settings: params.aurora,
+				sampleIce: (x, z) => getIceValue(x, z, this.chunkManager.biomeOffset, params.biomes),
+			})
+			scene.add(this.aurora)
+		}
+
 		this.plane.position.y = this.getSpawnAltitude(0, 0)
 		if (this.holdUntilPlay) this.plane.hold()
 		scene.add(this.plane)
@@ -209,13 +220,15 @@ export default class World {
 	}
 
 	// Switches the world to a new seed: terrain noise, biomes (CPU and shader),
-	// scenery, and clouds regenerate around the airplane. Before init() only the
-	// seed and the biome uniform change; ChunkManager and Clouds are then created
-	// with the new seed.
+	// scenery, and clouds regenerate around the airplane, and the aurora, whose
+	// ice region moved, is removed. Before init() only the seed and the biome
+	// uniform change; ChunkManager and Clouds are then created with the new
+	// seed.
 	applyWorldSeed(seed) {
 		if (seed === this.seed) return
 		this.seed = seed
 		this.clouds?.setSeed(seed)
+		this.aurora?.reset()
 
 		if (!this.chunkManager) {
 			this.uniforms.uBiomeOffset.value.fromArray(createBiomeOffset(seed))
@@ -251,6 +264,13 @@ export default class World {
 		const offset = plane.position.clone()
 		plane.teleport(x, this.getSpawnAltitude(x, z), z)
 		this.flightPause?.moveBy(offset.subVectors(plane.position, offset))
+	}
+
+	// Debug (?gui=1): replaces the aurora with a new one over the airplane,
+	// shown at once. Ignored before init().
+	spawnAurora() {
+		if (!this.aurora) return
+		this.aurora.spawnAt(this.plane.position.x, this.plane.position.z, { instant: true })
 	}
 
 	// Shows or recolors the debug wireframe on the near meshes and impostors.
@@ -303,6 +323,9 @@ export default class World {
 		// The frozen sea grows through the night and melts back by noon.
 		updateSeaIceShelf(uniforms, this.params.seaIce, dayNightState.timeOfDay)
 		frameStats.mark('dayNight')
+		// The timer's first delta after the tab is shown again can be negative.
+		this.aurora?.update(Math.max(deltaTime, 0), plane.position, dayNightState)
+		frameStats.mark('aurora')
 
 		this.chunkManager.updateChunks()
 		frameStats.mark('chunks')
@@ -344,6 +367,7 @@ export default class World {
 			getShadowStats: () => this.sceneryShadows?.getStats() ?? null,
 			getCloudStats: () => this.clouds?.getStats() ?? null,
 			getCloudShadowStats: () => this.cloudShadows?.getStats() ?? null,
+			getAuroraStats: () => this.aurora?.getStats() ?? null,
 			getSeaFoamStats: () => this.seaFoam?.getStats() ?? null,
 			getRenderStats: () => this.setup.getStats(),
 		})

@@ -11,4 +11,5 @@ export const CHUNK_SIZE = 256
 export const WORLD_FEATURES = Object.freeze({
 	scenery: true,
 	clouds: true,
+	aurora: true,
 })

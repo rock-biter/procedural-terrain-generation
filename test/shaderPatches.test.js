@@ -7,13 +7,17 @@ import test from 'node:test'
 import {
 	BoxGeometry,
 	BufferGeometry,
+	Color,
 	Mesh,
 	MeshStandardMaterial,
 	PerspectiveCamera,
 	ShaderLib,
 	Vector2,
 	Vector3,
+	Vector4,
 } from 'three'
+import Aurora from '../src/aurora.js'
+import { createAuroraSettings } from '../src/auroraPolicy.js'
 import Chunk from '../src/chunk.js'
 import Plane from '../src/plane.js'
 import TerrainSampleDebug from '../src/terrainSampleDebug.js'
@@ -92,6 +96,9 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 	)
 	const sceneryShader = patch(scenery, 'physical')
 	assert.match(sceneryShader.fragmentShader, /getSceneryShadow\(impostorShadowPosition/)
+	// The bend shared with the aurora (curvature-bend.glsl).
+	assert.match(sceneryShader.vertexShader, /void getCurvatureBend\(/)
+	assert.match(sceneryShader.vertexShader, /getCurvatureBend\(impostorBase,/)
 	// Only the scenery paints crowns; the palette uniforms always exist.
 	assert.ok('SCENERY_PALETTE' in scenery.defines)
 	assert.match(sceneryShader.vertexShader, /getSceneryPaletteTints\(/)
@@ -175,6 +182,31 @@ test('the trail, propeller, and debug marker patches fit their materials', () =>
 
 	const markers = new TerrainSampleDebug(uniforms)
 	patch(markers.markers[0].material, 'basic')
+})
+
+// The aurora is a ShaderMaterial, without replaceChunks() to catch a missing
+// declaration: every uniform its shaders declare must reach it.
+test('the aurora material supplies every uniform its shaders declare', () => {
+	const shared = {
+		...uniforms,
+		uTime: { value: 0 },
+		uAtmosphere: { value: new Color() },
+		uBiomeOffset: { value: new Vector4() },
+	}
+	const aurora = new Aurora({
+		uniforms: shared,
+		settings: createAuroraSettings(),
+		sampleIce: () => -1,
+	})
+	const { material } = aurora
+	for (const source of [material.vertexShader, material.fragmentShader]) {
+		for (const [, name] of source.matchAll(/^\s*uniform\s+\w+\s+(\w+)/gm)) {
+			assert.ok(name in material.uniforms, name)
+		}
+	}
+	assert.match(material.vertexShader, /getCurvatureBend\(vec3\(groundXZ/)
+	assert.ok(material.transparent && !material.depthWrite && !material.fog)
+	aurora.dispose()
 })
 
 test('the impostor bake shader keeps its detail placeholder', () => {

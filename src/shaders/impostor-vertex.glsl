@@ -14,7 +14,7 @@ vec3 sphereNormal;
 vec3 bendAxis;
 float bendCos;
 float bendSin;
-getSceneryBend(impostorBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
+getCurvatureBend(impostorBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
 distanceFromCamera = baseDistance;
 // Shrink into the fog before the instance leaves its streaming range (the
 // scenery LOD limit, or the cloud field radius).

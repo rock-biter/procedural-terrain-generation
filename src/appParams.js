@@ -1,5 +1,6 @@
 import { ACESFilmicToneMapping } from 'three'
 import { createAdaptivePixelRatioSettings, parsePixelRatio } from './adaptivePixelRatio'
+import { createAuroraSettings, parseAuroraChance } from './auroraPolicy'
 import { createTerrainSettings } from './chunkGeometry'
 import { createCloudSettings } from './cloudPlacement'
 import { createDayNightPalette, DAY_NIGHT_DEFAULTS, getStartTimeOfDay } from './dayNightPolicy'
@@ -18,8 +19,8 @@ import { createTerrainPaletteSettings } from './terrainPalettePolicy'
 
 // The mutable parameters of the app, edited live by the ?gui=1 debug panel
 // (src/debug/debugGui.js) and read by every system. `urlParams` supplies
-// ?time= and ?dpr=; `isMobile` picks the mobile presets; `debug` (either
-// debug flag) starts the day at a fixed time.
+// ?time=, ?dpr=, and ?aurora=; `isMobile` picks the mobile presets; `debug`
+// (either debug flag) starts the day at a fixed time.
 export function createAppParams({ urlParams, isMobile, debug = false }) {
 	return {
 		speedEffect: 0,
@@ -162,6 +163,10 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			},
 			shadows: createCloudShadowSettings({ isMobile }),
 		},
+		// The aurora over the ice biome (src/aurora.js): its chance (?aurora=
+		// overrides it), night window, curtains, motion, and look; see
+		// createAuroraSettings().
+		aurora: createAuroraSettings({ isMobile, chance: parseAuroraChance(urlParams) }),
 		// Airplane propeller rotation in turns per second. With two blades, speeds
 		// near half the frame rate (30 at 60 fps) strobe and look still.
 		propeller: { speed: 4 },

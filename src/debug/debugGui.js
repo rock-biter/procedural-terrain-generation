@@ -8,6 +8,7 @@ import {
 	NoToneMapping,
 	ReinhardToneMapping,
 } from 'three'
+import { copyAuroraSettings, createAuroraSettings } from '../auroraPolicy'
 import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
 import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
@@ -28,7 +29,7 @@ import BiomeMap from './biomeMap'
 // default bundle does not carry it. Every control edits `params`
 // (createAppParams()) or a shared uniform, then calls the owner that applies
 // the change: `world` (src/world.js) for the seed, terrain, scenery, clouds,
-// and shadows, `setup` (src/renderSetup.js) for tone mapping and
+// shadows, and aurora, `setup` (src/renderSetup.js) for tone mapping and
 // post-processing. It is created before the startup assets load, so a
 // world system may not exist yet: its controls then only edit `params`,
 // which the system reads when it is created. It also owns the biome map
@@ -246,6 +247,160 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		for (const [field, [label, max]] of Object.entries(paletteScalars)) {
 			folder.add(keyframe, field, 0, max, 0.01).name(label)
 		}
+	}
+	addAuroraControls(skyFolder)
+
+	// The aurora (src/aurora.js). Debug spawns one over the airplane at once
+	// and reads its state; the shape, motion, and look apply live to the
+	// current aurora, the event settings to the next roll or spawn.
+	function addAuroraControls(parent) {
+		const settings = params.aurora
+		const apply = () => world.aurora?.applySettings()
+		const folder = parent.addFolder('Aurora')
+
+		const debugFolder = folder.addFolder('Debug')
+		const actions = {
+			spawn: () => world.spawnAurora(),
+			replay: () => world.aurora?.replayFadeIn(),
+			clear: () => world.aurora?.clear(),
+		}
+		debugFolder.add(actions, 'spawn').name('Spawn here (replaces)')
+		debugFolder.add(actions, 'replay').name('Replay fade-in')
+		debugFolder.add(settings.debug, 'showByDay').name('Show by day')
+		debugFolder.add(actions, 'clear').name('Clear')
+		const readStats = () => world.aurora?.getStats() ?? null
+		const status = {
+			get state() {
+				const stats = readStats()
+				if (!stats) return 'not built'
+				return `${stats.state}, ${stats.inIce ? 'in' : 'out of'} the ice`
+			},
+			get visibility() {
+				return readStats()?.visibility ?? 0
+			},
+			get rolls() {
+				const stats = readStats()
+				return stats ? `${stats.successes} of ${stats.rolls}` : '-'
+			},
+			get region() {
+				const region = readStats()?.region
+				if (!region) return '-'
+				return `${region.cells} cells${region.synthetic ? ' (disc)' : ''}`
+			},
+			get mesh() {
+				const stats = readStats()
+				return stats ? `${stats.ribbons} × ${stats.columns} × ${stats.rows}` : '-'
+			},
+		}
+		const statusLabels = {
+			state: 'State',
+			visibility: 'Visibility',
+			rolls: 'Auroras of rolls',
+			region: 'Region',
+			mesh: 'Ribbons × columns × rows',
+		}
+		for (const [key, label] of Object.entries(statusLabels)) {
+			debugFolder.add(status, key).name(label).listen().disable()
+		}
+
+		const eventFolder = folder.addFolder('Event')
+		eventFolder.add(settings, 'chance', 0, 1, 0.01).name('Chance per roll')
+		eventFolder.add(settings, 'fadeIn', 0, 30, 0.5).name('Fade-in (s)')
+		const nightFolder = eventFolder.addFolder('Night (palette time)')
+		nightFolder.add(settings.night, 'start', 0.5, 1, 0.005).name('Rises from')
+		nightFolder.add(settings.night, 'full', 0.5, 1, 0.005).name('Full from')
+		nightFolder.add(settings.night, 'fade', 0, 0.5, 0.005).name('Falls from')
+		nightFolder.add(settings.night, 'end', 0, 0.5, 0.005).name('Gone at')
+		eventFolder.add(settings.ice, 'enter', 0, 0.1, 0.001).name('Enter at ice field')
+		eventFolder.add(settings.ice, 'exit', 0, 0.2, 0.001).name('Leave below −')
+		eventFolder.add(settings.region, 'cellSize', 100, 1000, 10).name('Region cell (units)')
+		eventFolder.add(settings.region, 'maxCells', 500, 20000, 100).name('Region max cells')
+		eventFolder.add(settings.region, 'blur', 0, 4, 1).name('Region blur')
+
+		const areaFolder = folder.addFolder('Area')
+		const areaControls = [
+			['radius', 'Radius', 1000, 6000, 50],
+			['fadeStart', 'Fade from (× radius)', 0, 1, 0.01],
+			['spacing', 'Ribbon spacing', 200, 2000, 10],
+			['jitter', 'Jitter (× spacing)', 0, 1, 0.01],
+			['step', 'Segment length', 10, 200, 1],
+			['rows', 'Rows', 1, 12, 1],
+			['altitude', 'Altitude', 0, 2000, 10],
+			['height', 'Height', 50, 3000, 10],
+			['heightVariation', 'Height variation', 0, 1, 0.01],
+		]
+		for (const [key, label, min, max, step] of areaControls) {
+			areaFolder.add(settings.area, key, min, max, step).name(label).onChange(apply)
+		}
+
+		const motionFolder = folder.addFolder('Motion')
+		const driftGroups = { meander: 'Meander', fold: 'Folds', sway: 'Sway (top)' }
+		for (const [key, label] of Object.entries(driftGroups)) {
+			const groupFolder = motionFolder.addFolder(label)
+			groupFolder.add(settings[key], 'amplitude', 0, 1500, 5).name('Amplitude').onChange(apply)
+			groupFolder.add(settings[key], 'wavelength', 20, 8000, 10).name('Wavelength').onChange(apply)
+			groupFolder.add(settings[key], 'speed', 0, 1, 0.005).name('Speed').onChange(apply)
+		}
+		const presenceFolder = motionFolder.addFolder('Arcs (presence)')
+		presenceFolder
+			.add(settings.presence, 'wavelength', 200, 10000, 10)
+			.name('Wavelength')
+			.onChange(apply)
+		presenceFolder
+			.add(settings.presence, 'threshold', -1, 1, 0.01)
+			.name('Threshold')
+			.onChange(apply)
+		presenceFolder
+			.add(settings.presence, 'softness', 0.01, 1, 0.01)
+			.name('Softness')
+			.onChange(apply)
+		presenceFolder.add(settings.presence, 'speed', 0, 0.2, 0.001).name('Speed').onChange(apply)
+
+		const lookFolder = folder.addFolder('Look')
+		const colorLabels = { bottom: 'Base color', middle: 'Middle color', top: 'Top color' }
+		for (const [key, label] of Object.entries(colorLabels)) {
+			lookFolder.addColor(settings.colors, key).name(label).onChange(apply)
+		}
+		const lookControls = [
+			['intensity', 'Intensity', 0, 10, 0.05],
+			['middleStop', 'Middle color height', 0.01, 0.99, 0.01],
+			['bottomSoftness', 'Base softness', 0, 0.5, 0.005],
+			['topSoftness', 'Top softness', 0, 1, 0.01],
+			['falloff', 'Top dimming', 0, 1, 0.01],
+			['horizonFade', 'Horizon fade (rad)', 0, 0.5, 0.005],
+			['edgeFade', 'Edge-on fade', 0, 1, 0.01],
+		]
+		for (const [key, label, min, max, step] of lookControls) {
+			lookFolder.add(settings.look, key, min, max, step).name(label).onChange(apply)
+		}
+		const raysFolder = lookFolder.addFolder('Rays')
+		raysFolder.add(settings.rays, 'wavelength', 2, 200, 0.5).name('Wavelength').onChange(apply)
+		raysFolder.add(settings.rays, 'speed', 0, 3, 0.01).name('Speed').onChange(apply)
+		raysFolder.add(settings.rays, 'sharpness', 0.5, 8, 0.05).name('Sharpness').onChange(apply)
+		raysFolder.add(settings.rays, 'strength', 0, 1, 0.01).name('Strength').onChange(apply)
+		const pulseFolder = lookFolder.addFolder('Pulses')
+		pulseFolder.add(settings.pulse, 'wavelength', 50, 5000, 10).name('Wavelength').onChange(apply)
+		pulseFolder.add(settings.pulse, 'speed', 0, 1, 0.005).name('Speed').onChange(apply)
+		pulseFolder.add(settings.pulse, 'strength', 0, 1, 0.01).name('Strength').onChange(apply)
+
+		const presets = {
+			copy() {
+				const json = JSON.stringify(
+					settings,
+					(key, value) => (typeof value === 'number' ? Math.round(value * 1000) / 1000 : value),
+					'\t',
+				)
+				console.log(json)
+				navigator.clipboard?.writeText(json).catch(() => {})
+			},
+			reset() {
+				copyAuroraSettings(createAuroraSettings({ isMobile: world.isMobile }), settings)
+				for (const controller of folder.controllersRecursive()) controller.updateDisplay()
+				apply()
+			},
+		}
+		folder.add(presets, 'copy').name('Copy aurora JSON')
+		folder.add(presets, 'reset').name('Reset aurora')
 	}
 
 	const toneMappingFolder = gui.addFolder('Tone mapping')
@@ -532,7 +687,10 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				.add(params.biomes, key, min, max, step)
 				.name(label)
 				.onChange(updateBiomes)
-				.onFinishChange(regenerateTerrain)
+				.onFinishChange(() => {
+					regenerateTerrain()
+					world.aurora?.refreshRegion()
+				})
 		}
 
 		const mapFolder = biomesFolder.addFolder('Map')

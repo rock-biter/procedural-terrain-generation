@@ -15,7 +15,7 @@ vec3 sphereNormal;
 vec3 bendAxis;
 float bendCos;
 float bendSin;
-getSceneryBend(sceneryBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
+getCurvatureBend(sceneryBase, baseDistance, curvedBase, sphereNormal, bendAxis, bendCos, bendSin);
 // Clouds (SCENERY_FACE_AIRPLANE) turn to face the airplane, exactly as their
 // impostor does; their yaw slot only seeds the dither.
 #ifdef SCENERY_FACE_AIRPLANE

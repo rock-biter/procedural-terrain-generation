@@ -63,8 +63,8 @@ export default class DayNight {
 			uGradientHeight: { value: settings.skyGradientHeight },
 		}
 
-		// The only ShaderMaterial in the scene: the sky is unlit and ignores fog.
-		// It is drawn after every opaque mesh, on the far plane (sky.vert.glsl)
+		// A ShaderMaterial, like the aurora's (src/aurora.js): the sky is unlit
+		// and ignores fog. It is drawn after every opaque mesh, on the far plane (sky.vert.glsl)
 		// with the depth test on, so only the pixels the scene leaves empty run
 		// its shader. Samples that alpha-to-coverage impostors leave uncovered
 		// keep the cleared depth, so the sky still fills them.

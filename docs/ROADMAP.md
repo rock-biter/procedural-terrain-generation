@@ -8,7 +8,7 @@ The first analysis focuses on terrain generation and streaming because they domi
 
 Last baseline review: **2026-09-26**. The full-project review of **2026-10-02** ([Project Review](reviews/2026-10-02-project-review.md)) lists its findings by area, a phased plan, and which items are done; promote an item into this register when it becomes part of a milestone.
 
-Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, rocks, sea rocks, and boats as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) and clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`). The historical cost analysis of the former per-chunk clouds stays in this document for reference.
+Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, rocks, sea rocks, and boats as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`), and the aurora over the ice (`FEAT-008`). The historical cost analysis of the former per-chunk clouds stays in this document for reference.
 
 Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
 
@@ -399,6 +399,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 | `FEAT-005` | Soft scenery shadows                                            | In progress | [Rendering](RENDERING.md#scenery-shadows)                                                      |
 | `FEAT-006` | Carved-wood clouds with impostors and cloud shadows             | In progress | [Terrain](TERRAIN.md#clouds), [Rendering](RENDERING.md#clouds)                                 |
 | `FEAT-007` | Ice biome, frozen sea, and biome tuning tools                   | In progress | [Terrain](TERRAIN.md#biome-field), [Rendering](RENDERING.md#sea-ice), [Experience](EXPERIENCE.md#debug-biome-map) |
+| `FEAT-008` | Aurora borealis over the ice                                    | In progress | [Rendering](RENDERING.md#aurora), [Experience](EXPERIENCE.md#movement-and-camera)              |
 
 ### `FEAT-001`: Post-Processing Pipeline And Speed Effect
 
@@ -437,6 +438,11 @@ The features below are implemented; their behavior, parameters, and costs live i
 
 - **Rejected:** one climate field split into three ranges (the ice would only be the forest's cold core, never as large as a forest region while staying rare); a fixed world offset for the ice field (its broad layers left almost every seed's spawn area in one window of the noise: about 1% of seeds had ice near the origin instead of about 6%); a floe edge evaluated at each Voronoi cell's center (the height there is unknown to the fragment shader, and extrapolating it from derivatives cuts plates along triangle edges); raising the ice's whole land for taller peaks (the flight ceiling: its sparse mountains instead rise toward an absolute summit, `peakHeight` `80`); a warp of the mountains' outline steep enough to fold the distance (it cut cliffs into their flanks); evaluating the biome per vertex in the scenery shaders (about 2% of frame time at 4K, removed by storing the biome slot in the instance tint); evaluating the ice field per pixel (about 3%, removed by interpolating it from the vertices).
 - **Open:** visual tuning of the ice and sea ice palettes and the floe shape, of the ice mountains, and of the ice spikes' patches and colors; boats in the ice biome's open water; a normal-map layer of its own for the sea ice (it borrows the snow's); the peaks above the flight ceiling that predate the ice ([Terrain](TERRAIN.md#open-questions)).
+
+### `FEAT-008`: Aurora Borealis Over The Ice
+
+- **Rejected:** curtains per chunk (meshes would have to match across chunk edges, and the aurora is one event over a region); a finite aurora centered on its region (on a world of radius `3000` a curtain top sinks below the horizon about `3` km away, so most of a large region would see nothing: a world-anchored field drawn in a window around the airplane instead); masking the curtains with the ice field in the shader (an endless field would light every other ice region too: a mask of the rolled region from a CPU flood fill instead); drawing the aurora in the sky dome by view direction (no parallax while flying under it, and not the noise-deformed ribbons asked for); auroras seeded by the world (they are random, so a region never has a fixed aurora).
+- **Open:** a faint glow of the aurora on the snow and the sea; tuning of the night window against the palettes; the region scan on the main thread (about `1`–`5` ms once per aurora); a mobile run under an aurora.
 
 Add further features with this template:
 
