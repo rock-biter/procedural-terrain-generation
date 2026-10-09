@@ -6,6 +6,7 @@ import {
 	BIOME_CLIMATE_LAYERS,
 	BIOME_COUNT,
 	BIOME_ICE_LAYERS,
+	BIOME_OCEAN_LAYERS,
 	BIOME_SHADER_DEFINES,
 	getTerrainBand,
 	SAND_LEVEL,
@@ -47,16 +48,18 @@ test('the material defines every band and biome constant the terrain shaders rea
 test('defines are GLSL literals', () => {
 	const float = '-?\\d+\\.\\d*(?:e-?\\d+)?'
 	for (const [name, value] of Object.entries(TERRAIN_SHADER_DEFINES)) {
-		if (/^TERRAIN_BAND_|_COUNT$|^BIOME_(?:DESERT|TEMPERATE|ICE)$/.test(name)) {
+		if (/^TERRAIN_BAND_|_COUNT$|^BIOME_(?:DESERT|TEMPERATE|ICE|DEEP_OCEAN)$/.test(name)) {
 			assert.match(value, /^\d+$/, name)
-		} else if (/_WAVE$|^BIOME_(?:CLIMATE|ICE)_LAYER_|^COAST_ROCK_(?:LAYER_|OFFSET$)/.test(name))
+		} else if (
+			/_WAVE$|^BIOME_(?:CLIMATE|ICE|OCEAN)_LAYER_|^COAST_ROCK_(?:LAYER_|OFFSET$)/.test(name)
+		)
 			assert.match(value, new RegExp(`^vec2\\(${float}, ${float}\\)$`), name)
 		else assert.match(value, new RegExp(`^${float}$`), name)
 	}
 })
 
 test('the biome ids reach the shaders as defines', () => {
-	assert.equal(BIOME_COUNT, 3)
+	assert.equal(BIOME_COUNT, 4)
 	for (const [name, id] of Object.entries(BIOME)) {
 		assert.equal(BIOME_SHADER_DEFINES[`BIOME_${name}`], String(id))
 		assert.equal(TERRAIN_SHADER_DEFINES[`BIOME_${name}`], String(id))
@@ -71,6 +74,7 @@ test('the shaders sum every biome layer and sample every band layer', () => {
 	for (const [prefix, layers] of [
 		['BIOME_CLIMATE_LAYER', BIOME_CLIMATE_LAYERS],
 		['BIOME_ICE_LAYER', BIOME_ICE_LAYERS],
+		['BIOME_OCEAN_LAYER', BIOME_OCEAN_LAYERS],
 	]) {
 		layers.forEach((_, index) => assert.match(biome, new RegExp(`${prefix}_${index}\\b`)))
 		assert.doesNotMatch(biome, new RegExp(`${prefix}_${layers.length}\\b`))

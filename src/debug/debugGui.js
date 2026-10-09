@@ -11,6 +11,7 @@ import {
 import { copyAuroraSettings, createAuroraSettings } from '../auroraPolicy'
 import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
+import { ISLET_HEIGHT_CAP } from '../deepOcean'
 import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
 import { SCENERY_CATEGORIES, SCENERY_CELL_SIZES, SCENERY_TYPE_KEYS } from '../sceneryPlacement'
 import { BIOME, TERRAIN_BANDS } from '../terrainBands'
@@ -522,6 +523,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		seaRocks: 'Sea rocks',
 		boats: 'Boats',
 		iceSpikes: 'Ice spikes',
+		palms: 'Palms',
 	}
 	for (const [category, types] of Object.entries(SCENERY_CATEGORIES)) {
 		const folder = sceneryFolder.addFolder(sceneryLabels[category])
@@ -544,6 +546,16 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		if (category === 'seaRocks') addSeaRockControls(folder)
 		if (category === 'iceSpikes') addIceSpikeControls(folder)
 		if (category === 'boats') addBoatControls(folder)
+		if (category === 'palms') addPalmControls(folder)
+	}
+
+	// The palms of the deep ocean's islets (settings.palms): spots per islet,
+	// the lowest ground, and the spacing; the release re-places the scenery.
+	function addPalmControls(folder) {
+		const { palms } = params.scenery
+		folder.add(palms, 'maxPerIslet', 0, 6, 1).name('Max per islet').onFinishChange(updateScenery)
+		folder.add(palms, 'minHeight', 0, 8, 0.1).name('Min height').onFinishChange(updateScenery)
+		folder.add(palms, 'spacing', 0, 12, 0.1).name('Spacing').onFinishChange(updateScenery)
 	}
 
 	// The sea rocks' depth, scale range, and satellites (settings.seaRocks);
@@ -681,6 +693,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			['iceThreshold', 'Ice rarity', 0.2, 1.1, 0.01],
 			// Below the desert and ice blends, their topographies overlap.
 			['iceRing', 'Forest ring', 0.02, 0.5, 0.005],
+			['oceanSize', 'Deep ocean size ×', 0.25, 4, 0.05],
+			['oceanThreshold', 'Deep ocean rarity', 0, 1.1, 0.01],
 		]
 		for (const [key, label, min, max, step] of distributionControls) {
 			distributionFolder
@@ -758,14 +772,66 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		addSeaIceControls(iceFolder)
 		addRockColors(iceFolder, BIOME.ICE, ['boulder', 'iceSpike', 'seaRock'])
 
+		const oceanFolder = biomesFolder.addFolder('Deep ocean')
+		addTerrainPalette(oceanFolder, 'deepOcean')
+		// The floor and the slope that reaches it outside the biome (the blend
+		// stays inside OCEAN_FIELD_REACH, src/biome.js), then the archipelagos
+		// (src/deepOcean.js), whose summits stop under the rocks band.
+		const oceanTopography = oceanFolder.addFolder('Topography')
+		const oceanControls = [
+			['depth', 'Floor depth', 20, 200, 1],
+			['blend', 'Slope width', 0.01, 0.3, 0.005],
+		]
+		const isletControls = [
+			['isletSpacing', 'Archipelago spacing', 600, 6000, 10],
+			['isletChance', 'Archipelago chance', 0, 1, 0.01],
+			['isletMargin', 'Border margin', 0.005, 0.3, 0.005],
+			['bankRadius', 'Bank radius', 40, 800, 5],
+			['bankDepth', 'Bank depth', 1, 40, 0.5],
+			['isletRadius', 'Islet radius', 10, 150, 1],
+			['isletHeight', 'Islet height', 1, ISLET_HEIGHT_CAP, 0.1],
+		]
+		const isletsFolder = oceanFolder.addFolder('Islets')
+		for (const [folder, controls] of [
+			[oceanTopography, oceanControls],
+			[isletsFolder, isletControls],
+		]) {
+			for (const [key, label, min, max, step] of controls) {
+				folder
+					.add(params.deepOcean, key, min, max, step)
+					.name(label)
+					.onFinishChange(regenerateTerrain)
+			}
+		}
+		isletsFolder
+			.add(params.deepOcean.isletCount, 'min', 0, 8, 1)
+			.name('Min islets')
+			.onFinishChange(regenerateTerrain)
+		isletsFolder
+			.add(params.deepOcean.isletCount, 'max', 0, 8, 1)
+			.name('Max islets')
+			.onFinishChange(regenerateTerrain)
+		addPalette(oceanFolder, 'palms', 'Palm palette')
+		addRockColors(oceanFolder, BIOME.DEEP_OCEAN, ['seaRock'])
+
 		const seaFolder = biomesFolder.addFolder('Sea')
-		const seaLabels = { shallow: 'Shallow', mid: 'Open sea', deep: 'Deep sea' }
+		const seaLabels = { shallow: 'Shallow', mid: 'Open sea', deep: 'Deep sea', abyss: 'Abyss' }
 		for (const name of TERRAIN_SEA_COLORS) {
 			seaFolder
 				.addColor(params.terrainPalette.sea, name)
 				.name(seaLabels[name])
 				.onChange(updateTerrainPalette)
 		}
+		// Depths, below the sea surface, where the deep ocean's abyss color
+		// starts and is full.
+		seaFolder
+			.add(params.terrainPalette.abyssDepth, 'start', 10, 200, 1)
+			.name('Abyss from (depth)')
+			.onChange(updateTerrainPalette)
+		seaFolder
+			.add(params.terrainPalette.abyssDepth, 'end', 11, 250, 1)
+			.name('Abyss full at (depth)')
+			.onChange(updateTerrainPalette)
 	}
 
 	// Live: a biome's land band colors, the drift of each band toward its

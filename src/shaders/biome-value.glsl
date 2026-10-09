@@ -5,8 +5,9 @@
 // already shifted by uBiomeOffset.xy; each BIOME_*_LAYER_* define
 // (BIOME_SHADER_DEFINES in src/terrainBands.js) is (frequency, weight).
 // src/biome.js mirrors every function with the same summation order: the
-// climate splits temperate (>= 0) and desert, and the ice field, >= 0 inside
-// the ice, overrides both.
+// climate splits temperate (>= 0) and desert, the ice field, >= 0 inside the
+// ice, overrides both, and the deep ocean field, >= 0 inside the deep ocean
+// and cut by the ice, overrides all three.
 #ifndef BIOME_VALUE
 #define BIOME_VALUE
 
@@ -17,6 +18,11 @@ uniform vec4 uBiomeClimate;
 // x: 1 / ice size, y: ice threshold, z: forest ring, w: upper bound of the ice
 // field's gradient per world unit.
 uniform vec4 uBiomeIce;
+// x: 1 / deep ocean size, y: deep ocean threshold, z and w: unused.
+uniform vec4 uBiomeOcean;
+// Noise space offset of the deep ocean field: uBiomeOffset.zw plus
+// OCEAN_NOISE_OFFSET, summed on the CPU (getOceanNoiseOffset()).
+uniform vec2 uBiomeOceanOffset;
 
 // The climate before the forest ring; getClimateNoise() in src/biome.js.
 float getClimateNoise(vec2 biomeXZ) {
@@ -51,8 +57,27 @@ float getClimateValue(float climateNoise, float iceValue) {
 	return max(climateNoise, iceValue + uBiomeIce.z);
 }
 
-// BIOME_DESERT, BIOME_TEMPERATE, or BIOME_ICE; getBiome() in src/biome.js.
-int getBiome(float climateValue, float iceValue) {
+// The deep ocean field's base layer minus the threshold.
+float getOceanBase(vec2 biomeXZ) {
+	return snoise(biomeXZ * (BIOME_OCEAN_LAYER_0.x * uBiomeOcean.x) + uBiomeOceanOffset) * BIOME_OCEAN_LAYER_0.y
+		- uBiomeOcean.y;
+}
+
+float getOceanDetail(vec2 biomeXZ) {
+	return snoise(biomeXZ * (BIOME_OCEAN_LAYER_1.x * uBiomeOcean.x) + uBiomeOceanOffset) * BIOME_OCEAN_LAYER_1.y;
+}
+
+// The effective deep ocean field, cut by the ice (`iceValue`), which it
+// borders directly; getBiomeFields() in src/biome.js. As broad as the ice
+// field, so the terrain evaluates it per vertex too (vOceanValue).
+float getOceanValue(vec2 biomeXZ, float iceValue) {
+	return min(getOceanBase(biomeXZ) + getOceanDetail(biomeXZ), -iceValue);
+}
+
+// BIOME_DEEP_OCEAN, BIOME_ICE, BIOME_TEMPERATE, or BIOME_DESERT; getBiome() in
+// src/biome.js.
+int getBiome(float climateValue, float iceValue, float oceanValue) {
+	if (oceanValue >= 0.0) return BIOME_DEEP_OCEAN;
 	if (iceValue >= 0.0) return BIOME_ICE;
 	return climateValue >= 0.0 ? BIOME_TEMPERATE : BIOME_DESERT;
 }

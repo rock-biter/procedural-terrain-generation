@@ -1,9 +1,9 @@
 import { IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 import { BIOME } from './terrainBands.js'
 
-// Color palettes of the painted scenery types: the trees' crowns, the whole
-// cacti, the whole rocks (boulders, layered rocks, and sea rocks), and the
-// whole ice spikes. Their sources are baked in a neutral gray with a paint mask
+// Color palettes of the painted scenery types: the trees' and palms' crowns,
+// the whole cacti, the whole rocks (boulders, layered rocks, and sea rocks),
+// and the whole ice spikes. Their sources are baked in a neutral gray with a paint mask
 // (src/impostors/impostorArchetypes.js), and the shaders pick one palette
 // color per instance from world-space noise (getSceneryPaletteTints() in
 // scenery-instance-pars-vertex.glsl): every slot has its own noise field, and
@@ -35,6 +35,7 @@ export const SCENERY_PALETTE_TYPES = Object.freeze({
 	[IMPOSTOR_TYPE.SEA_ROCK]: Object.freeze({ palette: 'seaRock', group: 'seaRocks' }),
 	[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: Object.freeze({ palette: 'iceSpike', group: 'iceSpikes' }),
 	[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: Object.freeze({ palette: 'iceSpike', group: 'iceSpikes' }),
+	[IMPOSTOR_TYPE.PALM]: Object.freeze({ palette: 'palm', group: 'palms' }),
 })
 
 export const SCENERY_PAINTED_TYPES = Object.freeze(Object.keys(SCENERY_PALETTE_TYPES).map(Number))
@@ -47,6 +48,7 @@ export const SCENERY_BIOME_SLOTS = Object.freeze({
 	[BIOME.TEMPERATE]: 0,
 	[BIOME.DESERT]: 1,
 	[BIOME.ICE]: 2,
+	[BIOME.DEEP_OCEAN]: 3,
 })
 
 // Every palette once, in type order. A palette's index here selects its noise
@@ -60,15 +62,16 @@ export const SCENERY_PALETTE_KEYS = Object.freeze([
 // instance (0 noise patches only, 1 every instance random). `palettes` holds
 // the colors: sRGB hex strings, labels that name them in the panel, and
 // weights that are relative shares (only their ratios matter, 0 disables a
-// slot); tree palettes also have a `trunk` color. Cacti and sea rocks are
-// painted whole. A palette with `byBiome` ignores the noise and the weights:
-// its colors paint the temperate biome, the desert, and the ice, in that
-// order, as the terrain colors them.
+// slot); tree and palm palettes also have a `trunk` color. Cacti and sea
+// rocks are painted whole. A palette with `byBiome` ignores the noise and the
+// weights: its colors paint the temperate biome, the desert, the ice, and the
+// deep ocean, in that order (SCENERY_BIOME_SLOTS), as the terrain colors them.
 export function createSceneryPaletteSettings() {
 	return {
 		noise: {
 			trees: { frequency: 0.05, mix: 0.9 },
 			cacti: { frequency: 0.05, mix: 0.9 },
+			palms: { frequency: 0.05, mix: 0.9 },
 		},
 		palettes: {
 			roundTree: {
@@ -97,13 +100,15 @@ export function createSceneryPaletteSettings() {
 			},
 			// The boulders and layered rocks of the forest and the desert keep their
 			// former wood tones; the ice frosts its boulders (layered rocks stand
-			// only in the desert, so their ice color is unused).
+			// only in the desert, so their ice color is unused). Neither stands in
+			// the deep ocean, whose slot is unused.
 			boulder: {
 				byBiome: true,
 				colors: [
 					{ label: 'Forest', color: '#c7b18e', weight: 1 },
 					{ label: 'Desert', color: '#deb583', weight: 1 },
 					{ label: 'Ice', color: '#d3e2ec', weight: 1 },
+					{ label: 'Deep ocean', color: '#b9a690', weight: 1 },
 				],
 			},
 			layeredRock: {
@@ -112,24 +117,38 @@ export function createSceneryPaletteSettings() {
 					{ label: 'Forest', color: '#e3c9a0', weight: 1 },
 					{ label: 'Desert', color: '#e3c9a0', weight: 1 },
 					{ label: 'Ice', color: '#dce8f0', weight: 1 },
+					{ label: 'Deep ocean', color: '#e3c9a0', weight: 1 },
 				],
 			},
+			// The deep ocean's islets rise from dark basalt reefs.
 			seaRock: {
 				byBiome: true,
 				colors: [
 					{ label: 'Forest', color: '#5f3b2b', weight: 1 },
 					{ label: 'Desert', color: '#e27865', weight: 1 },
 					{ label: 'Ice', color: '#8fa9bd', weight: 1 },
+					{ label: 'Deep ocean', color: '#3f4652', weight: 1 },
 				],
 			},
-			// Both ice spike types; they stand only in the ice, so the forest and
-			// desert slots repeat its color.
+			// Both ice spike types; they stand only in the ice, so the other slots
+			// repeat its color.
 			iceSpike: {
 				byBiome: true,
 				colors: [
 					{ label: 'Forest', color: '#c6ecfa', weight: 1 },
 					{ label: 'Desert', color: '#c6ecfa', weight: 1 },
 					{ label: 'Ice', color: '#c6ecfa', weight: 1 },
+					{ label: 'Deep ocean', color: '#c6ecfa', weight: 1 },
+				],
+			},
+			// The deep ocean's palms: sun-bleached fronds over a light trunk.
+			palm: {
+				trunk: '#b08a5a',
+				colors: [
+					{ label: 'Green wood', color: '#4f9a3a', weight: 1 },
+					{ label: 'Light green wood', color: '#9cc24a', weight: 1 },
+					{ label: 'Teal green wood', color: '#2f8a63', weight: 1 },
+					{ label: 'Yellow green wood', color: '#c9b84a', weight: 0.5 },
 				],
 			},
 		},

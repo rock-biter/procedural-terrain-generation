@@ -20,18 +20,23 @@ export const TERRAIN_PALETTE_BIOMES = Object.freeze({
 	[BIOME.DESERT]: 'desert',
 	[BIOME.TEMPERATE]: 'temperate',
 	[BIOME.ICE]: 'ice',
+	[BIOME.DEEP_OCEAN]: 'deepOcean',
 })
 
 // Sea colors from the shore down: shallow water, open sea (from 6 to 16
-// units deep), and deep sea (from 24 to 40).
-export const TERRAIN_SEA_COLORS = Object.freeze(['shallow', 'mid', 'deep'])
+// units deep), deep sea (from 24 to 40), and the abyss of the deep ocean
+// (from abyssDepth.start to abyssDepth.end; the rest of the sea never gets
+// that deep).
+export const TERRAIN_SEA_COLORS = Object.freeze(['shallow', 'mid', 'deep', 'abyss'])
 
 function variation(color, amount) {
 	return { color, amount }
 }
 
 // The forest and desert colors reproduce the former shader constants; the ice
-// runs from a white shore through pale blues to deep blue peaks.
+// runs from a white shore through pale blues to deep blue peaks; the deep
+// ocean's islets are tropical, bright sand under lush greens (their rocks and
+// snow bands stay unused: the islets never reach them).
 export function createTerrainPaletteSettings() {
 	return {
 		temperate: {
@@ -88,14 +93,33 @@ export function createTerrainPaletteSettings() {
 			colorNoise: 0.3,
 			lines: 1,
 		},
-		sea: { shallow: '#88fbe4', mid: '#368eba', deep: '#04578b' },
+		deepOcean: {
+			colors: {
+				sand: '#fff3d1',
+				grass: '#8fd16a',
+				land: '#3e9c56',
+				rocks: '#8a7563',
+				snow: '#f4f4f4',
+			},
+			variation: {
+				sand: variation('#f2d59a', 0),
+				grass: variation('#c7d95e', 0),
+				land: variation('#2f7d4c', 0),
+				rocks: variation('#5c4a3d', 0),
+				snow: variation('#ffffff', 0),
+			},
+			colorNoise: 0.6,
+			lines: 1,
+		},
+		sea: { shallow: '#88fbe4', mid: '#368eba', deep: '#04578b', abyss: '#06284f' },
+		abyssDepth: { start: 60, end: 90 },
 	}
 }
 
 // The settings in shader order: `colors` and `variations` ({ color, amount })
 // at biome * 5 + band, `styles` per biome ([colorNoise, lines, 1 when any
-// band varies]), `sea` shallow to deep. Missing entries fall back to the
-// defaults.
+// band varies]), `sea` shallow to abyss, and `abyssDepth` [start, end].
+// Missing entries fall back to the defaults.
 export function getTerrainPaletteLayout(settings) {
 	const defaults = createTerrainPaletteSettings()
 	const colors = []
@@ -119,5 +143,7 @@ export function getTerrainPaletteLayout(settings) {
 		])
 	}
 	const sea = TERRAIN_SEA_COLORS.map((name) => settings?.sea?.[name] ?? defaults.sea[name])
-	return { colors, variations, styles, sea }
+	const start = Math.max(0, Number(settings?.abyssDepth?.start ?? defaults.abyssDepth.start))
+	const end = Math.max(start + 1, Number(settings?.abyssDepth?.end ?? defaults.abyssDepth.end))
+	return { colors, variations, styles, sea, abyssDepth: [start, end] }
 }

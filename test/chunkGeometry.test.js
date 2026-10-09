@@ -4,6 +4,7 @@ import { createBiomeOffset, getBiomeFields } from '../src/biome.js'
 import { COAST_RELIEF_WINDOW } from '../src/coast.js'
 import { PlaneGeometry } from 'three'
 import {
+	DEEP_OCEAN_TERRAIN_DEFAULTS,
 	DESERT_TERRAIN_DEFAULTS,
 	ICE_TERRAIN_DEFAULTS,
 	TERRAIN_DEFAULTS,
@@ -152,6 +153,11 @@ function getIce(x, z) {
 	return getFields(x, z).ice
 }
 
+// Off the deep ocean and the slope that sinks the land around it.
+function isOffOcean(x, z) {
+	return getFields(x, z).ocean < -DEEP_OCEAN_TERRAIN_DEFAULTS.blend
+}
+
 function findPoints(predicate, count) {
 	const points = []
 	for (let index = 0; points.length < count && index < 200000; index++) {
@@ -165,7 +171,9 @@ function findPoints(predicate, count) {
 
 test('keeps temperate heights unchanged away from the biome borders', () => {
 	const temperate = (x, z) =>
-		getValue(x, z) > DESERT_TERRAIN_DEFAULTS.blend && getIce(x, z) < -ICE_TERRAIN_DEFAULTS.blend
+		getValue(x, z) > DESERT_TERRAIN_DEFAULTS.blend &&
+		getIce(x, z) < -ICE_TERRAIN_DEFAULTS.blend &&
+		isOffOcean(x, z)
 	for (const [x, z] of findPoints(temperate, 50)) {
 		assert.equal(getDesertWeight(getValue(x, z), params), 0)
 		assert.equal(getIceWeight(getIce(x, z), params), 0)
@@ -190,7 +198,7 @@ test('flattens desert land progressively with depth into the biome', () => {
 	// Deep inside the desert, land is exactly (1 - flatten) of the unflattened
 	// desert height; sea keeps its depth, so coastlines do not move.
 	const unflattened = { ...params, desert: { ...DESERT_TERRAIN_DEFAULTS, flatten: 0 } }
-	const deep = (x, z) => getValue(x, z) < -depth
+	const deep = (x, z) => getValue(x, z) < -depth && isOffOcean(x, z)
 	let land = 0
 	for (const [x, z] of findPoints(deep, 50)) {
 		const raw = getHeight(x, z, noises, unflattened, biomeOffset)
@@ -262,7 +270,7 @@ test('flattens ice land progressively with depth into the biome', () => {
 	// coastlines and the frozen sea do not move.
 	const plain = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, peakChance: 0 } }
 	const unflattened = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, flatten: 0, peakChance: 0 } }
-	const deep = (x, z) => getIce(x, z) > depth
+	const deep = (x, z) => getIce(x, z) > depth && isOffOcean(x, z)
 	let land = 0
 	for (const [x, z] of findPoints(deep, 50)) {
 		const raw = getHeight(x, z, noises, unflattened, biomeOffset)
@@ -280,7 +288,7 @@ test('flattens ice land progressively with depth into the biome', () => {
 test('raises sparse ice mountains from the land, no higher than peakHeight', () => {
 	const { peakHeight } = ICE_TERRAIN_DEFAULTS
 	const plain = { ...params, ice: { ...ICE_TERRAIN_DEFAULTS, peakChance: 0 } }
-	const points = findPoints((x, z) => getIce(x, z) > 0, 2000)
+	const points = findPoints((x, z) => getIce(x, z) > 0 && isOffOcean(x, z), 2000)
 	let raised = 0
 	for (const [x, z] of points) {
 		const flat = getHeight(x, z, noises, plain, biomeOffset)
@@ -315,6 +323,7 @@ test('snapshots every terrain parameter, detached from the source', () => {
 	settings.biomes.size = 9
 	settings.desert.flatten = 9
 	settings.ice.amplitude = 9
+	settings.deepOcean.isletCount.max = 9
 	settings.coast.mask.threshold = 9
 	assert.deepEqual(snapshot, createTerrainSnapshot(TERRAIN_DEFAULTS))
 })
@@ -325,6 +334,8 @@ test('raises rocky coasts only around the waterline', () => {
 	for (let index = 0; index < 4000; index++) {
 		const x = ((index * 7919) % 20000) - 10000
 		const z = ((index * 104729) % 20000) - 10000
+		// The deep ocean's slope sinks the relief with the rest of the land.
+		if (!isOffOcean(x, z)) continue
 		const height = getHeight(x, z, noises, params, biomeOffset)
 		const withoutRelief = getHeight(x, z, noises, flat, biomeOffset)
 		assert.ok(height >= withoutRelief)

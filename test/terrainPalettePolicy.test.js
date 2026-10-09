@@ -17,14 +17,24 @@ import {
 	TERRAIN_PALETTE_BIOMES,
 	TERRAIN_SEA_COLORS,
 } from '../src/terrainPalettePolicy.js'
-import { createBiomeSettings, getBiomeGradientBounds } from '../src/biome.js'
+import {
+	createBiomeOffset,
+	createBiomeSettings,
+	getBiomeGradientBounds,
+	getOceanNoiseOffset,
+} from '../src/biome.js'
 import { createSeaIceSettings, SEA_ICE_NIGHT } from '../src/seaIcePolicy.js'
 
 const HEX = /^#[0-9a-f]{6}$/
 
 test('every biome colors every land band with valid sRGB hex', () => {
 	const settings = createTerrainPaletteSettings()
-	assert.deepEqual(Object.values(TERRAIN_PALETTE_BIOMES).sort(), ['desert', 'ice', 'temperate'])
+	assert.deepEqual(Object.values(TERRAIN_PALETTE_BIOMES).sort(), [
+		'deepOcean',
+		'desert',
+		'ice',
+		'temperate',
+	])
 	for (const key of Object.values(TERRAIN_PALETTE_BIOMES)) {
 		for (const band of TERRAIN_PALETTE_BANDS) {
 			assert.match(settings[key].colors[band], HEX, `${key} ${band}`)
@@ -82,7 +92,8 @@ test('lays the palettes out by biome id and band, in shader order', () => {
 	settings.ice.colors.rocks = '#123456'
 	settings.desert.variation.land = { color: '#abcdef', amount: -1 }
 	settings.ice.colorNoise = 0.5
-	const { colors, variations, styles, sea } = getTerrainPaletteLayout(settings)
+	settings.abyssDepth = { start: 70, end: 50 }
+	const { colors, variations, styles, sea, abyssDepth } = getTerrainPaletteLayout(settings)
 	const bands = TERRAIN_PALETTE_BANDS.length
 	assert.equal(colors.length, BIOME_COUNT * bands)
 	assert.equal(colors[BIOME.ICE * bands + TERRAIN_PALETTE_BANDS.indexOf('rocks')], '#123456')
@@ -92,10 +103,17 @@ test('lays the palettes out by biome id and band, in shader order', () => {
 	// Only the forest varies by default.
 	assert.deepEqual(
 		styles.map(([, , varies]) => varies),
-		[0, 1, 0],
+		[0, 1, 0, 0],
 	)
 	assert.equal(styles[BIOME.ICE][0], 0.5)
-	assert.deepEqual(sea, [settings.sea.shallow, settings.sea.mid, settings.sea.deep])
+	assert.deepEqual(sea, [
+		settings.sea.shallow,
+		settings.sea.mid,
+		settings.sea.deep,
+		settings.sea.abyss,
+	])
+	// The abyss is full at least a unit deeper than it starts.
+	assert.deepEqual(abyssDepth, [70, 71])
 	// Missing entries fall back to the defaults.
 	assert.deepEqual(
 		getTerrainPaletteLayout({}),
@@ -107,6 +125,16 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 	const params = createAppParams({ urlParams: new URLSearchParams(), isMobile: false })
 	const uniforms = createSharedUniforms(params, 'uniforms')
 	assert.ok(uniforms.uBiomeOffset.value instanceof Vector4)
+	// The deep ocean's noise offset is summed on the CPU, from the same seed.
+	assert.deepEqual(
+		uniforms.uBiomeOceanOffset.value.toArray(),
+		getOceanNoiseOffset(createBiomeOffset('uniforms')),
+	)
+	assert.equal(uniforms.uSeaColors.value.length, TERRAIN_SEA_COLORS.length)
+	assert.deepEqual(uniforms.uSeaAbyssDepth.value.toArray(), [
+		params.terrainPalette.abyssDepth.start,
+		params.terrainPalette.abyssDepth.end,
+	])
 
 	const palette = createTerrainPaletteSettings()
 	palette.temperate.colors.grass = '#ff0000'
@@ -119,7 +147,7 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 	assert.ok(Math.abs(rocks.x - linear.r) < 4e-3)
 	assert.ok(uniforms.uTerrainStyles.value[BIOME.ICE] instanceof Vector3)
 
-	const biomes = { ...createBiomeSettings(), size: 2, iceSize: 4 }
+	const biomes = { ...createBiomeSettings(), size: 2, iceSize: 4, oceanSize: 0.5 }
 	updateBiomeUniforms(uniforms, biomes)
 	const bounds = getBiomeGradientBounds(biomes)
 	assert.deepEqual(uniforms.uBiomeClimate.value.toArray(), [
@@ -134,6 +162,7 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 		biomes.iceRing,
 		bounds.ice,
 	])
+	assert.deepEqual(uniforms.uBiomeOcean.value.toArray(), [2, biomes.oceanThreshold, 0, 0])
 
 	const seaIce = { ...createSeaIceSettings(), shelf: 3, cellSize: 9 }
 	updateSeaIceUniforms(uniforms, seaIce)

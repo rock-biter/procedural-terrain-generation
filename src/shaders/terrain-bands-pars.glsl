@@ -3,8 +3,10 @@
 
 // The biome fields.
 #include ./biome-value.glsl
-// The ice field, interpolated from the vertices (project-vertex.glsl).
+// The ice and deep ocean fields, interpolated from the vertices
+// (project-vertex.glsl).
 varying float vIceValue;
+varying float vOceanValue;
 
 // Land band colors per biome (src/terrainPalettePolicy.js, written by
 // updateTerrainPaletteUniforms() in src/sharedUniforms.js), linear, at
@@ -16,8 +18,11 @@ uniform vec4 uTerrainVariations[BIOME_COUNT * TERRAIN_PALETTE_BAND_COUNT];
 // Per biome, x: color noise scale, y: band line darkness (1 black), z: 1 when
 // any band varies.
 uniform vec3 uTerrainStyles[BIOME_COUNT];
-// Sea colors from the shore down: shallow water, open sea, deep sea.
-uniform vec3 uSeaColors[3];
+// Sea colors from the shore down: shallow water, open sea, deep sea, and the
+// abyss of the deep ocean.
+uniform vec3 uSeaColors[4];
+// Depths (positive, world units) where the abyss color starts and is full.
+uniform vec2 uSeaAbyssDepth;
 
 // Color of land band `band` (0 sand to 4 snow) in `biome`, drifted by
 // `variation` (the biome variation noise, about 0 to 1.2).

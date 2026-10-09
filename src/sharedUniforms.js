@@ -1,5 +1,10 @@
 import { Color, Vector2, Vector3, Vector4 } from 'three'
-import { BIOME_COUNT, createBiomeOffset, getBiomeGradientBounds } from './biome'
+import {
+	BIOME_COUNT,
+	createBiomeOffset,
+	getBiomeGradientBounds,
+	getOceanNoiseOffset,
+} from './biome'
 import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
@@ -29,16 +34,20 @@ export function createSharedUniforms(params, seed) {
 		uCurvature: { value: CURVATURE },
 		// Written by DayNight before the first render.
 		uAtmosphere: { value: new Color() },
-		uBiomeOffset: { value: new Vector4().fromArray(createBiomeOffset(seed)) },
+		// Seeded biome offsets; written by updateBiomeOffsetUniforms().
+		uBiomeOffset: { value: new Vector4() },
+		uBiomeOceanOffset: { value: new Vector2() },
 		// Biome distribution (biome-value.glsl), terrain palettes
 		// (terrain-bands-pars.glsl), and frozen sea (sea-ice-pars.glsl); written
 		// by the update functions below.
 		uBiomeClimate: { value: new Vector4() },
 		uBiomeIce: { value: new Vector4() },
+		uBiomeOcean: { value: new Vector4() },
 		uTerrainColors: { value: Array.from({ length: PALETTE_SIZE }, () => new Color()) },
 		uTerrainVariations: { value: Array.from({ length: PALETTE_SIZE }, () => new Vector4()) },
 		uTerrainStyles: { value: Array.from({ length: BIOME_COUNT }, () => new Vector3()) },
 		uSeaColors: { value: TERRAIN_SEA_COLORS.map(() => new Color()) },
+		uSeaAbyssDepth: { value: new Vector2() },
 		uSeaIceShape: { value: new Vector4() },
 		uSeaIceEdge: { value: new Vector4() },
 		uSeaIceColors: { value: [new Color(), new Color(), new Color()] },
@@ -60,11 +69,20 @@ export function createSharedUniforms(params, seed) {
 		// Sea rock distance map and ripple shape; written by SeaFoam.
 		...createSeaFoamUniforms(),
 	}
+	updateBiomeOffsetUniforms(uniforms, createBiomeOffset(seed))
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
 	updateBiomeUniforms(uniforms, params.biomes)
 	updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
 	updateSeaIceUniforms(uniforms, params.seaIce, params.dayNight?.timeOfDay)
 	return uniforms
+}
+
+// Writes the seeded biome offset (createBiomeOffset()) into uBiomeOffset, and
+// the deep ocean's noise offset derived from it into uBiomeOceanOffset, in
+// place.
+export function updateBiomeOffsetUniforms(uniforms, offset) {
+	uniforms.uBiomeOffset.value.fromArray(offset)
+	uniforms.uBiomeOceanOffset.value.fromArray(getOceanNoiseOffset(offset))
 }
 
 // Writes the rocky coast mask settings (params.coast.mask) into the terrain
@@ -87,15 +105,16 @@ export function updateBiomeUniforms(uniforms, settings) {
 		settings.iceRing,
 		bounds.ice,
 	)
+	uniforms.uBiomeOcean.value.set(1 / settings.oceanSize, settings.oceanThreshold, 0, 0)
 }
 
 const color = new Color()
 
 // Writes the terrain and sea colors (params.terrainPalette,
 // getTerrainPaletteLayout()) into their uniforms, in place, converted from
-// sRGB to linear.
+// sRGB to linear, and the abyss depths.
 export function updateTerrainPaletteUniforms(uniforms, settings) {
-	const { colors, variations, styles, sea } = getTerrainPaletteLayout(settings)
+	const { colors, variations, styles, sea, abyssDepth } = getTerrainPaletteLayout(settings)
 	colors.forEach((hex, index) => uniforms.uTerrainColors.value[index].set(hex))
 	variations.forEach(({ color: hex, amount }, index) => {
 		color.set(hex)
@@ -103,6 +122,7 @@ export function updateTerrainPaletteUniforms(uniforms, settings) {
 	})
 	styles.forEach((style, index) => uniforms.uTerrainStyles.value[index].fromArray(style))
 	sea.forEach((hex, index) => uniforms.uSeaColors.value[index].set(hex))
+	uniforms.uSeaAbyssDepth.value.fromArray(abyssDepth)
 }
 
 // Writes the frozen sea settings (params.seaIce, src/seaIcePolicy.js) into

@@ -81,6 +81,11 @@ test('classifies the sea, the frozen sea, and every biome', () => {
 	assert.equal(classifyBiomeSample(5, { climate: 1, ice: -1 }, seaIce), BIOME_MAP_CATEGORY.FOREST)
 	assert.equal(classifyBiomeSample(5, { climate: -1, ice: -1 }, seaIce), BIOME_MAP_CATEGORY.DESERT)
 	assert.equal(classifyBiomeSample(5, { climate: 1, ice: 0.1 }, seaIce), BIOME_MAP_CATEGORY.ICE)
+	// The deep ocean's sea and its islets, whatever the climate.
+	const ocean = { climate: -1, ice: -1, ocean: 0.2 }
+	assert.equal(classifyBiomeSample(-80, ocean, seaIce), BIOME_MAP_CATEGORY.DEEP_OCEAN)
+	assert.equal(classifyBiomeSample(5, ocean, seaIce), BIOME_MAP_CATEGORY.ISLETS)
+	assert.equal(classifyBiomeSample(-80, { ...ocean, ocean: -0.01 }, seaIce), BIOME_MAP_CATEGORY.SEA)
 	assert.equal(BIOME_MAP_COLORS.length, BIOME_MAP_LABELS.length)
 })
 
@@ -136,9 +141,9 @@ test('the raster follows the map coordinates: a one-pixel drag shifts it by one 
 })
 
 test('land shares and scale lengths', () => {
-	const counts = [10, 2, 6, 3, 1]
-	assert.deepEqual(getLandShares(counts), { desert: 0.6, forest: 0.3, ice: 0.1 })
-	assert.equal(getLandShares([5, 5, 0, 0, 0]), null)
+	const counts = [10, 2, 6, 2, 1, 9, 1]
+	assert.deepEqual(getLandShares(counts), { desert: 0.6, forest: 0.2, ice: 0.1, islets: 0.1 })
+	assert.equal(getLandShares([5, 5, 0, 0, 0, 5, 0]), null)
 	assert.equal(getScaleLength(13000), 10000)
 	assert.equal(getScaleLength(4300), 2000)
 	assert.equal(getScaleLength(600), 500)

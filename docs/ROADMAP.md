@@ -83,7 +83,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 
 - Chunk size: `256`.
 - Default octaves: `3`.
-- `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and five biome-field samples (three climate, two ice). Near a biome border the two detail octaves are evaluated twice, for seven terrain samples. Ice land adds the mountains' two to three samples and nine cell hashes.
+- `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and six or seven biome-field samples (three climate, two ice, and one or two for the deep ocean, whose detail layer is skipped far from it). Near a biome border the two detail octaves are evaluated twice, for seven terrain samples. Ice land adds the mountains' two to three samples and nine cell hashes. Inside the deep ocean the terrain samples are skipped; a point on an archipelago's bank adds two warp samples and, once per bank, an evaluation of the biome fields at its center.
 - Desktop uses `maxDistance = 6`, `lookAhead = 2`, `rearDistance = 3`, terrain density divisor `2`, and a `4`-unit scenery cell.
 - Mobile uses `maxDistance = 5`, `lookAhead = 1`, `rearDistance = 2.5`, terrain density divisor `4`, and an `8`-unit scenery cell.
 - The scenery cells above are the former defaults the scenery counts were computed with. The current defaults are `8` units on desktop and `16` on mobile, a quarter of those candidates; the scenery rows have not been recomputed.
@@ -400,6 +400,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 | `FEAT-006` | Carved-wood clouds with impostors and cloud shadows             | In progress | [Terrain](TERRAIN.md#clouds), [Rendering](RENDERING.md#clouds)                                 |
 | `FEAT-007` | Ice biome, frozen sea, and biome tuning tools                   | In progress | [Terrain](TERRAIN.md#biome-field), [Rendering](RENDERING.md#sea-ice), [Experience](EXPERIENCE.md#debug-biome-map) |
 | `FEAT-008` | Aurora borealis over the ice                                    | In progress | [Rendering](RENDERING.md#aurora), [Experience](EXPERIENCE.md#movement-and-camera)              |
+| `FEAT-009` | Deep ocean biome with islets and palms                          | In progress | [Terrain](TERRAIN.md#deep-ocean), [Rendering](RENDERING.md#terrain)                            |
 
 ### `FEAT-001`: Post-Processing Pipeline And Speed Effect
 
@@ -443,6 +444,12 @@ The features below are implemented; their behavior, parameters, and costs live i
 
 - **Rejected:** curtains per chunk (meshes would have to match across chunk edges, and the aurora is one event over a region); a finite aurora centered on its region (on a world of radius `3000` a curtain top sinks below the horizon about `3` km away, so most of a large region would see nothing: a world-anchored field drawn in a window around the airplane instead); masking the curtains with the ice field in the shader (an endless field would light every other ice region too: a mask of the rolled region from a CPU flood fill instead); drawing the aurora in the sky dome by view direction (no parallax while flying under it, and not the noise-deformed ribbons asked for); auroras seeded by the world (they are random, so a region never has a fixed aurora).
 - **Open:** a faint glow of the aurora on the snow and the sea; tuning of the night window against the palettes; the region scan on the main thread (about `1`–`5` ms once per aurora); a mobile run under an aurora.
+
+### `FEAT-009`: Deep Ocean Biome With Islets And Palms
+
+- **Rejected:** a deep ocean only where the sea already is (the landmass noise is CPU-only, so the shader could not tell the islets' biome); a slope straddling the border (land would cross it and need a separator line); a forest ring between the deep ocean and the ice (the ocean borders it directly); a smooth maximum between the islets (it raised a step where each islet's slope began; a `4`-norm of their heights above the bank has none); a palm leaning its crown far off its base (the sources' recentering would move the base off the instance's position).
+- **Measured:** a land chunk costs about `14%` more CPU for the deep ocean field; a chunk inside the deep ocean costs about what a land chunk did. The terrain shader's two more `snoise` per vertex left the default-scene frame time unchanged (`pnpm bench` on `seed=b7dw4ve2`, `-0.4%`).
+- **Open:** the biome's future content (ruins, sea creatures; one atlas block is free); a reference-driven palm model (the procedural one is a first version); art review of the abyss color, the banks, and the islet palette; islets shrink to blobs on the coarsest LODs; a mobile flight over an archipelago.
 
 Add further features with this template:
 

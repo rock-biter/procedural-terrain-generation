@@ -13,6 +13,7 @@ import {
 	getIceValue,
 	ICE_BORDER_MARGIN,
 	isNearBiomeBorder,
+	OCEAN_BORDER_MARGIN,
 } from '../src/biome.js'
 import { snoise } from '../src/noise.js'
 
@@ -48,7 +49,7 @@ test('keeps the simplex port bounded and continuous', () => {
 
 // Biome counts and land-free shares over a coarse grid of several seeds.
 function sampleBiomes(biomes = settings, seeds = ['alpha', 'beta', 'gamma', 'delta']) {
-	const counts = { [BIOME.DESERT]: 0, [BIOME.TEMPERATE]: 0, [BIOME.ICE]: 0 }
+	const counts = { [BIOME.DESERT]: 0, [BIOME.TEMPERATE]: 0, [BIOME.ICE]: 0, [BIOME.DEEP_OCEAN]: 0 }
 	const fields = {}
 	for (const seed of seeds) {
 		const offset = createBiomeOffset(seed)
@@ -59,18 +60,21 @@ function sampleBiomes(biomes = settings, seeds = ['alpha', 'beta', 'gamma', 'del
 			}
 		}
 	}
-	const total = counts[BIOME.DESERT] + counts[BIOME.TEMPERATE] + counts[BIOME.ICE]
+	const total = Object.values(counts).reduce((sum, count) => sum + count, 0)
 	return {
 		counts,
 		desert: counts[BIOME.DESERT] / total,
 		temperate: counts[BIOME.TEMPERATE] / total,
 		ice: counts[BIOME.ICE] / total,
+		ocean: counts[BIOME.DEEP_OCEAN] / total,
 	}
 }
 
 test('makes the ice rare and the desert a little larger than the forest', () => {
-	const { desert, temperate, ice } = sampleBiomes()
+	const { desert, temperate, ice, ocean } = sampleBiomes()
 	assert.ok(ice > 0.03 && ice < 0.12, `ice ${ice}`)
+	// The deep ocean covers a share of the world close to the ice's.
+	assert.ok(ocean > 0.08 && ocean < 0.25, `deep ocean ${ocean}`)
 	assert.ok(desert > temperate, `desert ${desert}, forest ${temperate}`)
 	assert.ok(desert / (desert + temperate) < 0.6)
 })
@@ -81,8 +85,31 @@ test('the bias and threshold move the shares monotonically', () => {
 	const lessIce = sampleBiomes({ ...settings, iceThreshold: settings.iceThreshold + 0.1 }, [
 		'alpha',
 	])
+	const lessOcean = sampleBiomes({ ...settings, oceanThreshold: settings.oceanThreshold + 0.1 }, [
+		'alpha',
+	])
 	assert.ok(moreDesert.desert > base.desert)
 	assert.ok(lessIce.ice < base.ice)
+	assert.ok(lessOcean.ocean < base.ocean)
+})
+
+test('the deep ocean borders the ice directly and never overlaps it', () => {
+	const offset = createBiomeOffset('ring')
+	const fields = {}
+	const neighbour = {}
+	let touching = 0
+	for (let i = -300; i <= 300; i++) {
+		for (let j = -300; j <= 300; j++) {
+			getBiomeFields(i * 200, j * 200, offset, settings, fields)
+			// The ice cuts the deep ocean field.
+			assert.ok(fields.ocean <= -fields.ice)
+			if (getBiome(fields) !== BIOME.ICE) continue
+			getBiomeFields(i * 200 + 200, j * 200, offset, settings, neighbour)
+			// No forest ring between them: the next point can be deep ocean.
+			if (getBiome(neighbour) === BIOME.DEEP_OCEAN) touching++
+		}
+	}
+	assert.ok(touching > 0)
 })
 
 test('the forest ring keeps the desert away from the ice', () => {
@@ -145,7 +172,12 @@ test('the gradient bounds hold and keep the former constant at size 1', () => {
 
 test('the size settings zoom the fields', () => {
 	const offset = [0, 0, 3.5, 7.25]
-	const doubled = { ...settings, size: settings.size * 2, iceSize: settings.iceSize * 2 }
+	const doubled = {
+		...settings,
+		size: settings.size * 2,
+		iceSize: settings.iceSize * 2,
+		oceanSize: settings.oceanSize * 2,
+	}
 	for (const [x, z] of [
 		[120, -480],
 		[-3300, 9100],
@@ -155,13 +187,20 @@ test('the size settings zoom the fields', () => {
 		const far = getBiomeFields(x * 2, z * 2, offset, doubled)
 		assert.ok(Math.abs(near.climate - far.climate) < 1e-9)
 		assert.ok(Math.abs(near.ice - far.ice) < 1e-9)
+		assert.ok(Math.abs(near.ocean - far.ocean) < 1e-9)
 	}
 })
 
-test('picks the biome and the border margins from both fields', () => {
-	assert.equal(getBiome({ climate: -1, ice: 0 }), BIOME.ICE)
-	assert.equal(getBiome({ climate: 0, ice: -0.5 }), BIOME.TEMPERATE)
-	assert.equal(getBiome({ climate: -0.01, ice: -0.5 }), BIOME.DESERT)
+test('picks the biome and the border margins from every field', () => {
+	assert.equal(getBiome({ climate: -1, ice: 0, ocean: -1 }), BIOME.ICE)
+	assert.equal(getBiome({ climate: 0, ice: -0.5, ocean: -1 }), BIOME.TEMPERATE)
+	assert.equal(getBiome({ climate: -0.01, ice: -0.5, ocean: -1 }), BIOME.DESERT)
+	assert.equal(getBiome({ climate: -1, ice: -0.5, ocean: 0 }), BIOME.DEEP_OCEAN)
+
+	// Inside the deep ocean only its own border counts.
+	assert.equal(isNearBiomeBorder({ climate: 0, ice: -1, ocean: OCEAN_BORDER_MARGIN / 2 }), true)
+	assert.equal(isNearBiomeBorder({ climate: 0, ice: -1, ocean: OCEAN_BORDER_MARGIN * 2 }), false)
+	assert.equal(isNearBiomeBorder({ climate: 1, ice: -1, ocean: -OCEAN_BORDER_MARGIN / 2 }), true)
 
 	assert.equal(isNearBiomeBorder({ climate: 1, ice: ICE_BORDER_MARGIN / 2 }), true)
 	assert.equal(isNearBiomeBorder({ climate: 1, ice: ICE_BORDER_MARGIN * 2 }), false)

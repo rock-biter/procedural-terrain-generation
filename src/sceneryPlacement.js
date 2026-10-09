@@ -1,9 +1,17 @@
-import { BIOME, getBiome, getIceValue, ICE_BORDER_MARGIN, isNearBiomeBorder } from './biome.js'
+import {
+	BIOME,
+	getBiome,
+	getBiomeFields,
+	ICE_BORDER_MARGIN,
+	isNearBiomeBorder,
+	OCEAN_BORDER_MARGIN,
+} from './biome.js'
 import { smoothstep } from './math.js'
 import { snoise } from './noise.js'
 import { cellRandom, hashSeed, pickWeighted } from './random.js'
 import { SEA_SURFACE_Y, getHeight, getSurfaceNormal } from './chunkGeometry.js'
 import { getCoastRockMask } from './coast.js'
+import { getArchipelagoIslets, getIsletInfluence } from './deepOcean.js'
 import { getTerrainBand, TERRAIN_BAND, TERRAIN_BANDS } from './terrainBands.js'
 import { SCENERY_BIOME_SLOTS } from './sceneryPalettePolicy.js'
 import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
@@ -17,8 +25,10 @@ import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE } from './impostors/impostorTyp
 // the borders the terrain shader colors): never on snow. Each biome
 // (src/biome.js) has its rules: woods in the temperate biome, cacti and rocks
 // in the desert, sparse snowy boulders and patches of ice spikes in the ice.
-// The sand and the shallow sea carry only sea rocks (`coast`), and a band of
-// deeper sea outside the ice the boats (`boat`).
+// The deep ocean's islets carry only a few palms each (`palm`), placed per
+// islet rather than on the grid. The sand and the shallow sea carry only sea
+// rocks (`coast`), and a band of deeper sea outside the ice and the deep ocean
+// the boats (`boat`).
 export const SCENERY_CONFIG = Object.freeze({
 	// Vertical offset into the ground, in units of instance scale, so bases do
 	// not float where coarse terrain LODs cut below the exact height.
@@ -82,7 +92,10 @@ export const SCENERY_CONFIG = Object.freeze({
 	// Sea rocks on the sand and the shallow sea of every biome, gathered on
 	// rocky coast (getCoastRockMask() in src/coast.js, with params.coast.mask).
 	// Acceptance grows from `baseDensity` (isolated rocks on any coast) to
-	// `maxDensity` where the mask is 1. The base sits `sink` (in scale units)
+	// `maxDensity` where the mask is 1; in the deep ocean it is
+	// `deepOceanDensity`, and only on an islet's slope (getIsletInfluence() in
+	// src/deepOcean.js), so the rocks gather around the islets, never on the
+	// banks. The base sits `sink` (in scale units)
 	// below the ground, or below the sea surface over deeper water, so every
 	// rock rises above the sea. `footprint` is the source's horizontal radius
 	// at scale 1 (src/impostors/impostorArchetypes.js), which spaces the
@@ -92,8 +105,23 @@ export const SCENERY_CONFIG = Object.freeze({
 		type: IMPOSTOR_TYPE.SEA_ROCK,
 		baseDensity: 0.03,
 		maxDensity: 0.3,
+		deepOceanDensity: 0.08,
 		sink: 0.2,
 		footprint: 2.5,
+	},
+	// Palms on the deep ocean's islets (placeIsletPalms()): each islet offers
+	// settings.palms.maxPerIslet spots, each taken with the palms' density, at
+	// a random point within `reach` of its shore radius from its center, with
+	// `attempts` tries to find ground that passes the checks (a sand, grass,
+	// or land band, above settings.palms.minHeight, in the deep ocean off its
+	// border, on a gentle slope, apart from the islet's other palms). Each
+	// leans away from the islet's center, by up to `yawJitter` radians off.
+	palm: {
+		type: IMPOSTOR_TYPE.PALM,
+		reach: 0.55,
+		attempts: 5,
+		minSlopeNormalY: 0.75,
+		yawJitter: 0.35,
 	},
 	// Boats on the sea (placeBoats()). The model is scaled to `length` at scale
 	// 1 (src/impostors/boatSources.js), its bow along local +Z; `beam` is its
@@ -121,7 +149,16 @@ export const SCENERY_CONFIG = Object.freeze({
 		// Their scale range is only the default of settings.iceSpikes.scale.
 		[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: [0.7, 1.5, 0.85, 1.35],
 		[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: [0.7, 1.5, 0.85, 1.35],
+		[IMPOSTOR_TYPE.PALM]: [0.85, 1.2, 0.9, 1.15],
 	},
+})
+
+// The rules of SCENERY_CONFIG for each biome's grid candidates. The deep ocean
+// has none: its islets carry only their palms.
+const BIOME_RULES = Object.freeze({
+	[BIOME.TEMPERATE]: 'temperate',
+	[BIOME.DESERT]: 'desert',
+	[BIOME.ICE]: 'ice',
 })
 
 // Settings keys for each type; the debug GUI edits values under these names.
@@ -136,6 +173,7 @@ export const SCENERY_TYPE_KEYS = Object.freeze({
 	[IMPOSTOR_TYPE.BOAT]: 'boat',
 	[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: 'iceSpikesTwo',
 	[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: 'iceSpikesThree',
+	[IMPOSTOR_TYPE.PALM]: 'palm',
 })
 
 // Density is set per category; each type belongs to one.
@@ -146,6 +184,7 @@ export const SCENERY_CATEGORIES = Object.freeze({
 	seaRocks: [IMPOSTOR_TYPE.SEA_ROCK],
 	boats: [IMPOSTOR_TYPE.BOAT],
 	iceSpikes: [IMPOSTOR_TYPE.ICE_SPIKES_TWO, IMPOSTOR_TYPE.ICE_SPIKES_THREE],
+	palms: [IMPOSTOR_TYPE.PALM],
 })
 
 const TYPE_CATEGORY = Object.fromEntries(
@@ -170,6 +209,7 @@ export const SCENERY_DEFAULT_SIZES = Object.freeze({
 	boat: 1.65,
 	iceSpikesTwo: 1,
 	iceSpikesThree: 1,
+	palm: 1.3,
 })
 
 // Default sea rock settings. Rocks stand where the sea is at most `maxDepth`
@@ -269,21 +309,46 @@ export function createBoatSettings() {
 	}
 }
 
+// Default palm settings: each deep ocean islet offers `maxPerIslet` spots
+// (SCENERY_CONFIG.palm), whose palms stand at least `minHeight` above the sea
+// and `spacing` units from each other.
+export const PALM_DEFAULTS = Object.freeze({
+	maxPerIslet: 3,
+	minHeight: 0.6,
+	spacing: 3.5,
+})
+
+// A mutable copy of PALM_DEFAULTS.
+export function createPalmSettings() {
+	return { ...PALM_DEFAULTS }
+}
+
 // Runtime settings sent with every placement request. Density and size are
 // multipliers on SCENERY_CONFIG. Density multiplies the acceptance
 // probability of its category, capped at one instance per grid cell (for
-// boats, per candidate spot). `seaRocks` holds the sea rocks' depth, scale,
-// and satellites; `iceSpikes` the ice spikes' patches, scale, and
-// satellites; `boats` the boats' depth band, count, draft, and clearance.
+// boats, per candidate spot; for palms, per islet spot). `seaRocks` holds the
+// sea rocks' depth, scale, and satellites; `iceSpikes` the ice spikes'
+// patches, scale, and satellites; `boats` the boats' depth band, count,
+// draft, and clearance; `palms` the palms' count per islet, height, and
+// spacing.
 export function createScenerySettings({ isMobile = false } = {}) {
 	return {
 		cellSize: isMobile ? 16 : 8,
 		maxPerChunk: 1000,
-		density: { trees: 0.75, cacti: 0.2, rocks: 0.65, seaRocks: 0.7, boats: 0.13, iceSpikes: 1 },
+		density: {
+			trees: 0.75,
+			cacti: 0.2,
+			rocks: 0.65,
+			seaRocks: 0.7,
+			boats: 0.13,
+			iceSpikes: 1,
+			palms: 0.75,
+		},
 		size: { ...SCENERY_DEFAULT_SIZES },
 		seaRocks: createSeaRockSettings(),
 		iceSpikes: createIceSpikeSettings(),
 		boats: createBoatSettings(),
+		palms: createPalmSettings(),
 	}
 }
 
@@ -414,19 +479,24 @@ function getSeaRockGroup({ x, z, height, cellX, cellZ, fields }, context) {
 	const rocks = settings.seaRocks
 	const group = []
 
-	const mask = getCoastRockMask(x, z, biomeOffset, params.coast?.mask)
-	const density =
-		(coast.baseDensity + (coast.maxDensity - coast.baseDensity) * mask) *
-		settings.density[TYPE_CATEGORY[type]]
-	if (random(2) >= density) return group
+	// The palette gives the hue, from the biome of the group's first rock.
+	const biome = getBiome(fields)
+	let share
+	if (biome === BIOME.DEEP_OCEAN) {
+		// Only on an islet's slope: the open deep ocean and its banks stay bare.
+		if (getIsletInfluence(x, z, fields.ocean, biomeOffset, params) <= 0) return group
+		share = coast.deepOceanDensity
+	} else {
+		const mask = getCoastRockMask(x, z, biomeOffset, params.coast?.mask)
+		share = coast.baseDensity + (coast.maxDensity - coast.baseDensity) * mask
+	}
+	if (random(2) >= share * settings.density[TYPE_CATEGORY[type]]) return group
 
 	const [, , minStretch, maxStretch] = config.shape[type]
 	const { min: minScale, max: maxScale, bias } = rocks.scale
 	const scale =
 		(minScale + (maxScale - minScale) * random(4) ** bias) * settings.size[SCENERY_TYPE_KEYS[type]]
 	if (scale <= 0) return group
-	// The palette gives the hue, from the biome of the group's first rock.
-	const biome = getBiome(fields)
 	const tint = (salt) => getPaintedTint(random(salt), biome)
 	group.push({
 		priority: random(8),
@@ -629,9 +699,9 @@ function isBoatClearOfRocks(x, z, sinYaw, cosYaw, scale, context) {
 // the chunk's own hash (not the grid cells'), each active with the boats'
 // density, inside the chunk by half a boat and half the clearance, so boats of
 // neighbouring chunks never meet. In priority order, a spot keeps its boat
-// when it lies outside the ice biome (whose sea freezes), the sea is deep
-// enough (isBoatInDepthBand()), no sea rock or kept boat is within the
-// clearance, and the chunk holds fewer than maxPerChunk.
+// when it lies outside the ice biome (whose sea freezes) and the deep ocean,
+// the sea is deep enough (isBoatInDepthBand()), no sea rock or kept boat is
+// within the clearance, and the chunk holds fewer than maxPerChunk.
 function placeBoats(context) {
 	const { seed, size, worldX, worldZ, settings, config, params, biomeOffset } = context
 	const boatConfig = config.boat
@@ -672,13 +742,15 @@ function placeBoats(context) {
 	candidates.sort((a, b) => a.priority - b.priority)
 
 	const kept = []
+	const fields = {}
 	for (const candidate of candidates) {
 		if (kept.length >= maxPerChunk) break
 		const { x, z, yaw, scale, stretch } = candidate
 		const sinYaw = Math.sin(yaw)
 		const cosYaw = Math.cos(yaw)
 		const keelY = SEA_SURFACE_Y - boats.draft * scale
-		if (getIceValue(x, z, biomeOffset, params.biomes) > -ICE_BORDER_MARGIN) continue
+		getBiomeFields(x, z, biomeOffset, params.biomes, fields)
+		if (fields.ice > -ICE_BORDER_MARGIN || fields.ocean > -OCEAN_BORDER_MARGIN) continue
 		if (!isBoatInDepthBand(x, z, sinYaw, cosYaw, scale, keelY, context)) continue
 		const crowded = kept.some(
 			(boat) =>
@@ -691,6 +763,106 @@ function placeBoats(context) {
 		candidate.values = [x - worldX, keelY, z - worldZ, scale, yaw, type, packTint(1, 1, 1), stretch]
 	}
 	return kept.map(({ values }) => values)
+}
+
+// Whether a palm may stand at (x, z), at ground `height` with biome `fields`.
+function isPalmGround(x, z, height, fields, context) {
+	const { noises, params, biomeOffset, settings, config, normal } = context
+	if (!(height >= settings.palms.minHeight)) return false
+	const band = getTerrainBand(x, height, z)
+	if (band < TERRAIN_BAND.sand || band > TERRAIN_BAND.land) return false
+	if (isNearBiomeBorder(fields) || getBiome(fields) !== BIOME.DEEP_OCEAN) return false
+	getSurfaceNormal(x, z, noises, params, biomeOffset, normal)
+	return normal[1] >= config.palm.minSlopeNormalY
+}
+
+// The palms of one islet (from getArchipelagoIslets()), with world-space
+// bases. Every value comes from the islet's hash, so any chunk computes the
+// same palms; the spots are tried in order, each apart from the palms before
+// it.
+function getIsletPalms(islet, context) {
+	const { palmHash, noises, params, biomeOffset, settings, config } = context
+	const rules = config.palm
+	const type = rules.type
+	const { maxPerIslet, spacing } = settings.palms
+	const density = settings.density[TYPE_CATEGORY[type]]
+	const random = (salt) => cellRandom(palmHash, islet.cellX, islet.cellZ, islet.index * 128 + salt)
+	const [minScale, maxScale, minStretch, maxStretch] = config.shape[type]
+	const reach = rules.reach * islet.waterline
+	const fields = {}
+	const palms = []
+	for (let spot = 0; spot < Math.floor(maxPerIslet); spot++) {
+		const salt = spot * 32
+		if (random(salt) >= density) continue
+		const scale =
+			(minScale + (maxScale - minScale) * random(salt + 1)) * settings.size[SCENERY_TYPE_KEYS[type]]
+		if (scale <= 0) continue
+		for (let attempt = 0; attempt < rules.attempts; attempt++) {
+			const angle = random(salt + 2 + attempt * 2) * Math.PI * 2
+			const distance = reach * Math.sqrt(random(salt + 3 + attempt * 2))
+			const x = islet.x + Math.sin(angle) * distance
+			const z = islet.z + Math.cos(angle) * distance
+			if (palms.some((palm) => Math.hypot(palm.x - x, palm.z - z) < spacing)) continue
+			const height = getHeight(x, z, noises, params, biomeOffset, fields)
+			if (!isPalmGround(x, z, height, fields, context)) continue
+			// Leaning away from the islet's center: rotateYaw() turns the model's
+			// lean, local +Z, toward (sin yaw, cos yaw).
+			const jitter = (random(salt + 20) - 0.5) * 2 * rules.yawJitter
+			palms.push({
+				x,
+				z,
+				values: [
+					x,
+					height - config.sink * scale,
+					z,
+					scale,
+					angle + jitter,
+					type,
+					getPaintedTint(random(salt + 21), BIOME.DEEP_OCEAN),
+					minStretch + (maxStretch - minStretch) * random(salt + 22),
+				],
+			})
+			break
+		}
+	}
+	return palms
+}
+
+// The palms of the deep ocean's islets whose base lies in this chunk, as
+// instance values: every islet that can reach the chunk computes its palms,
+// and the chunk keeps those inside its square, as the grid keeps its cells.
+function placeIsletPalms(context) {
+	const { size, worldX, worldZ, settings, config, params, biomeOffset } = context
+	if (!(settings.palms.maxPerIslet >= 1 && settings.density[TYPE_CATEGORY[config.palm.type]] > 0)) {
+		return []
+	}
+	const minX = worldX - size / 2
+	const minZ = worldZ - size / 2
+	const maxX = minX + size
+	const maxZ = minZ + size
+	// The largest islet's radius bounds every palm's distance from its center.
+	const margin = Math.max(params.deepOcean.isletRadius, 0)
+	const islets = getArchipelagoIslets(
+		minX - margin,
+		minZ - margin,
+		maxX + margin,
+		maxZ + margin,
+		biomeOffset,
+		params,
+	)
+	const result = []
+	for (const islet of islets) {
+		const reach = config.palm.reach * islet.waterline
+		if (islet.x + reach < minX || islet.x - reach >= maxX) continue
+		if (islet.z + reach < minZ || islet.z - reach >= maxZ) continue
+		for (const { x, z, values } of getIsletPalms(islet, context)) {
+			if (x < minX || x >= maxX || z < minZ || z >= maxZ) continue
+			values[0] -= worldX
+			values[2] -= worldZ
+			result.push(values)
+		}
+	}
+	return result
 }
 
 export function generateSceneryInstances({
@@ -720,6 +892,8 @@ export function generateSceneryInstances({
 	const context = {
 		seed,
 		seedHash,
+		// The palms' own hash, so they never correlate with the grid's values.
+		palmHash: hashSeed(`${seed}:palms`),
 		noises,
 		params,
 		biomeOffset,
@@ -754,8 +928,10 @@ export function generateSceneryInstances({
 
 			if (isNearBiomeBorder(fields)) continue
 			const biome = getBiome(fields)
+			// The deep ocean's islets carry only their palms (placeIsletPalms()).
+			if (!(biome in BIOME_RULES)) continue
 			const temperate = biome === BIOME.TEMPERATE
-			const rules = temperate ? config.temperate : biome === BIOME.ICE ? config.ice : config.desert
+			const rules = config[BIOME_RULES[biome]]
 
 			// The type is drawn before acceptance, from an independent random
 			// value, so a category's density only adds or removes that category.
@@ -808,13 +984,13 @@ export function generateSceneryInstances({
 			.sort((a, b) => a.priority - b.priority)
 			.slice(0, Math.max(0, settings.maxPerChunk))
 	}
-	// Boats come after the cap: they are few, and maxPerChunk of their own
-	// bounds them.
-	const boats = placeBoats(context)
+	// Boats and palms come after the cap: they are few, and their own counts
+	// bound them.
+	const extra = [...placeBoats(context), ...placeIsletPalms(context)]
 
-	const output = new Float32Array((kept.length + boats.length) * IMPOSTOR_INSTANCE_STRIDE)
+	const output = new Float32Array((kept.length + extra.length) * IMPOSTOR_INSTANCE_STRIDE)
 	kept.forEach(({ values }, index) => output.set(values, index * IMPOSTOR_INSTANCE_STRIDE))
-	boats.forEach((values, index) =>
+	extra.forEach((values, index) =>
 		output.set(values, (kept.length + index) * IMPOSTOR_INSTANCE_STRIDE),
 	)
 	return output

@@ -25,6 +25,9 @@ float pctWave = smoothstep(-1.,-4.,height) - smoothstep(-10.,-40., height);
 // still (sea-ice-pars.glsl).
 vIceValue = getIceValue(wPosition.xz + uBiomeOffset.xy);
 pctWave *= 1.0 - getSeaIceStill(height, vIceValue);
+// The deep ocean field, as broad: only the land branch of the fragment reads
+// it, for the islets' biome.
+vOceanValue = getOceanValue(wPosition.xz + uBiomeOffset.xy, vIceValue);
 
 
 float dist = length(wPosition.xyz - uCamera);

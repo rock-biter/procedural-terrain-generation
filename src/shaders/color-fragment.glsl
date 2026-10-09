@@ -11,9 +11,13 @@ float groundPixel = 0.5 * (length(groundDx) + length(groundDy));
 float heightPixel = fwidth(wPosition.y);
 // Interpolated from the vertices: no noise per pixel.
 float iceValue = vIceValue;
+float oceanValue = vOceanValue;
 
+// The abyss color fills the deep ocean's floor: the rest of the sea never
+// reaches its depths (about -53 at most), so no biome is evaluated for it.
+float pctAbyss = smoothstep(- uSeaAbyssDepth.x, - uSeaAbyssDepth.y, wPosition.y);
 float pctDeep = smoothstep(- 24., - 40., wPosition.y);
-diffuseColor.rgb = mix(uSeaColors[1], uSeaColors[2], pctDeep);
+diffuseColor.rgb = mix(mix(uSeaColors[1], uSeaColors[2], pctDeep), uSeaColors[3], pctAbyss);
 float pctSea = smoothstep(- 6., - 16., wPosition.y);
 diffuseColor.rgb = mix(uSeaColors[0], diffuseColor.rgb, pctSea);
 // The shoreline, raw heights from 0 to the sand level, is a black ink line,
@@ -38,20 +42,22 @@ float pct2 = 1.0;
 float pctRock = 1.0;
 float pct3 = 1.0;
 if (wPosition.y >= TERRAIN_SAND_LEVEL) {
-	// The ice needs no climate.
-	float climateNoise = iceValue < 0.0 ? getClimateNoise(biomeXZ) : 0.0;
+	// The ice and the deep ocean's islets need no climate.
+	bool inOcean = oceanValue >= 0.0;
+	float climateNoise = iceValue < 0.0 && !inOcean ? getClimateNoise(biomeXZ) : 0.0;
 	float climateValue = getClimateValue(climateNoise, iceValue);
-	int biome = getBiome(climateValue, iceValue);
+	int biome = getBiome(climateValue, iceValue, oceanValue);
 
 	// Biome separators with a constant world-space width (getBiomeSeparator()),
 	// their gradients evaluated only near a border: the climate border outside
-	// the ice, and the ice border. Along the forest ring the effective climate
-	// follows the ice field, so its gradient does too. uBiomeClimate.z and
-	// uBiomeIce.w bound the fields' slopes; the extra pixels keep the search
-	// wide enough for the antialiasing.
+	// the ice and the deep ocean, and the ice border. Along the forest ring the
+	// effective climate follows the ice field, so its gradient does too.
+	// uBiomeClimate.z and uBiomeIce.w bound the fields' slopes; the extra
+	// pixels keep the search wide enough for the antialiasing. The deep ocean
+	// border needs none: its slope sinks all land before it.
 	float biomeBoundary = 0.0;
 	float borderReach = BIOME_LINE_HALF_WIDTH + 2.0 * groundPixel;
-	if (iceValue < 0.0 && abs(climateValue) < borderReach * uBiomeClimate.z) {
+	if (iceValue < 0.0 && !inOcean && abs(climateValue) < borderReach * uBiomeClimate.z) {
 		vec2 gradient;
 		if (climateNoise >= iceValue + uBiomeIce.z) {
 			gradient = (vec2(
@@ -79,10 +85,11 @@ if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	float lineShade = 1.0 - terrainStyle.y;
 
 	vec3 sandColor = getTerrainColor(biome, 0, biomeVariation);
-	// Rocky coast (src/coast.js) darkens the sand gradually, outside the ice.
-	// The mask is only evaluated where the grass band, wave included, may not
-	// yet cover it.
-	if (biome != BIOME_ICE && wPosition.y < TERRAIN_GRASS_LEVEL + 2.0 * TERRAIN_GRASS_WAVE.y) {
+	// Rocky coast (src/coast.js) darkens the sand gradually, outside the ice
+	// and the deep ocean, whose islets keep their bright beaches. The mask is
+	// only evaluated where the grass band, wave included, may not yet cover
+	// it.
+	if (biome != BIOME_ICE && biome != BIOME_DEEP_OCEAN && wPosition.y < TERRAIN_GRASS_LEVEL + 2.0 * TERRAIN_GRASS_WAVE.y) {
 		sandColor *= mix(1.0, uCoastSandShade, getCoastRockMask(biomeXZ));
 	}
 	diffuseColor.rgb = mix(sandColor, diffuseColor.rgb, pctSand);

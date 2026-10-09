@@ -277,6 +277,103 @@ function boat(lod) {
 	return [part(hull, COLORS.boatHull), part(cabin, COLORS.boatCabin)]
 }
 
+// A toy palm for the deep ocean's islets. The trunk is a stack of truncated
+// cones, each wider at its top so the rings read like carved wood, along a
+// curve that rises upright from the base and bows toward +Z (placement turns
+// it away from the islet's center), with the crown almost back over the base:
+// the sources are recentered on their bounding sphere, so a crown far off
+// the base would move the base off the instance's position. Seven chunky
+// fronds, closed boxes tapered to a point, folded in a V along the midrib and
+// arched over, radiate from the crown; they stay thick, because the distant
+// mips and the shadow casters lose thin parts. The trunk and the coconuts
+// take the trunk color (paint 0), the crown and the fronds the palette's.
+const PALM_HEIGHT = 6.2
+// How far the trunk bows at mid-height, and the crown's offset over the base.
+const PALM_BOW = 0.8
+const PALM_LEAN = 0.45
+const PALM_RINGS = 6
+// [azimuth, length, droop]: the fronds' directions, lengths, and how far each
+// arches down at its tip.
+const PALM_FRONDS = [
+	[0.1, 3.5, 2.5],
+	[0.98, 3.2, 2.9],
+	[1.88, 3.4, 2.6],
+	[2.75, 3.1, 3],
+	[3.66, 3.5, 2.7],
+	[4.52, 3.2, 2.8],
+	[5.4, 3.4, 2.5],
+]
+
+// Center of the trunk at `t` (0 base, 1 top): upright at the base, bowed
+// toward +Z, and the crown a little forward.
+function palmTrunkPoint(t) {
+	return new Vector3(0, t * PALM_HEIGHT, PALM_BOW * Math.sin(Math.PI * t) ** 2 + PALM_LEAN * t ** 3)
+}
+
+function palmFrond(lod, [azimuth, length, droop], crown) {
+	const width = 1.05
+	const frond = new BoxGeometry(width, 0.2, length, detail(lod, 2, 1), 1, detail(lod, 5, 3))
+	frond.translate(0, 0, length / 2)
+	const position = frond.attributes.position
+	for (let i = 0; i < position.count; i++) {
+		const u = position.getZ(i) / length
+		// Narrow at the stalk, widest past the middle, pointed at the tip.
+		const taper = Math.max(Math.max(Math.sin(Math.PI * (0.12 + 0.88 * u)), 0) ** 0.8, 0.08)
+		const x = position.getX(i) * taper
+		let y = position.getY(i) * (1 - 0.55 * u)
+		// The V-fold: the edges hang below the midrib.
+		y -= 0.32 * Math.abs(x)
+		// Up from the crown, then arched over toward the tip.
+		y += 1.1 * u - droop * u * u
+		position.setXYZ(i, x, y, position.getZ(i))
+	}
+	frond.rotateY(azimuth)
+	frond.translate(crown.x, crown.y, crown.z)
+	return part(frond, COLORS.painted, { paint: 1 })
+}
+
+function palm(lod) {
+	const parts = []
+	for (let ring = 0; ring < PALM_RINGS; ring++) {
+		const t0 = ring / PALM_RINGS
+		const t1 = (ring + 1) / PALM_RINGS
+		const bottom = palmTrunkPoint(t0)
+		const top = palmTrunkPoint(t1)
+		const axis = top.clone().sub(bottom)
+		// A little longer than the step, so the rings overlap where the curve bends.
+		const height = axis.length() * 1.04
+		const radius = 0.4 - 0.13 * t1
+		const segment = new CylinderGeometry(radius, radius * 0.8, height, detail(lod, 8, 5), 1)
+		// The first ring stands upright, so the base stays flat on y = 0.
+		segment.translate(0, height / 2, 0)
+		if (ring > 0) {
+			segment.translate(0, -height * 0.02, 0)
+			segment.rotateX(Math.atan2(axis.z, axis.y))
+		}
+		segment.translate(bottom.x, bottom.y, bottom.z)
+		parts.push(part(segment, COLORS.painted))
+	}
+
+	const crown = palmTrunkPoint(1)
+	const heart = new IcosahedronGeometry(0.42, detail(lod, 1, 0))
+	heart.scale(1, 0.75, 1)
+	heart.translate(crown.x, crown.y + 0.05, crown.z)
+	parts.push(part(heart, COLORS.painted, { paint: 1 }))
+	for (const frond of PALM_FRONDS) parts.push(palmFrond(lod, frond, crown))
+
+	for (let index = 0; index < 3; index++) {
+		const angle = index * 2.1 + 0.4
+		const coconut = new IcosahedronGeometry(0.27, detail(lod, 1, 0))
+		coconut.translate(
+			crown.x + Math.cos(angle) * 0.32,
+			crown.y - 0.32,
+			crown.z + Math.sin(angle) * 0.32,
+		)
+		parts.push(part(coconut, COLORS.paintedDark))
+	}
+	return parts
+}
+
 const BUILDERS = {
 	[IMPOSTOR_TYPE.ROUND_TREE]: roundTree,
 	[IMPOSTOR_TYPE.CONIFER]: conifer,
@@ -288,6 +385,7 @@ const BUILDERS = {
 	[IMPOSTOR_TYPE.BOAT]: boat,
 	[IMPOSTOR_TYPE.ICE_SPIKES_TWO]: (lod) => iceSpikes(lod, 2),
 	[IMPOSTOR_TYPE.ICE_SPIKES_THREE]: (lod) => iceSpikes(lod, 3),
+	[IMPOSTOR_TYPE.PALM]: palm,
 }
 
 function buildSource(type, lod) {

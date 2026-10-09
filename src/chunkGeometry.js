@@ -2,6 +2,7 @@ import alea from 'alea'
 import { createNoise2D } from 'simplex-noise'
 import { createBiomeSettings, getBiomeFields } from './biome.js'
 import { COAST_MASK_DEFAULTS, getCoastRelief } from './coast.js'
+import { getDeepOceanFloor } from './deepOcean.js'
 import { getIcePeaks } from './icePeaks.js'
 import { lerp, smoothstep } from './math.js'
 
@@ -52,6 +53,27 @@ export const ICE_TERRAIN_DEFAULTS = Object.freeze({
 	peakSharpness: 1.6,
 })
 
+// Default deep ocean topography (src/deepOcean.js). The terrain sinks to the
+// floor, `depth` units deep, over a slope `blend` wide in deep ocean field
+// units just outside the biome, so no land reaches its border. Inside, a grid
+// cell of `isletSpacing` holds an archipelago with probability `isletChance`
+// where the field at its center is at least `isletMargin`: a bank
+// `bankDepth` deep of radius up to `bankRadius`, carrying `isletCount` islets
+// of radius up to `isletRadius` and summit up to `isletHeight` (never above
+// ISLET_HEIGHT_CAP, below the rocks band).
+export const DEEP_OCEAN_TERRAIN_DEFAULTS = Object.freeze({
+	depth: 110,
+	blend: 0.08,
+	isletSpacing: 1600,
+	isletChance: 0.25,
+	isletMargin: 0.06,
+	bankRadius: 260,
+	bankDepth: 16,
+	isletCount: Object.freeze({ min: 2, max: 4 }),
+	isletRadius: 60,
+	isletHeight: 14,
+})
+
 // Default rocky coast (src/coast.js): the relief's mound height in world
 // units and noise frequency per world unit, and the mask that picks the rocky
 // stretches. An amplitude of 0 leaves the coast unchanged.
@@ -70,7 +92,7 @@ export const SEA_SURFACE_Y = -1
 // same world: height amplitude, base noise frequency per axis, octave count,
 // lacunarity (frequency gain per octave), persistance (amplitude gain per
 // octave), the biome distribution (BIOME_DEFAULTS in src/biome.js), and the
-// desert, ice, and coast topographies above.
+// desert, ice, deep ocean, and coast topographies above.
 export const TERRAIN_DEFAULTS = Object.freeze({
 	amplitude: 32,
 	frequency: Object.freeze({ x: 0.5, z: 0.5 }),
@@ -80,6 +102,7 @@ export const TERRAIN_DEFAULTS = Object.freeze({
 	biomes: Object.freeze(createBiomeSettings()),
 	desert: DESERT_TERRAIN_DEFAULTS,
 	ice: ICE_TERRAIN_DEFAULTS,
+	deepOcean: DEEP_OCEAN_TERRAIN_DEFAULTS,
 	coast: COAST_TERRAIN_DEFAULTS,
 })
 
@@ -101,6 +124,7 @@ export function createTerrainSnapshot(params) {
 		biomes: { ...params.biomes },
 		desert: { ...params.desert },
 		ice: { ...params.ice },
+		deepOcean: { ...params.deepOcean, isletCount: { ...params.deepOcean.isletCount } },
 		coast: { ...params.coast, mask: { ...params.coast.mask } },
 	}
 }
@@ -177,17 +201,30 @@ export function getIceFlattening(ice, params) {
 	return params.ice.flatten * smoothstep(0, depth, ice)
 }
 
-// Reused by getHeight(), which never runs reentrantly.
-const heightFields = { climate: 0, ice: 0, ringDriven: false }
+// Share of the deep ocean floor: 0 at `blend` (in deep ocean field units)
+// outside the biome, 1 at its border and inside. The slope lies entirely
+// outside, so no land reaches the border.
+export function getDeepOceanWeight(ocean, params) {
+	const blend = Math.max(params.deepOcean.blend, 1e-6)
+	return smoothstep(-blend, 0, ocean)
+}
 
-// biomeOffset comes from createBiomeOffset(seed); the desert and the ice
-// reshape the terrain, so heights depend on the biome fields
+// Reused by getHeight(), which never runs reentrantly.
+const heightFields = { climate: 0, ice: 0, ringDriven: false, ocean: 0 }
+
+// biomeOffset comes from createBiomeOffset(seed); the desert, the ice, and
+// the deep ocean reshape the terrain, so heights depend on the biome fields
 // (params.biomes). With `fields`, the biome fields at (x, z) are written to it.
 export function getHeight(x, z, noises, params, biomeOffset, fields = heightFields) {
+	// Inside the deep ocean the floor replaces everything else: lerp() with a
+	// weight of 1 returns it exactly, so the land terms are skipped.
+	getBiomeFields(x, z, biomeOffset, params.biomes, fields)
+	const deepOcean = getDeepOceanWeight(fields.ocean, params)
+	if (deepOcean >= 1) return getDeepOceanFloor(x, z, fields.ocean, biomeOffset, params)
+
 	// Octave 0 and the landmass shape the world at large scale and are shared
 	// by every biome. Detail octaves are computed for each biome only where it
 	// has weight, then mixed, so the borders have no frequency warping.
-	getBiomeFields(x, z, biomeOffset, params.biomes, fields)
 	const ice = getIceWeight(fields.ice, params)
 	const desert = (1 - ice) * getDesertWeight(fields.climate, params)
 	const temperate = 1 - ice - desert
@@ -240,6 +277,9 @@ export function getHeight(x, z, noises, params, biomeOffset, fields = heightFiel
 			height = getIcePeaks(x, z, height, landHeight, fields.ice, biomeOffset, params.ice)
 		}
 	}
+
+	// The slope toward the deep ocean sinks land and sea alike to its floor.
+	if (deepOcean > 0) height = lerp(height, -params.deepOcean.depth, deepOcean)
 
 	return height
 }

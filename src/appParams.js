@@ -112,6 +112,7 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			boat: { scale: 0.01, color: 0, normalized: false },
 			iceSpikesTwo: { scale: 0.01, color: 0.1, normalized: false },
 			iceSpikesThree: { scale: 0.01, color: 0.1, normalized: false },
+			palm: { scale: 0.15, color: 0.6, normalized: true },
 		},
 		// Shader-side, applied live: the trees' trunk colors and crown palettes and
 		// the cacti's palette, picked per instance from world-space noise; see
@@ -142,6 +143,7 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 				conifer: 0.35,
 				cactusOneArm: 0.35,
 				cactusTwoArms: 0.35,
+				palm: 0.35,
 				boat: 0,
 			},
 		},

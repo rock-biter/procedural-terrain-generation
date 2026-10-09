@@ -204,14 +204,16 @@ test('follows the rocky coast mask settings', () => {
 	assert.ok(rocks.length < baseline.length, `${rocks.length} rocks, ${baseline.length} before`)
 })
 
-test('places only sea rocks and boats in water or on beaches, and nothing on snow', () => {
+test('places only sea rocks, boats, and palms in water or on beaches, and nothing on snow', () => {
 	const bands = new Set()
 	for (const [i, j, data] of chunks) {
 		for (const instance of instances(data, i, j)) {
 			if (instance.type === IMPOSTOR_TYPE.SEA_ROCK || instance.type === IMPOSTOR_TYPE.BOAT) continue
 			const height = getHeight(instance.x, instance.z, noises, params, biomeOffset)
 			const band = getTerrainBand(instance.x, height, instance.z)
-			assert.ok(band >= TERRAIN_BAND.grass && band <= TERRAIN_BAND.rocks)
+			// The deep ocean's palms stand on its islets' beaches too.
+			const lowest = instance.type === IMPOSTOR_TYPE.PALM ? TERRAIN_BAND.sand : TERRAIN_BAND.grass
+			assert.ok(band >= lowest && band <= TERRAIN_BAND.rocks)
 			assert.ok(Math.abs(instance.y - (height - SCENERY_CONFIG.sink * instance.scale)) < 1e-3)
 			// Temperate types follow the band the shader colors under them.
 			const fields = getBiomeFields(instance.x, instance.z, biomeOffset, params.biomes)
@@ -232,12 +234,14 @@ const biomeTypes = {
 	),
 	[BIOME.DESERT]: new Set(SCENERY_CONFIG.desert.types.map(([type]) => type)),
 	[BIOME.ICE]: new Set(SCENERY_CONFIG.ice.types.map(([type]) => type)),
+	// The deep ocean's islets carry only their palms.
+	[BIOME.DEEP_OCEAN]: new Set([SCENERY_CONFIG.palm.type]),
 }
 
 // Every land instance stands off the biome borders, in a biome that places
 // its type; returns the count per biome.
 function assertBiomeTypes(results, offset, coords) {
-	const counts = { [BIOME.DESERT]: 0, [BIOME.TEMPERATE]: 0, [BIOME.ICE]: 0 }
+	const counts = { [BIOME.DESERT]: 0, [BIOME.TEMPERATE]: 0, [BIOME.ICE]: 0, [BIOME.DEEP_OCEAN]: 0 }
 	results.forEach((data, index) => {
 		const [i, j] = coords[index]
 		for (const instance of instances(data, i, j)) {

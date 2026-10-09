@@ -13,6 +13,7 @@ import {
 } from './chunkPolicy'
 import { createChunkGeometry } from './chunkTopology'
 import ChunkWorkerPool from './chunkWorkerPool'
+import { updateBiomeOffsetUniforms } from './sharedUniforms'
 
 // New buffers a worker result adds, uploaded on the next render.
 function getResponseBytes({ geometry, scenery }) {
@@ -396,14 +397,15 @@ export default class ChunkManager {
 	}
 
 	// Replaces the world seed: terrain noise, biome offset (CPU and the shared
-	// uBiomeOffset uniform), and scenery placement all follow it. Every desired
+	// uBiomeOffset and uBiomeOceanOffset uniforms), and scenery placement all
+	// follow it. Every desired
 	// chunk is regenerated; in-flight results for the old seed become stale.
 	setSeed(seed) {
 		if (seed === this.seed) return
 
 		this.seed = seed
 		this.biomeOffset = createBiomeOffset(seed)
-		this.uniforms.uBiomeOffset.value.fromArray(this.biomeOffset)
+		updateBiomeOffsetUniforms(this.uniforms, this.biomeOffset)
 		this.onParamsChange()
 	}
 

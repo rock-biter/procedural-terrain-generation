@@ -287,7 +287,7 @@ export default class BiomeMap {
 		const shares = getLandShares(counts)
 		const percent = (share) => `${Math.round(share * 100)}%`
 		this.shares.textContent = shares
-			? `Land: desert ${percent(shares.desert)} · forest ${percent(shares.forest)} · ice ${percent(shares.ice)}`
+			? `Land: desert ${percent(shares.desert)} · forest ${percent(shares.forest)} · ice ${percent(shares.ice)} · islets ${percent(shares.islets)}`
 			: 'Land: none in view'
 	}
 

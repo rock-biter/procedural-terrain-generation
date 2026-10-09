@@ -5,7 +5,7 @@ import { SAND_LEVEL } from '../terrainBands.js'
 
 // The ?gui=1 biome map (three-free, so its worker and the tests import it): a
 // top-down square of the world around a center, one flat color per biome,
-// the sea, and the frozen sea, sampled with the same getHeight() and biome
+// the sea, the frozen sea, and the deep ocean with its islets, sampled with the same getHeight() and biome
 // fields as the chunks (src/biome.js, src/seaIcePolicy.js). src/debug/biomeMap.js
 // draws it and src/debug/biomeMap.worker.js rasterizes it.
 //
@@ -20,6 +20,8 @@ export const BIOME_MAP_CATEGORY = Object.freeze({
 	DESERT: 2,
 	FOREST: 3,
 	ICE: 4,
+	DEEP_OCEAN: 5,
+	ISLETS: 6,
 })
 
 // Flat sRGB colors and legend labels, indexed by category.
@@ -29,8 +31,18 @@ export const BIOME_MAP_COLORS = Object.freeze([
 	Object.freeze([226, 178, 96]),
 	Object.freeze([70, 132, 58]),
 	Object.freeze([244, 248, 252]),
+	Object.freeze([10, 34, 78]),
+	Object.freeze([150, 214, 96]),
 ])
-export const BIOME_MAP_LABELS = Object.freeze(['Sea', 'Frozen sea', 'Desert', 'Forest', 'Ice'])
+export const BIOME_MAP_LABELS = Object.freeze([
+	'Sea',
+	'Frozen sea',
+	'Desert',
+	'Forest',
+	'Ice',
+	'Deep ocean',
+	'Islets',
+])
 
 // World width of the map, in units: from a few chunks to the scale of the ice.
 export const BIOME_MAP_SPAN = Object.freeze({ min: 500, max: 400000, initial: 10000 })
@@ -84,14 +96,17 @@ export function hasFollowMoved(view, x, z) {
 // Category of a point of raw height `height` and biome fields `fields`
 // (getBiomeFields()); `seaIce` is params.seaIce. The sea is everything the
 // terrain shader colors as sea, the frozen sea where the sheet covers it
-// (without its floes).
+// (without its floes), and the deep ocean the sea of that biome; its land is
+// the islets.
 export function classifyBiomeSample(height, fields, seaIce) {
+	const biome = getBiome(fields)
 	if (height <= SAND_LEVEL) {
+		if (biome === BIOME.DEEP_OCEAN) return BIOME_MAP_CATEGORY.DEEP_OCEAN
 		return isUnderSeaIce(height, fields.ice, seaIce)
 			? BIOME_MAP_CATEGORY.FROZEN_SEA
 			: BIOME_MAP_CATEGORY.SEA
 	}
-	const biome = getBiome(fields)
+	if (biome === BIOME.DEEP_OCEAN) return BIOME_MAP_CATEGORY.ISLETS
 	if (biome === BIOME.ICE) return BIOME_MAP_CATEGORY.ICE
 	return biome === BIOME.DESERT ? BIOME_MAP_CATEGORY.DESERT : BIOME_MAP_CATEGORY.FOREST
 }
@@ -150,14 +165,16 @@ export function rasterizeBiomeMap({
 	return { pixels, counts }
 }
 
-// Shares of the land (desert, forest, ice) in `counts`, or null without land.
+// Shares of the land (desert, forest, ice, islets) in `counts`, or null
+// without land.
 export function getLandShares(counts) {
 	const desert = counts[BIOME_MAP_CATEGORY.DESERT]
 	const forest = counts[BIOME_MAP_CATEGORY.FOREST]
 	const ice = counts[BIOME_MAP_CATEGORY.ICE]
-	const land = desert + forest + ice
+	const islets = counts[BIOME_MAP_CATEGORY.ISLETS]
+	const land = desert + forest + ice + islets
 	if (land === 0) return null
-	return { desert: desert / land, forest: forest / land, ice: ice / land }
+	return { desert: desert / land, forest: forest / land, ice: ice / land, islets: islets / land }
 }
 
 // A round length (1, 2, or 5 times a power of ten) of at most `maxLength`,

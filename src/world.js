@@ -13,7 +13,7 @@ import Plane from './plane'
 import SceneryImpostors from './sceneryImpostors'
 import SceneryShadows from './sceneryShadows'
 import SeaFoam from './seaFoam'
-import { updateSeaIceNight } from './sharedUniforms'
+import { updateBiomeOffsetUniforms, updateSeaIceNight } from './sharedUniforms'
 import TerrainSampleDebug from './terrainSampleDebug'
 import { CHUNK_SIZE } from './worldConstants'
 
@@ -231,7 +231,7 @@ export default class World {
 		this.aurora?.reset()
 
 		if (!this.chunkManager) {
-			this.uniforms.uBiomeOffset.value.fromArray(createBiomeOffset(seed))
+			updateBiomeOffsetUniforms(this.uniforms, createBiomeOffset(seed))
 			return
 		}
 

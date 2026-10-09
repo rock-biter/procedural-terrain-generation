@@ -11,16 +11,19 @@ export const BIOME = Object.freeze({
 	DESERT: 0,
 	TEMPERATE: 1,
 	ICE: 2,
+	DEEP_OCEAN: 3,
 })
 export const BIOME_COUNT = Object.keys(BIOME).length
 
-// Two biome fields decide the biome (src/biome.js, biome-value.glsl), each a
+// Three biome fields decide the biome (src/biome.js, biome-value.glsl), each a
 // sum of simplex noise layers [frequency per world unit, weight]. The climate
 // field splits temperate (>= 0) and desert; the rare ice field, sampled in its
-// own seeded noise space, overrides both where it is >= 0. Their size,
-// desert share, ice rarity, and forest ring are runtime settings
-// (params.biomes, BIOME_DEFAULTS in src/biome.js) that divide the frequencies
-// and shift the sums.
+// own seeded noise space, overrides both where it is >= 0; the deep ocean
+// field, sampled in the ice's noise space shifted by OCEAN_NOISE_OFFSET,
+// overrides all three where it is >= 0, and always keeps clear of the ice.
+// Their sizes, desert share, ice and ocean rarity, and rings are runtime
+// settings (params.biomes, BIOME_DEFAULTS in src/biome.js) that divide the
+// frequencies and shift the sums.
 export const BIOME_CLIMATE_LAYERS = Object.freeze([
 	Object.freeze([0.000175, 1]),
 	Object.freeze([0.0035, 0.22]),
@@ -30,6 +33,18 @@ export const BIOME_ICE_LAYERS = Object.freeze([
 	Object.freeze([0.000035, 1]),
 	Object.freeze([0.0015, 0.06]),
 ])
+export const BIOME_OCEAN_LAYERS = Object.freeze([
+	Object.freeze([0.00005, 1]),
+	Object.freeze([0.0012, 0.06]),
+])
+
+// Offset of the deep ocean field from the ice's seeded noise space
+// (createBiomeOffset()), in noise units: it decorrelates the two fields, and
+// stays small so the shader's float32 noise coordinates keep their precision.
+// Chosen so the spawn of every curated seed (src/worldSeed.js) lies well
+// outside the deep ocean and its slope (field at most -0.38), with the deep
+// ocean 2.5 to 6.5 km away.
+export const OCEAN_NOISE_OFFSET = Object.freeze([-0.98, -0.53])
 
 // Offset of the rocky coast mask (src/coast.js) from the seeded biome
 // coordinates, which decorrelates it from the biome field. Its noise settings
@@ -92,6 +107,7 @@ export const BIOME_SHADER_DEFINES = Object.freeze(
 	Object.fromEntries([
 		...layerDefines('BIOME_CLIMATE_LAYER', BIOME_CLIMATE_LAYERS),
 		...layerDefines('BIOME_ICE_LAYER', BIOME_ICE_LAYERS),
+		...layerDefines('BIOME_OCEAN_LAYER', BIOME_OCEAN_LAYERS),
 		...Object.entries(BIOME).map(([name, id]) => [`BIOME_${name}`, String(id)]),
 		['BIOME_COUNT', String(BIOME_COUNT)],
 	]),

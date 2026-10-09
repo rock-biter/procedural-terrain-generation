@@ -1,6 +1,12 @@
 import alea from 'alea'
 import { snoise } from './noise.js'
-import { BIOME, BIOME_CLIMATE_LAYERS, BIOME_ICE_LAYERS } from './terrainBands.js'
+import {
+	BIOME,
+	BIOME_CLIMATE_LAYERS,
+	BIOME_ICE_LAYERS,
+	BIOME_OCEAN_LAYERS,
+	OCEAN_NOISE_OFFSET,
+} from './terrainBands.js'
 
 export { BIOME, BIOME_COUNT } from './terrainBands.js'
 
@@ -8,10 +14,11 @@ export { BIOME, BIOME_COUNT } from './terrainBands.js'
 // decides terrain colors per pixel; this copy lets height, placement, and the
 // debug map ask which biome a world point belongs to. Both read the noise
 // layers from src/terrainBands.js, the offset from createBiomeOffset()
-// (uBiomeOffset), and the settings from params.biomes (uBiomeClimate,
-// uBiomeIce; updateBiomeUniforms() in src/sharedUniforms.js); the snoise port
-// in src/noise.js must stay identical to the GLSL, and both sides sum the
-// layers in the same order.
+// (uBiomeOffset, and uBiomeOceanOffset from getOceanNoiseOffset()), and the
+// settings from params.biomes (uBiomeClimate, uBiomeIce, uBiomeOcean;
+// updateBiomeUniforms() in src/sharedUniforms.js); the snoise port in
+// src/noise.js must stay identical to the GLSL, and both sides sum the layers
+// in the same order.
 //
 // - The climate field is the climate layers at the biome coordinates, with
 //   their frequencies divided by `size`, minus `desertBias`: a larger bias
@@ -21,8 +28,14 @@ export { BIOME, BIOME_COUNT } from './terrainBands.js'
 //   threshold leaves rarer ice.
 // - The effective climate is max(climate, ice + iceRing): within iceRing of
 //   the ice the climate is temperate, so the desert never touches the ice.
-// - Ice where the ice field is >= 0, then temperate where the effective
-//   climate is >= 0, else desert.
+// - The deep ocean field is the ocean layers, with frequencies divided by
+//   `oceanSize`, sampled in the ice's noise space shifted by
+//   OCEAN_NOISE_OFFSET, minus `oceanThreshold`: a higher threshold leaves
+//   rarer deep ocean. The effective ocean is min(ocean, -ice): the ice wins
+//   where both overlap, and the deep ocean borders it directly, with no forest
+//   ring between them (its slope sinks the ice's coast into the abyss).
+// - Deep ocean where the effective ocean is >= 0, then ice where the ice field
+//   is >= 0, then temperate where the effective climate is >= 0, else desert.
 
 // Default distribution, edited live by the ?gui=1 Biomes > Distribution
 // folder. Measured over 240 km squares of eight seeds: with `size` 1.5 and
@@ -36,6 +49,8 @@ export const BIOME_DEFAULTS = Object.freeze({
 	iceSize: 1,
 	iceThreshold: 0.7,
 	iceRing: 0.1,
+	oceanSize: 1,
+	oceanThreshold: 0.55,
 })
 
 // A mutable copy of BIOME_DEFAULTS.
@@ -50,6 +65,8 @@ export function createBiomeSettings() {
 // climate border where the forest ring draws it.
 export const BIOME_BORDER_MARGIN = 0.04
 export const ICE_BORDER_MARGIN = 0.004
+// And on the deep ocean field, whose gradient is close to the ice's.
+export const OCEAN_BORDER_MARGIN = 0.006
 
 // Upper bound of |gradient(snoise)| per noise unit, with margin: the shader's
 // biome separators look for the border only where a field is within this
@@ -79,6 +96,19 @@ export function createBiomeOffset(seed) {
 const [[CLIMATE_F0, CLIMATE_W0], [CLIMATE_F1, CLIMATE_W1], [CLIMATE_F2, CLIMATE_W2]] =
 	BIOME_CLIMATE_LAYERS
 const [[ICE_F0, ICE_W0], [ICE_F1, ICE_W1]] = BIOME_ICE_LAYERS
+const [[OCEAN_F0, OCEAN_W0], [OCEAN_F1, OCEAN_W1]] = BIOME_OCEAN_LAYERS
+
+// [u, v] noise space offset of the deep ocean field: the ice's (the third and
+// fourth values of createBiomeOffset()) plus OCEAN_NOISE_OFFSET. The shader
+// receives the sum as uBiomeOceanOffset, so both sides add the same value.
+export function getOceanNoiseOffset(offset) {
+	return [offset[2] + OCEAN_NOISE_OFFSET[0], offset[3] + OCEAN_NOISE_OFFSET[1]]
+}
+
+// Below this effective value, no consumer of the deep ocean field needs it
+// exactly: the topography's blend (at most 0.3 in the GUI) and the border
+// margins all lie closer to 0. getOceanValue() skips its detail layer there.
+export const OCEAN_FIELD_REACH = 0.5
 
 // Climate field before the forest ring; getClimateNoise() in GLSL. The layers
 // are unrolled (the loop cost more than the noise) and summed in the
@@ -110,9 +140,28 @@ export function getIceValue(x, z, offset, settings) {
 	return base + snoise(bx * f1 + offset[2], bz * f1 + offset[3]) * ICE_W1
 }
 
-// Both fields at (x, z), written to `out`: `climate` is the effective climate
-// (forest ring included), `ice` the ice field, and `ringDriven` whether the
-// ring sets the climate. `settings` is params.biomes.
+// Deep ocean field before the ice cuts it, >= 0 inside the deep ocean;
+// getOceanValue() in GLSL computes it exactly. Where the base layer alone
+// keeps the field below -OCEAN_FIELD_REACH, the detail layer is skipped and
+// the result is only within its weight of the exact value.
+export function getOceanValue(x, z, offset, settings) {
+	const bx = x + offset[0]
+	const bz = z + offset[1]
+	const u = offset[2] + OCEAN_NOISE_OFFSET[0]
+	const v = offset[3] + OCEAN_NOISE_OFFSET[1]
+	const scale = 1 / settings.oceanSize
+	const f0 = OCEAN_F0 * scale
+	const f1 = OCEAN_F1 * scale
+	// The base layer minus the threshold first, as getOceanBase() in GLSL.
+	const base = snoise(bx * f0 + u, bz * f0 + v) * OCEAN_W0 - settings.oceanThreshold
+	if (base < -(OCEAN_W1 + OCEAN_FIELD_REACH)) return base
+	return base + snoise(bx * f1 + u, bz * f1 + v) * OCEAN_W1
+}
+
+// Every field at (x, z), written to `out`: `climate` is the effective climate
+// (forest ring included), `ice` the ice field, `ringDriven` whether the ring
+// sets the climate, and `ocean` the effective deep ocean field (cut by the
+// ice). `settings` is params.biomes.
 export function getBiomeFields(x, z, offset, settings, out = {}) {
 	const ice = getIceValue(x, z, offset, settings)
 	const climate = getClimateNoise(x, z, offset, settings)
@@ -120,17 +169,21 @@ export function getBiomeFields(x, z, offset, settings, out = {}) {
 	out.ice = ice
 	out.climate = Math.max(climate, ring)
 	out.ringDriven = ring > climate
+	out.ocean = Math.min(getOceanValue(x, z, offset, settings), -ice)
 	return out
 }
 
 // The biome of getBiomeFields() values, as the shader's getBiome() picks it.
-export function getBiome({ climate, ice }) {
+export function getBiome({ climate, ice, ocean }) {
+	if (ocean >= 0) return BIOME.DEEP_OCEAN
 	if (ice >= 0) return BIOME.ICE
 	return climate >= 0 ? BIOME.TEMPERATE : BIOME.DESERT
 }
 
 // Whether a point is too close to a biome border for placement.
-export function isNearBiomeBorder({ climate, ice, ringDriven }) {
+export function isNearBiomeBorder({ climate, ice, ocean, ringDriven }) {
+	if (Math.abs(ocean) < OCEAN_BORDER_MARGIN) return true
+	if (ocean >= 0) return false
 	if (Math.abs(ice) < ICE_BORDER_MARGIN) return true
 	if (ice >= 0) return false
 	return Math.abs(climate) < (ringDriven ? ICE_BORDER_MARGIN : BIOME_BORDER_MARGIN)

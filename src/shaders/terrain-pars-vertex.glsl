@@ -3,5 +3,6 @@
 #include ./biome-value.glsl
 #include ./sea-ice-pars.glsl
 
-// The ice field at the vertex, interpolated for the fragment.
+// The ice and deep ocean fields at the vertex, interpolated for the fragment.
 varying float vIceValue;
+varying float vOceanValue;

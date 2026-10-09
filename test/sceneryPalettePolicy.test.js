@@ -24,6 +24,7 @@ const {
 	SEA_ROCK,
 	ICE_SPIKES_TWO,
 	ICE_SPIKES_THREE,
+	PALM,
 } = IMPOSTOR_TYPE
 
 function layout(settings = createSceneryPaletteSettings()) {
@@ -50,12 +51,14 @@ test('the palettes fit the shader layout', () => {
 			SEA_ROCK,
 			ICE_SPIKES_TWO,
 			ICE_SPIKES_THREE,
+			PALM,
 		],
 	)
-	// The noise palettes keep their indices, so their fields never move.
+	// The noise palettes keep their indices, so their fields never move; new
+	// ones go last.
 	assert.deepEqual(
 		[...SCENERY_PALETTE_KEYS],
-		['roundTree', 'conifer', 'cactus', 'boulder', 'layeredRock', 'seaRock', 'iceSpike'],
+		['roundTree', 'conifer', 'cactus', 'boulder', 'layeredRock', 'seaRock', 'iceSpike', 'palm'],
 	)
 	// Noise groups are scenery categories, and every painted type sits in its own.
 	for (const type of SCENERY_PAINTED_TYPES) {
@@ -68,26 +71,28 @@ test('the palettes fit the shader layout', () => {
 	assert.equal(trunks.length, IMPOSTOR_TYPE_COUNT)
 	assert.equal(noise.length, IMPOSTOR_TYPE_COUNT)
 	// One palette slot per biome, in the order of the labels below.
-	assert.deepEqual(Object.values(SCENERY_BIOME_SLOTS).sort(), [0, 1, 2])
+	assert.deepEqual(Object.values(SCENERY_BIOME_SLOTS).sort(), [0, 1, 2, 3])
 	assert.ok(Math.max(...Object.values(SCENERY_BIOME_SLOTS)) < SCENERY_PALETTE_SIZE)
 })
 
-test('defaults: four round-tree, three conifer, three cactus, and three colors per rock and ice spike, valid hex', () => {
+test('defaults: four round-tree, three conifer, three cactus, four palm, and four colors per rock and ice spike, valid hex', () => {
 	const settings = createSceneryPaletteSettings()
 	const { palettes, noise } = settings
 	assert.equal(palettes.roundTree.colors.length, 4)
 	assert.equal(palettes.conifer.colors.length, 3)
 	assert.equal(palettes.cactus.colors.length, 3)
+	assert.equal(palettes.palm.colors.length, 4)
 	for (const key of ['boulder', 'layeredRock', 'seaRock', 'iceSpike']) {
 		assert.equal(palettes[key].trunk, undefined, `${key}: painted whole`)
 		assert.equal(palettes[key].byBiome, true, `${key}: one color per biome`)
 		assert.deepEqual(
 			palettes[key].colors.map(({ label }) => label),
-			['Forest', 'Desert', 'Ice'],
+			['Forest', 'Desert', 'Ice', 'Deep ocean'],
 		)
 	}
 	assert.match(palettes.roundTree.trunk, HEX)
 	assert.match(palettes.conifer.trunk, HEX)
+	assert.match(palettes.palm.trunk, HEX)
 	assert.equal(palettes.cactus.trunk, undefined, 'cacti are painted whole')
 	for (const key of SCENERY_PALETTE_KEYS) {
 		for (const { label, color, weight } of palettes[key].colors) {
@@ -96,7 +101,7 @@ test('defaults: four round-tree, three conifer, three cactus, and three colors p
 			assert.ok(weight > 0)
 		}
 	}
-	for (const group of ['trees', 'cacti']) {
+	for (const group of ['trees', 'cacti', 'palms']) {
 		assert.ok(noise[group].frequency > 0)
 		assert.ok(noise[group].mix >= 0 && noise[group].mix <= 1)
 	}
@@ -116,7 +121,9 @@ test('painted types get their palettes, unpainted types stay white with zero wei
 	assert.equal(trunks[ROUND_TREE], palettes.roundTree.trunk)
 	assert.equal(trunks[CONIFER], palettes.conifer.trunk)
 	assert.equal(trunks[CACTUS_ONE_ARM], null)
-	// One slot per biome: temperate, desert, ice.
+	assert.deepEqual(slots(colors, PALM), hexes('palm'))
+	assert.equal(trunks[PALM], palettes.palm.trunk)
+	// One slot per biome: temperate, desert, ice, deep ocean.
 	for (const [type, key] of [
 		[BOULDER, 'boulder'],
 		[LAYERED_ROCK, 'layeredRock'],
@@ -125,8 +132,8 @@ test('painted types get their palettes, unpainted types stay white with zero wei
 		[ICE_SPIKES_TWO, 'iceSpike'],
 		[ICE_SPIKES_THREE, 'iceSpike'],
 	]) {
-		assert.deepEqual(slots(colors, type), [...hexes(key), null])
-		assert.deepEqual(slots(weights, type), [1, 1, 1, 0])
+		assert.deepEqual(slots(colors, type), hexes(key))
+		assert.deepEqual(slots(weights, type), [1, 1, 1, 1])
 		assert.equal(trunks[type], null)
 	}
 
@@ -154,6 +161,8 @@ test('noise follows each group, and shared palettes share their fields', () => {
 	assert.deepEqual(noise[SEA_ROCK], [0, 0, 5, 1])
 	assert.deepEqual(noise[ICE_SPIKES_TWO], [0, 0, 6, 1])
 	assert.deepEqual(noise[ICE_SPIKES_THREE], noise[ICE_SPIKES_TWO])
+	// The palms come last, with the default noise of their group.
+	assert.deepEqual(noise[PALM], [0.05, 0.9, 7, 0])
 })
 
 test('weights are clamped, and a painted type always keeps one slot', () => {
