@@ -21,7 +21,7 @@ import {
 	updateSeaIceUniforms,
 	updateTerrainPaletteUniforms,
 } from '../sharedUniforms'
-import { createRandomSeed, normalizeWorldSeed } from '../worldSeed'
+import { createRandomSeed, CURATED_SEEDS, normalizeWorldSeed } from '../worldSeed'
 import BiomeMap from './biomeMap'
 
 // The ?gui=1 tuning panel (lil-gui), loaded only behind that flag so the
@@ -45,27 +45,30 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	const updatePalette = () => world.sceneryImpostors?.applyPalette()
 	const updateTerrainPalette = () => updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
 
+	// The text field and the list both show worldSettings.seed.
+	const applySeed = (seed) => {
+		worldSettings.seed = seed
+		world.applyWorldSeed(seed)
+		biomeMap.invalidate()
+		seedController.updateDisplay()
+		seedListController.updateDisplay()
+	}
 	const worldSettings = {
 		seed: world.seed,
-		randomSeed() {
-			worldSettings.seed = createRandomSeed()
-			world.applyWorldSeed(worldSettings.seed)
-			biomeMap.invalidate()
-			seedController.updateDisplay()
-		},
+		randomSeed: () => applySeed(createRandomSeed()),
 	}
 	const worldFolder = gui.addFolder('World')
 	const seedController = worldFolder
 		.add(worldSettings, 'seed')
 		.name('Seed')
 		.onFinishChange((value) => {
-			const seed = normalizeWorldSeed(value)
 			// A blank value restores the current seed.
-			worldSettings.seed = seed ?? world.seed
-			seedController.updateDisplay()
-			if (seed) world.applyWorldSeed(seed)
-			biomeMap.invalidate()
+			applySeed(normalizeWorldSeed(value) ?? world.seed)
 		})
+	const seedListController = worldFolder
+		.add(worldSettings, 'seed', CURATED_SEEDS)
+		.name('Seed list')
+		.onChange(applySeed)
 	worldFolder.add(worldSettings, 'randomSeed').name('Random seed')
 
 	addBiomeControls()

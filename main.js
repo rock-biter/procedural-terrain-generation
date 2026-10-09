@@ -11,7 +11,7 @@ import { createSharedUniforms } from './src/sharedUniforms'
 import Soundtrack from './src/soundtrack'
 import World from './src/world'
 import { WORLD_FEATURES } from './src/worldConstants'
-import { createRandomSeed, parseWorldSeed } from './src/worldSeed'
+import { parseWorldSeed, pickCuratedSeed } from './src/worldSeed'
 import audioSrc from './src/audio/epic-soundtrack.mp3'
 
 // The bootstrap: reads the URL flags, creates the shared params and uniforms,
@@ -31,7 +31,7 @@ const FlightPauseDebug = debug ? (await import('./src/flightPauseDebug')).defaul
 const debugGui = showGui ? await import('./src/debug/debugGui') : null
 
 const params = createAppParams({ urlParams, isMobile })
-const seed = parseWorldSeed(urlParams) ?? createRandomSeed()
+const seed = parseWorldSeed(urlParams) ?? pickCuratedSeed()
 const uniforms = createSharedUniforms(params, seed)
 const setup = new RenderSetup({ params, urlParams, isMobile })
 

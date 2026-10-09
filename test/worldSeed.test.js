@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createRandomSeed, normalizeWorldSeed, parseWorldSeed } from '../src/worldSeed.js'
+import {
+	createRandomSeed,
+	CURATED_SEEDS,
+	normalizeWorldSeed,
+	parseWorldSeed,
+	pickCuratedSeed,
+} from '../src/worldSeed.js'
 
 test('parses the seed query parameter', () => {
 	assert.equal(parseWorldSeed(new URLSearchParams('?seed=s762')), 's762')
@@ -35,4 +41,25 @@ test('creates short base-36 random seeds', () => {
 	let call = 0
 	const random = () => values[call++ % values.length]
 	assert.equal(createRandomSeed(random), '3iw3iw3i')
+})
+
+test('picks the starting seed from the curated list', () => {
+	assert.equal(CURATED_SEEDS.length, new Set(CURATED_SEEDS).size)
+	for (const seed of CURATED_SEEDS) assert.equal(normalizeWorldSeed(seed), seed)
+	assert.equal(
+		pickCuratedSeed(() => 0),
+		CURATED_SEEDS[0],
+	)
+	assert.equal(
+		pickCuratedSeed(() => 0.999999),
+		CURATED_SEEDS.at(-1),
+	)
+	assert.equal(
+		pickCuratedSeed(() => 1),
+		CURATED_SEEDS.at(-1),
+	)
+	assert.equal(
+		pickCuratedSeed(() => 0.5),
+		CURATED_SEEDS[5],
+	)
 })
