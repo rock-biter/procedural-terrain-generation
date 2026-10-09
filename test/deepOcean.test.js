@@ -19,6 +19,7 @@ import {
 } from '../src/chunkGeometry.js'
 import {
 	ISLET_HEIGHT_CAP,
+	getArchipelagoFade,
 	getArchipelagoIslets,
 	getIsletInfluence,
 	getReefInfluence,
@@ -158,6 +159,22 @@ test('follows settings edited in place, as the panel edits them', () => {
 	// No deep ocean left: the land terms are back.
 	assert.ok(getFields(islet.x, islet.z).ocean >= 0)
 	assert.ok(getHeight(islet.x, islet.z, noises, live, biomeOffset) > -depth)
+})
+
+test('keeps every islet whole near the biome border: none is cut by the fade', () => {
+	let checked = 0
+	for (const { x, z, radius } of islets) {
+		for (let index = 0; index < 32; index++) {
+			const angle = (index / 32) * Math.PI * 2
+			for (const share of [0, 0.5, 1]) {
+				const px = x + Math.cos(angle) * radius * share
+				const pz = z + Math.sin(angle) * radius * share
+				assert.equal(getArchipelagoFade(getFields(px, pz).ocean, params.deepOcean), 1)
+				checked++
+			}
+		}
+	}
+	assert.ok(checked > 0)
 })
 
 test('frays the banks without moving or reshaping a single islet', () => {

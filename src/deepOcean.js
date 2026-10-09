@@ -295,12 +295,38 @@ const LAYOUT_KEYS = [
 ]
 const BIOME_KEYS = Object.keys(BIOME_DEFAULTS)
 
-// The last grid cell looked up and its standing archipelago (or null): the
-// samples of one bank fall in one cell, so its acceptance (an evaluation of
-// every biome field) and its islets are computed once. The key holds the cell,
+// Directions of the samples around an islet that decide whether it stands
+// whole (isIsletWhole()).
+const ISLET_CHECKS = Array.from({ length: 16 }, (_, index) => [
+	Math.cos((index * Math.PI) / 8),
+	Math.sin((index * Math.PI) / 8),
+])
+
+// Whether `islet` stands whole: the deep ocean field is at least half of
+// `isletMargin`, where getArchipelagoFade() reaches 1, at its center and around
+// its footprint (its radius plus the warp's reach, in world space), so no islet
+// is cut by the fade toward the biome border. An islet that fails is left out entirely; the
+// others keep their place. Costs seventeen evaluations of every biome field.
+function isIsletWhole(islet, biomeOffset, params) {
+	const settings = params.deepOcean
+	const x = islet.x - biomeOffset[0] - ISLET_OFFSET[0]
+	const z = islet.z - biomeOffset[1] - ISLET_OFFSET[1]
+	const reach = islet.radius + getWarpAmplitude(settings) * Math.SQRT2
+	const isInside = (px, pz) =>
+		getBiomeFields(px, pz, biomeOffset, params.biomes, centerFields).ocean >=
+		settings.isletMargin / 2
+	if (!isInside(x, z)) return false
+	return ISLET_CHECKS.every(([dx, dz]) => isInside(x + dx * reach, z + dz * reach))
+}
+
+// The last grid cells looked up and their standing archipelagos (or null),
+// most recent first: the samples of one bank fall in one cell, and a chunk
+// spans at most four, so an archipelago's acceptance and islets (evaluations
+// of every biome field) are computed once per chunk. A key holds the cell,
 // the offset, and every setting they depend on, by value, because the main
 // thread edits params in place.
-const lastCell = { key: [], archipelago: null }
+const CELL_MEMO_SIZE = 4
+const cellMemo = []
 const cellKey = []
 
 function writeCellKey(cellX, cellZ, biomeOffset, params) {
@@ -324,20 +350,30 @@ function isSameKey(a, b) {
 	return true
 }
 
-// The standing archipelago of grid cell (cellX, cellZ), with its islets laid
-// out, or null; memoized for the last cell.
+// The standing archipelago of grid cell (cellX, cellZ), with its whole islets
+// laid out, or null; memoized for the last few cells.
 function getStandingArchipelago(cellX, cellZ, biomeOffset, params) {
 	writeCellKey(cellX, cellZ, biomeOffset, params)
-	if (isSameKey(cellKey, lastCell.key)) return lastCell.archipelago
+	// Most samples fall in the last cell: no reordering then.
+	if (cellMemo.length > 0 && isSameKey(cellKey, cellMemo[0].key)) return cellMemo[0].archipelago
+	for (let index = 1; index < cellMemo.length; index++) {
+		if (!isSameKey(cellKey, cellMemo[index].key)) continue
+		const [entry] = cellMemo.splice(index, 1)
+		cellMemo.unshift(entry)
+		return entry.archipelago
+	}
 	const seed = getIsletSeed(biomeOffset)
 	let archipelago = getArchipelago(cellX, cellZ, seed, biomeOffset, params)
 	if (archipelago && isArchipelagoAccepted(archipelago, biomeOffset, params)) {
-		getIslets(archipelago, seed, params.deepOcean)
+		// Laid out in full first, so the islets that stand keep their place.
+		archipelago.islets = getIslets(archipelago, seed, params.deepOcean).filter((islet) =>
+			isIsletWhole(islet, biomeOffset, params),
+		)
 	} else {
 		archipelago = null
 	}
-	lastCell.key = cellKey.slice()
-	lastCell.archipelago = archipelago
+	cellMemo.unshift({ key: cellKey.slice(), archipelago })
+	if (cellMemo.length > CELL_MEMO_SIZE) cellMemo.pop()
 	return archipelago
 }
 
