@@ -89,22 +89,6 @@ export const SEA_SURFACE_DEBUG_VIEWS = Object.freeze({
 	crestSqueeze: 4,
 })
 
-const FOAM_LINE_DEFAULTS = Object.freeze({
-	start: 3.5,
-	full: 5,
-	fadeStart: 6.5,
-	end: 7.5,
-	frequency: 8,
-	speed: 4,
-	sharpness: 4,
-	intensity: 0.5,
-	wobbleFrequency: 0.5,
-	wobbleAmount: 1,
-	dashScale: 0.05,
-	dashAmount: 1,
-	stateBoost: 0.3,
-})
-
 export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	regions: Object.freeze({ scale: 2500, contrast: 1.6, drift: 4, direction: 35 }),
 	vertex: Object.freeze({ fadeStart: 183, fadeEnd: 240 }),
@@ -119,7 +103,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			steepness: 0.55,
 			direction: 35,
 			spread: 40,
-			speed: 0.3,
+			speed: 0.6,
 			calm: 0.35,
 			rough: 1.3,
 		}),
@@ -154,7 +138,21 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			trail: 2.5,
 			minimum: 0.35,
 		}),
-		foam: FOAM_LINE_DEFAULTS,
+		foam: Object.freeze({
+			start: 10.1,
+			full: 10.9,
+			fadeStart: 7.8,
+			end: 17.4,
+			frequency: 4.2,
+			speed: 4,
+			sharpness: 13.9,
+			intensity: 1.8,
+			wobbleFrequency: 0.25,
+			wobbleAmount: 2.65,
+			dashScale: 0.071,
+			dashAmount: 2,
+			stateBoost: 0.3,
+		}),
 	}),
 	ocean: Object.freeze({
 		waves: Object.freeze({
@@ -198,7 +196,21 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			trail: 1.5,
 			minimum: 0.45,
 		}),
-		foam: FOAM_LINE_DEFAULTS,
+		foam: Object.freeze({
+			start: 3.5,
+			full: 5,
+			fadeStart: 6.5,
+			end: 7.5,
+			frequency: 8,
+			speed: 4,
+			sharpness: 4,
+			intensity: 0.5,
+			wobbleFrequency: 0.5,
+			wobbleAmount: 1,
+			dashScale: 0.05,
+			dashAmount: 1,
+			stateBoost: 0.3,
+		}),
 	}),
 })
 
