@@ -145,10 +145,10 @@ export function createSceneryPaletteSettings() {
 			palm: {
 				trunk: '#eb7047',
 				colors: [
-					{ label: 'Green wood', color: '#4f9a3a', weight: 1 },
-					{ label: 'Light green wood', color: '#9cc24a', weight: 1 },
-					{ label: 'Teal green wood', color: '#2f8a63', weight: 1 },
-					{ label: 'Yellow green wood', color: '#c9b84a', weight: 0.5 },
+					{ label: 'Green wood', color: '#588d59', weight: 1 },
+					{ label: 'Lime green wood', color: '#afda52', weight: 1 },
+					{ label: 'Teal green wood', color: '#58ad88', weight: 1 },
+					{ label: 'Yellow green wood', color: '#987e1f', weight: 0.5 },
 				],
 			},
 		},

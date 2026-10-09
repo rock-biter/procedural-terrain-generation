@@ -203,7 +203,7 @@ The trees' and palms' crowns, the whole cacti, the whole rocks (boulders, layere
   | `roundTree` | `#7a4a2a` | light wood `#b88347`, light green wood `#a4ad38`, orange wood `#ff674d`, dark brown wood `#257960` |
   | `conifer` | `#5e3a22` | dark wood `#2e856f`, dark green wood `#5a731c`, bluish green wood `#105c70` |
   | `cactus` | none | brown wood `#8f5f3a` (the former cactus color), light green wood `#a3c46b`, yellow wood `#e8c04a` |
-  | `palm` | `#eb7047` | green wood `#4f9a3a`, light green wood `#9cc24a`, teal green wood `#2f8a63`, yellow green wood `#c9b84a` (weight `0.5`) |
+  | `palm` | `#eb7047` | green wood `#588d59`, lime green wood `#afda52`, teal green wood `#58ad88`, yellow green wood `#987e1f` (weight `0.5`) |
   | `boulder` (by biome) | none | forest `#c7b18e`, desert `#deb583`, ice `#d3e2ec`, deep ocean `#b9a690` (unused) |
   | `layeredRock` (by biome) | none | forest `#e3c9a0`, desert `#e3c9a0`, ice `#dce8f0`, deep ocean `#e3c9a0` (unused) |
   | `seaRock` (by biome) | none | forest `#5f3b2b`, desert `#e27865`, ice `#8fa9bd`, deep ocean `#70605c` (warm grey) |
