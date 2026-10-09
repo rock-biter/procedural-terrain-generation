@@ -152,7 +152,7 @@ if (wPosition.y < 0.0) {
 	float seaStill = iceValue > 0.0 ? max(getSeaIceStill(wPosition.y, iceValue), seaIce) : 0.0;
 	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel);
 	int crestFoamStyle = int(uSeaCrestFoam + 0.5);
-	float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, seaOceanMask, seaState, groundPixel) : 0.0;
+	float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel) : 0.0;
 	if (crestFoamStyle > 0) crestFoam = max(crestFoam, getSeaBreakingFoam(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel));
 	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam);
 }

@@ -104,6 +104,8 @@ export function createSharedUniforms(params, seed) {
 		uSeaRipples: { value: perSeaType(() => new Vector4()) },
 		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
 		uSeaCrestLines: { value: perSeaType(() => new Vector4()) },
+		uSeaCrestFlicker: { value: perSeaType(() => new Vector3()) },
+		uSeaCrestFray: { value: perSeaType(() => new Vector2()) },
 		uSeaBreaking: { value: perSeaType(() => new Vector4()) },
 		uSeaMinimum: { value: perSeaType(() => new Vector3()) },
 		uSeaCrestFoam: { value: 0 },
@@ -251,6 +253,8 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 		)
 		uniforms.uSeaMinimum.value[type].set(crests.minimum, ripples.minimum, breaking.minimum)
 		uniforms.uSeaCrestWaves.value[type] = crests.waves
+		uniforms.uSeaCrestFlicker.value[type].set(crests.gaps, crests.flickerScale, crests.flickerSpeed)
+		uniforms.uSeaCrestFray.value[type].set(crests.fray, crests.frayScale)
 		const bandStart = Math.max(foam.start, 0)
 		const fadeEdge = Math.max(foam.fadeStart, 0)
 		uniforms.uSeaFoamLineBand.value[type].set(

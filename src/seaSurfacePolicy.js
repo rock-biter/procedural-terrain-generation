@@ -39,7 +39,12 @@
 //   over `softness`; they lengthen as crests meet, shorten as they part, and
 //   narrow toward their ends. In the calmest regions only `minimum` of that
 //   presence stays: the threshold rises toward the very top, so calm water
-//   keeps a few short lines.
+//   keeps a few short lines. A noise riding the crests (`flickerScale` per
+//   world unit, changing shape at `flickerSpeed` noise units per second)
+//   hides about `gaps` of the lines, so strokes appear, grow, shrink, and
+//   vanish; a finer one (`frayScale` per world unit) varies their width and
+//   nudges them sideways by up to `fray` of the half-width, so their edges
+//   are ragged.
 // - Breaking foam: the crests break where they squeeze the surface beyond
 //   `threshold` of the largest squeeze the waves reach there, over
 //   `softness`, `intensity` bright, with the same calm-water `minimum`. The
@@ -129,12 +134,17 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			minimum: 0.8,
 		}),
 		crests: Object.freeze({
-			threshold: 0,
-			softness: 0.15,
-			width: 0.97,
+			threshold: 0.64,
+			softness: 0.5,
+			width: 0.6,
 			intensity: 0.85,
 			minimum: 0.55,
-			waves: 3,
+			waves: 4,
+			gaps: 0.35,
+			flickerScale: 0.035,
+			flickerSpeed: 0.25,
+			fray: 0.5,
+			frayScale: 0.5,
 		}),
 		breaking: Object.freeze({
 			threshold: 0.62,
@@ -168,12 +178,17 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			minimum: 1,
 		}),
 		crests: Object.freeze({
-			threshold: 0.61,
-			softness: 0.437,
-			width: 3.55,
+			threshold: 0.54,
+			softness: 0.442,
+			width: 0.91,
 			intensity: 0.9,
-			minimum: 0.48,
-			waves: 3,
+			minimum: 0.6,
+			waves: 4,
+			gaps: 0.3,
+			flickerScale: 0.025,
+			flickerSpeed: 0.25,
+			fray: 0.5,
+			frayScale: 0.35,
 		}),
 		breaking: Object.freeze({
 			threshold: 0.6,

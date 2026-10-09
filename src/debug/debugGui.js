@@ -1241,6 +1241,11 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['intensity', 'Intensity', 0, 1, 0.01],
 					['minimum', 'Presence in calm water', 0, 1, 0.01],
 					['waves', 'Follow longest waves', 1, 4, 1],
+					['gaps', 'Hidden share (flicker)', 0, 1, 0.01],
+					['flickerScale', 'Flicker frequency', 0.002, 0.2, 0.001],
+					['flickerSpeed', 'Flicker speed', 0, 2, 0.01],
+					['fray', 'Fray (share of width)', 0, 1.5, 0.01],
+					['frayScale', 'Fray frequency', 0.02, 3, 0.01],
 				],
 			],
 			[

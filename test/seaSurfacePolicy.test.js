@@ -161,6 +161,12 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 			})
 		})
 		assert.equal(uniforms.uSeaCrestWaves.value[type], crests.waves)
+		assert.deepEqual(uniforms.uSeaCrestFlicker.value[type].toArray(), [
+			crests.gaps,
+			crests.flickerScale,
+			crests.flickerSpeed,
+		])
+		assert.deepEqual(uniforms.uSeaCrestFray.value[type].toArray(), [crests.fray, crests.frayScale])
 	})
 
 	settings.vertex.fadeStart = 300

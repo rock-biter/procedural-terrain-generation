@@ -91,7 +91,7 @@ test('the terrain patches fit the standard material', () => {
 	// Foam lines ride the waves' crests.
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaCrestLine\(seaWaves, seaOceanMask, seaState, groundPixel\)/,
+		/getSeaCrestLine\(seaWaves, wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
 	)
 	// Or breaking foam trailing behind them, from the squeeze of the recent past.
 	assert.match(

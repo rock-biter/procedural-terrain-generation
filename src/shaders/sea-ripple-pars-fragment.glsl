@@ -30,6 +30,12 @@ uniform vec4 uSeaRipples[SEA_SURFACE_TYPE_COUNT];
 // highest the waves that carry them (uSeaCrestWaves) reach there, where they
 // start, y: softness, z: half-width (world units), w: intensity.
 uniform vec4 uSeaCrestLines[SEA_SURFACE_TYPE_COUNT];
+// The crest lines' flicker, per type. x: share of the lines it hides, y: its
+// frequency (per world unit), z: its speed (noise units per second).
+uniform vec3 uSeaCrestFlicker[SEA_SURFACE_TYPE_COUNT];
+// The crest lines' fray, per type. x: amount (share of the half-width), y:
+// frequency (per world unit).
+uniform vec2 uSeaCrestFray[SEA_SURFACE_TYPE_COUNT];
 // Breaking foam, per type. x: crest squeeze, as a share of the largest the
 // waves reach there, where the crests break, y: softness, z: intensity, w:
 // frequency of the foam's lace (per world unit).
@@ -105,30 +111,65 @@ float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
 	return clamp(overlap / max(pixel, 1e-4), 0.0, 1.0);
 }
 
-// Foam line coverage along the crests of the waves `waves`, in sea state
-// `state`, for a pixel `pixel` world units wide. The line follows the ridge
+// Foam line coverage along the crests of the waves `waves` at flat world `xz`,
+// in sea state `state`, for a pixel `pixel` world units wide. The line follows the ridge
 // of the height of the waves that carry it (uSeaCrestWaves, the longest
-// ones): its distance is their height gradient over
-// their curvature across it, exact on a parabola, so it rides their real
-// crests and moves with them. With every wave the lines break into short
-// strokes on every crest; with the longest two alone they run long along the
-// swell. A line shows where the crest rises above the threshold share of the
-// highest those waves reach there, so it lengthens as crests meet and
-// shortens as they part, and it narrows toward its ends. Calm water raises the threshold toward the top,
-// keeping only the highest crests' lines (the type's minimum presence); the
-// coast and the ice calm the lines with the waves.
-float getSeaCrestLine(SeaWaves waves, float oceanMask, float state, float pixel) {
+// ones), so it rides their real crests and moves with them. Across the ridge
+// is the direction where the surface bends down the most: the eigenvector of
+// the height's most negative curvature (SeaWaves.curvature), well defined on
+// the ridge itself, where the gradient vanishes and points anywhere. The
+// distance from the ridge is the gradient along that direction over that
+// curvature, exact on a parabola, so the line is one stroke centered on the
+// crest and its half-width sets only its thickness. With every wave the
+// lines break into short strokes on every crest; with the longest two alone
+// they run long along the swell. A line shows where the crest rises above the
+// threshold share of the highest those waves reach there, so it lengthens as
+// crests meet and shortens as they part, and it narrows only near its ends.
+// Calm water raises the threshold toward the top, keeping only the highest
+// crests' lines (the type's minimum presence); the coast and the ice calm the
+// lines with the waves. Two noises, drawn in a frame that rides the longest
+// wave so they move with the crests, animate and fray the lines; they only
+// run near a line. The flicker, two octaves drifting apart so it changes
+// shape, hides part of the lines, which narrow where it closes, so strokes
+// appear, grow, shrink, and vanish. The fray varies the width and nudges the
+// line sideways, so its edges are ragged; it fades out before it gets finer
+// than a few pixels.
+float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, float pixel) {
 	if (waves.ridge.w <= 0.0) return 0.0;
 	vec4 lines = mix(uSeaCrestLines[0], uSeaCrestLines[1], oceanMask);
 	float presence = mix(mix(uSeaMinimum[0].x, uSeaMinimum[1].x, oceanMask), 1.0, state);
 	float threshold = mix(1.0, lines.x, presence);
 	float crest = smoothstep(threshold, threshold + lines.y, waves.ridge.z / waves.ridge.w);
 	if (crest <= 0.0) return 0.0;
-	float gradient = length(waves.ridge.xy);
-	vec2 across = gradient > 1e-6 ? waves.ridge.xy / gradient : vec2(1.0, 0.0);
-	float bend = dot(across * across, waves.curvature.xz) + 2.0 * across.x * across.y * waves.curvature.y;
+	// The curvature matrix [[xx, xz], [xz, zz]] and its smaller eigenvalue.
+	vec3 curvature = waves.curvature;
+	float bend = 0.5 * (curvature.x + curvature.z) - length(vec2(0.5 * (curvature.x - curvature.z), curvature.y));
 	if (bend >= 0.0) return 0.0;
-	float coverage = getSeaLineCoverage(gradient / -bend, lines.z * crest, pixel);
+	vec2 across = vec2(curvature.y, bend - curvature.x);
+	float acrossLength = length(across);
+	across = acrossLength > 1e-8 ? across / acrossLength : (curvature.x < curvature.z ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
+	float distance = dot(waves.ridge.xy, across) / -bend;
+	float halfWidth = lines.z * sqrt(crest);
+	vec2 fray = mix(uSeaCrestFray[0], uSeaCrestFray[1], oceanMask);
+	if (abs(distance) > halfWidth * (1.0 + 1.5 * fray.x) + pixel) return 0.0;
+	// The frame riding the longest wave: rest position minus its travel.
+	vec4 swell = mix(uSeaWaves[0], uSeaWaves[SEA_SURFACE_WAVE_COUNT], oceanMask);
+	vec2 riding = xz - swell.xy * (swell.w / max(swell.z, 1e-4) * uTime);
+	vec3 flicker = mix(uSeaCrestFlicker[0], uSeaCrestFlicker[1], oceanMask);
+	vec2 q = riding * flicker.y;
+	float drift = uTime * flicker.z;
+	float noise = snoise(q + vec2(drift, -0.6 * drift)) * 0.65 + snoise(q * 2.1 + vec2(-0.8 * drift, drift) + 23.0) * 0.35;
+	float cut = mix(-1.0, 1.0, flicker.x);
+	float alive = smoothstep(cut - 0.2, cut + 0.2, noise);
+	if (alive <= 0.0) return 0.0;
+	halfWidth = lines.z * sqrt(crest * alive);
+	float frayDetail = fray.x * (1.0 - smoothstep(0.15, 0.35, pixel * fray.y));
+	if (frayDetail > 0.0) {
+		vec2 f = riding * fray.y + uTime * 0.1;
+		halfWidth *= max(1.0 + frayDetail * snoise(f + 57.0), 0.0);
+		distance += frayDetail * 0.5 * lines.z * snoise(f * 1.7 + 91.0);
+	}
+	float coverage = getSeaLineCoverage(abs(distance), halfWidth, pixel);
 	return coverage * lines.w * min(waves.amount * 2.0, 1.0);
 }
 
