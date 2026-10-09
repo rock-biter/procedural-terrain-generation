@@ -25,11 +25,11 @@ export { BIOME, BIOME_COUNT } from './terrainBands.js'
 //   climate is >= 0, else desert.
 
 // Default distribution, edited live by the ?gui=1 Biomes > Distribution
-// folder. Measured over 240 km squares of several seeds: `size` 1.8 and
-// `desertBias` 0.15 make forest regions about 23% wider than with the layers
-// alone (and desert regions twice as wide), and leave the desert about 54% of
-// the land outside the ice. The ice covers about 7% of the land, in regions
-// about as wide as the forest's.
+// folder. Measured over 240 km squares of eight seeds: with `size` 1.5 and
+// `desertBias` 0.15 a straight run through a forest averages about 4400
+// units and through a desert about 7000, and the desert is about 53% of the
+// land outside the ice. The ice covers about 7% of the land, in regions a
+// little wider than the forest's (about 5300).
 export const BIOME_DEFAULTS = Object.freeze({
 	size: 1.5,
 	desertBias: 0.15,
