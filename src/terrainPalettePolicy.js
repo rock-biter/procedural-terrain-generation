@@ -73,10 +73,10 @@ export function createTerrainPaletteSettings() {
 		ice: {
 			colors: {
 				sand: '#ffffff',
-				grass: '#82b9ce',
-				land: '#7ddbf2',
-				rocks: '#2985db',
-				snow: '#0064c2',
+				grass: '#d1f1ff',
+				land: '#8fd4ff',
+				rocks: '#70baff',
+				snow: '#dbeeff',
 			},
 			variation: {
 				sand: variation('#a9c4d6', 0),

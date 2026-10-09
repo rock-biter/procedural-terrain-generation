@@ -3,6 +3,7 @@ import { BIOME_COUNT, createBiomeOffset, getBiomeGradientBounds } from './biome'
 import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
+import { getSeaIceShelfAt, SEA_ICE_NIGHT } from './seaIcePolicy'
 import { createTerrainNormalUniforms } from './terrainNormals'
 import {
 	getTerrainPaletteLayout,
@@ -57,7 +58,7 @@ export function createSharedUniforms(params, seed) {
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
 	updateBiomeUniforms(uniforms, params.biomes)
 	updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
-	updateSeaIceUniforms(uniforms, params.seaIce)
+	updateSeaIceUniforms(uniforms, params.seaIce, params.dayNight?.timeOfDay)
 	return uniforms
 }
 
@@ -100,9 +101,15 @@ export function updateTerrainPaletteUniforms(uniforms, settings) {
 }
 
 // Writes the frozen sea settings (params.seaIce, src/seaIcePolicy.js) into
-// their uniforms, in place.
-export function updateSeaIceUniforms(uniforms, settings) {
-	uniforms.uSeaIceShape.value.set(settings.shelf, settings.fade, settings.band, settings.cellSize)
+// their uniforms, in place, with the shelf of `timeOfDay` (noon by default:
+// `shelf` itself).
+export function updateSeaIceUniforms(uniforms, settings, timeOfDay = SEA_ICE_NIGHT.melt) {
+	uniforms.uSeaIceShape.value.set(
+		getSeaIceShelfAt(settings, timeOfDay),
+		settings.fade,
+		settings.band,
+		settings.cellSize,
+	)
 	uniforms.uSeaIceEdge.value.set(
 		settings.crackMin,
 		settings.crackMax,
@@ -111,4 +118,10 @@ export function updateSeaIceUniforms(uniforms, settings) {
 	)
 	const { sheet, floe, water } = settings.colors
 	;[sheet, floe, water].forEach((hex, index) => uniforms.uSeaIceColors.value[index].set(hex))
+}
+
+// Writes only the shelf of `timeOfDay`, every frame: the sea freezes further
+// through the night and melts back by noon.
+export function updateSeaIceShelf(uniforms, settings, timeOfDay) {
+	uniforms.uSeaIceShape.value.x = getSeaIceShelfAt(settings, timeOfDay)
 }

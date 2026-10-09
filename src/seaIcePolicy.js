@@ -19,6 +19,10 @@ import { SAND_LEVEL } from './terrainBands.js'
 //   wider seaward.
 // - A simplex wobble of `edgeNoise` units of depth at `edgeFrequency` per
 //   world unit frays the edge.
+// - The sea freezes further at night: from sunset the shelf deepens by up to
+//   `nightShelf` units of depth, reached at sunrise, and melts back to `shelf`
+//   by noon (getSeaIceNightGrowth()). World updates the shelf uniform every
+//   frame from the time of day (updateSeaIceShelf() in src/sharedUniforms.js).
 // - Colors are sRGB: the sheet, the floes, and the icy water between them;
 //   the ice meets the water without any dark line.
 export const SEA_ICE_DEFAULTS = Object.freeze({
@@ -30,12 +34,40 @@ export const SEA_ICE_DEFAULTS = Object.freeze({
 	crackMax: 4.3,
 	edgeNoise: 1.1,
 	edgeFrequency: 0.145,
+	nightShelf: 10,
 	colors: Object.freeze({ sheet: '#aed3e5', floe: '#ffffff', water: '#2fe1ee' }),
 })
 
 // A mutable copy of SEA_ICE_DEFAULTS (params.seaIce).
 export function createSeaIceSettings() {
 	return { ...SEA_ICE_DEFAULTS, colors: { ...SEA_ICE_DEFAULTS.colors } }
+}
+
+// Times of day (src/dayNightPolicy.js: 0 midnight, 0.5 noon) of the night
+// freeze, on a flat horizon: the sea starts freezing at sunset, is most
+// frozen at sunrise, and has melted back by noon.
+export const SEA_ICE_NIGHT = Object.freeze({ freeze: 0.75, peak: 0.25, melt: 0.5 })
+
+function wrapUnit(value) {
+	return value - Math.floor(value)
+}
+
+// Share of the night growth at `timeOfDay`: 0 from noon to sunset, rising
+// smoothly through the night to 1 at sunrise, then falling back to 0 by noon.
+export function getSeaIceNightGrowth(timeOfDay) {
+	const { freeze, peak, melt } = SEA_ICE_NIGHT
+	// Time since sunset, in the cycle, and the length of the night and morning.
+	const sinceFreeze = wrapUnit(timeOfDay - freeze)
+	const night = wrapUnit(peak - freeze)
+	const morning = wrapUnit(melt - peak)
+	if (sinceFreeze <= night) return smoothstep(0, night, sinceFreeze)
+	return 1 - smoothstep(night, night + morning, sinceFreeze)
+}
+
+// The shelf at `timeOfDay`: `shelf`, deepened by `nightShelf` as the night
+// growth goes.
+export function getSeaIceShelfAt(settings, timeOfDay) {
+	return settings.shelf + Math.max(settings.nightShelf ?? 0, 0) * getSeaIceNightGrowth(timeOfDay)
 }
 
 // Share of the full shelf and band at ice field value `ice`: 0 at and outside

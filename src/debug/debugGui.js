@@ -656,15 +656,17 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		}
 	}
 
-	// Live: the frozen sea's shape and colors; the map shows its sheet.
+	// Live: the frozen sea's shape and colors, and how much further it freezes
+	// at night; the map shows its sheet at the current time of day.
 	function addSeaIceControls(parent) {
 		const updateSeaIce = () => {
-			updateSeaIceUniforms(uniforms, params.seaIce)
+			updateSeaIceUniforms(uniforms, params.seaIce, params.dayNight.timeOfDay)
 			biomeMap.invalidate()
 		}
 		const folder = parent.addFolder('Frozen sea')
 		const controls = [
 			['shelf', 'Sheet depth (units)', 0, 20, 0.1],
+			['nightShelf', 'Night growth (depth)', 0, 30, 0.1],
 			['fade', 'Taper (ice field)', 0.005, 0.2, 0.005],
 			['band', 'Floe band depth', 0, 12, 0.1],
 			['cellSize', 'Floe size (units)', 1, 30, 0.5],

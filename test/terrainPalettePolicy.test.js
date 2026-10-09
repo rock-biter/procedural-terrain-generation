@@ -6,6 +6,7 @@ import { createAppParams } from '../src/appParams.js'
 import {
 	createSharedUniforms,
 	updateBiomeUniforms,
+	updateSeaIceShelf,
 	updateSeaIceUniforms,
 	updateTerrainPaletteUniforms,
 } from '../src/sharedUniforms.js'
@@ -17,7 +18,7 @@ import {
 	TERRAIN_SEA_COLORS,
 } from '../src/terrainPalettePolicy.js'
 import { createBiomeSettings, getBiomeGradientBounds } from '../src/biome.js'
-import { createSeaIceSettings } from '../src/seaIcePolicy.js'
+import { createSeaIceSettings, SEA_ICE_NIGHT } from '../src/seaIcePolicy.js'
 
 const HEX = /^#[0-9a-f]{6}$/
 
@@ -143,4 +144,10 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 		seaIce.edgeNoise,
 		seaIce.edgeFrequency,
 	])
+	// At sunrise the sheet reaches nightShelf deeper; the frame loop writes only
+	// the shelf.
+	updateSeaIceUniforms(uniforms, seaIce, SEA_ICE_NIGHT.peak)
+	assert.equal(uniforms.uSeaIceShape.value.x, 3 + seaIce.nightShelf)
+	updateSeaIceShelf(uniforms, seaIce, SEA_ICE_NIGHT.melt)
+	assert.deepEqual(uniforms.uSeaIceShape.value.toArray(), [3, seaIce.fade, seaIce.band, 9])
 })

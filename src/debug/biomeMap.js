@@ -1,4 +1,5 @@
 import { createTerrainSnapshot } from '../chunkGeometry'
+import { getSeaIceShelfAt } from '../seaIcePolicy'
 import {
 	BIOME_MAP_COLORS,
 	BIOME_MAP_LABELS,
@@ -36,6 +37,9 @@ const RASTER = Object.freeze({
 })
 // Rest after the last change before the fine raster is requested.
 const SETTLE_MS = 150
+// Change of the frozen sea's shelf, in units of depth, that asks for a new
+// raster: the sheet grows through the night and melts back by noon.
+const SHELF_STEP = 0.5
 const WHEEL_ZOOM = 0.0015
 
 export default class BiomeMap {
@@ -52,6 +56,8 @@ export default class BiomeMap {
 		this.version = 0
 		this.requestedVersion = -1
 		this.requestedFine = false
+		// The frozen sea's shelf of the last requested raster.
+		this.requestedShelf = NaN
 		this.inFlight = false
 		this.changedAt = 0
 		this.rendered = null
@@ -236,6 +242,13 @@ export default class BiomeMap {
 			this.view = { ...this.view, centerX: x, centerZ: z }
 			if (hasFollowMoved(basis, x, z) && this.requestedVersion === this.version) this.version++
 		}
+		const shelf = this.getSeaIceShelf()
+		if (
+			Math.abs(shelf - this.requestedShelf) >= SHELF_STEP &&
+			this.requestedVersion === this.version
+		) {
+			this.version++
+		}
 		this.requestRaster()
 		this.draw(plane)
 	}
@@ -249,14 +262,20 @@ export default class BiomeMap {
 		this.inFlight = true
 		this.requestedVersion = this.version
 		this.requestedFine = settled
+		this.requestedShelf = this.getSeaIceShelf()
 		this.worker.postMessage({
 			id: this.version,
 			view: { ...this.view },
 			size,
 			seed: this.world.seed,
 			params: createTerrainSnapshot(this.params),
-			seaIce: { ...this.params.seaIce },
+			seaIce: { ...this.params.seaIce, shelf: this.requestedShelf },
 		})
+	}
+
+	// The frozen sea's shelf at the current time of day.
+	getSeaIceShelf() {
+		return getSeaIceShelfAt(this.params.seaIce, this.params.dayNight.timeOfDay)
 	}
 
 	onRaster({ view, size, pixels, counts }) {
