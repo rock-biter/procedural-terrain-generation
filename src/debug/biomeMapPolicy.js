@@ -44,8 +44,10 @@ export const BIOME_MAP_LABELS = Object.freeze([
 	'Islets',
 ])
 
-// World width of the map, in units: from a few chunks to the scale of the ice.
-export const BIOME_MAP_SPAN = Object.freeze({ min: 500, max: 400000, initial: 10000 })
+// World width of the map, in units: from one archipelago to the scale of the
+// ice. It starts close enough to show the deep ocean's islets (a few pixels
+// each).
+export const BIOME_MAP_SPAN = Object.freeze({ min: 200, max: 400000, initial: 5000 })
 
 // A followed view renders again once its center moved this share of the span.
 export const BIOME_MAP_FOLLOW_STEP = 0.05
