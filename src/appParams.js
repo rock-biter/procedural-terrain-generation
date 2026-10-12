@@ -11,6 +11,7 @@ import {
 	createSceneryWireframeSettings,
 } from './sceneryMeshPolicy'
 import { createCloudPaletteSettings, createSceneryPaletteSettings } from './sceneryPalettePolicy'
+import { createSceneryWindSettings } from './sceneryWindPolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createSeaIceSettings } from './seaIcePolicy'
@@ -134,6 +135,11 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// `lodStart`, reduced-detail meshes from `lodEnd` to `start`, impostors
 		// beyond `end`, with dithered cross-fades inside each band.
 		sceneryMeshes: createSceneryMeshSettings({ isMobile }),
+		// Shader-side, applied live: the trees' sway on the near meshes, full
+		// below `full` and gone by `start` (kept within the meshes' `start`), with
+		// gusts of a noise sliding downwind, a flutter of the crowns and fronds,
+		// and a sensitivity per tree type; see createSceneryWindSettings().
+		sceneryWind: createSceneryWindSettings({ isMobile }),
 		// Debug overlay outlining scenery triangles in one color per level of
 		// detail: LOD 0 mesh, LOD 1 mesh, impostor quad.
 		sceneryWireframe: createSceneryWireframeSettings(),

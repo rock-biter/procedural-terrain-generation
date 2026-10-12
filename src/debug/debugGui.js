@@ -573,6 +573,25 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.add(params.sceneryMeshes, 'end', 1, 700, 1)
 		.name('Impostor from (units)')
 		.onChange(updateSceneryMeshes)
+	// Live: the near meshes' wind uniforms; `start` stays within the meshes'.
+	const wind = params.sceneryWind
+	const updateWind = () => world.sceneryImpostors?.applyWind()
+	const windFolder = sceneryFolder.addFolder('Wind')
+	windFolder.add(wind, 'enabled').name('Enabled').onChange(updateWind)
+	windFolder.add(wind, 'intensity', 0, 3, 0.01).name('Intensity (units)').onChange(updateWind)
+	windFolder.add(wind, 'speed', 0, 60, 0.1).name('Gust speed (units/s)').onChange(updateWind)
+	windFolder.add(wind, 'frequency', 0.001, 0.1, 0.001).name('Gust frequency').onChange(updateWind)
+	windFolder.add(wind, 'direction', 0, 360, 1).name('Direction (°)').onChange(updateWind)
+	windFolder.add(wind, 'start', 0, 600, 1).name('Motion from (units)').onChange(updateWind)
+	windFolder.add(wind, 'full', 0, 600, 1).name('Full motion until (units)').onChange(updateWind)
+	const flutterFolder = windFolder.addFolder('Flutter')
+	flutterFolder.add(wind.flutter, 'amount', 0, 1, 0.01).name('Amount (units)').onChange(updateWind)
+	flutterFolder.add(wind.flutter, 'speed', 0, 5, 0.01).name('Speed').onChange(updateWind)
+	flutterFolder.add(wind.flutter, 'frequency', 0.01, 2, 0.01).name('Frequency').onChange(updateWind)
+	const sensitivityFolder = windFolder.addFolder('Sensitivity')
+	for (const key of Object.keys(wind.sensitivity)) {
+		sensitivityFolder.add(wind.sensitivity, key, 0, 3, 0.01).name(key).onChange(updateWind)
+	}
 	sceneryFolder
 		.add(params.impostorVariation, 'frequency', 0.001, 0.1, 0.001)
 		.name('Variation frequency')

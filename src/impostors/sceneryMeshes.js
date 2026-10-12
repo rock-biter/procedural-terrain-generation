@@ -1,4 +1,5 @@
 import {
+	Box3,
 	DynamicDrawUsage,
 	Frustum,
 	Group,
@@ -11,20 +12,28 @@ import {
 	Sphere,
 	Vector2,
 	Vector3,
+	Vector4,
 } from 'three'
 import common from '../shaders/common.glsl'
 import sceneryInstanceParsVertex from '../shaders/scenery-instance-pars-vertex.glsl'
 import sceneryMeshParsVertex from '../shaders/scenery-mesh-pars-vertex.glsl'
 import sceneryMeshNormalVertex from '../shaders/scenery-mesh-normal-vertex.glsl'
 import sceneryMeshVertex from '../shaders/scenery-mesh-vertex.glsl'
+import sceneryWindParsVertex from '../shaders/scenery-wind-pars-vertex.glsl'
 import sceneryDitherParsFragment from '../shaders/scenery-dither-pars-fragment.glsl'
 import sceneryDetailParsFragment from '../shaders/scenery-detail-pars-fragment.glsl'
 import sceneryMeshParsFragment from '../shaders/scenery-mesh-pars-fragment.glsl'
 import sceneryMeshColorFragment from '../shaders/scenery-mesh-color-fragment.glsl'
 import { createSceneryLighting } from '../curvedLights'
+import { NOISE_SHADER_DEFINES } from '../noiseTexturePolicy'
 import { replaceChunks } from '../shaderChunks'
+import {
+	getSceneryWindDirection,
+	getSceneryWindRange,
+	getSceneryWindSensitivities,
+} from '../sceneryWindPolicy'
 import { SCENERY_IMPOSTORS, getCatalogDefines, getCatalogSources } from './impostorCatalogs'
-import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
+import { IMPOSTOR_INSTANCE_STRIDE, IMPOSTOR_TYPE_COUNT } from './impostorTypes'
 import { createSceneryPaletteUniforms } from './impostorMaterial'
 import {
 	makeSceneryWireframeMaterial,
@@ -32,6 +41,7 @@ import {
 	setSceneryWireframe,
 } from './sceneryWireframe'
 import {
+	SCENERY_MESH_DISABLED_RANGE,
 	SCENERY_MESH_LOD_COUNT,
 	appendNearSceneryInstances,
 	chunkIntersectsSelection,
@@ -46,6 +56,33 @@ import {
 // rigid bend, which tilts an instance slightly away from its local up axis.
 const CULL_RADIUS_SCALE = 1.05
 const CULL_RADIUS_OFFSET = 0.5
+
+// Wind uniforms for the `wind` option of SceneryMeshes
+// (scenery-wind-pars-vertex.glsl): owned by the caller, written by
+// setSceneryWindUniforms(). Still until then.
+export function createSceneryWindUniforms(typeCount = IMPOSTOR_TYPE_COUNT) {
+	return {
+		uSceneryWind: { value: new Vector4() },
+		uSceneryWindNoise: { value: new Vector4() },
+		uSceneryWindRange: { value: new Vector2().fromArray(SCENERY_MESH_DISABLED_RANGE) },
+		uSceneryWindSensitivity: { value: new Array(typeCount).fill(0) },
+	}
+}
+
+// Writes the wind settings (params.sceneryWind, src/sceneryWindPolicy.js) into
+// createSceneryWindUniforms() in place. `meshSettings` (params.sceneryMeshes)
+// bounds the motion's range, so it fades out before the still impostors.
+export function setSceneryWindUniforms(uniforms, settings, meshSettings) {
+	const { intensity, speed, frequency, direction, flutter } = settings
+	const [x, z] = getSceneryWindDirection(direction)
+	uniforms.uSceneryWind.value.set(Math.max(intensity, 0), Math.max(flutter.amount, 0), x, z)
+	uniforms.uSceneryWindNoise.value.set(frequency, speed, flutter.frequency, flutter.speed)
+	uniforms.uSceneryWindRange.value.fromArray(getSceneryWindRange(settings, meshSettings))
+	const sensitivity = uniforms.uSceneryWindSensitivity.value
+	getSceneryWindSensitivities(settings, sensitivity.length).forEach((value, type) => {
+		sensitivity[type] = value
+	})
+}
 
 // Real meshes for the impostor instances near the eye, in two levels of
 // detail: LOD 0 (the baked source geometry) closest and LOD 1 (reduced
@@ -70,7 +107,10 @@ const CULL_RADIUS_OFFSET = 0.5
 // shadow lookup. Without `receiveShadows`, lighting has no shadow,
 // `ambientScale` (a float uniform) scales the ambient light, and `translucent`
 // adds the clouds' carried light, whose uniforms `uniforms` must hold
-// (cloud-translucency-pars-fragment.glsl). `wireframe`
+// (cloud-translucency-pars-fragment.glsl). `wind`
+// (createSceneryWindUniforms(), owned by the caller) sways the trees near the
+// eye (SCENERY_WIND); `uniforms` must then hold uTime and uNoiseTexture, and
+// this object adds each type's source height. `wireframe`
 // (createSceneryWireframeSettings()) drives the debug overlay, one wireframe
 // twin per mesh in its level's color (sceneryWireframe.js).
 export default class SceneryMeshes extends Group {
@@ -86,6 +126,7 @@ export default class SceneryMeshes extends Group {
 		receiveShadows = true,
 		ambientScale = null,
 		translucent = false,
+		wind = null,
 	}) {
 		super()
 		this.name = `${catalog.name}-meshes`
@@ -98,10 +139,13 @@ export default class SceneryMeshes extends Group {
 		this.receiveShadows = receiveShadows
 		this.ambientScale = ambientScale
 		this.translucent = translucent
+		this.wind = wind
 		this.palette = palette ?? createSceneryPaletteUniforms(this.typeCount)
 		this.lodRange = { value: new Vector2() }
 		// Filled below from each type's LOD 0 bounds.
 		this.boundRadius = { value: new Array(this.typeCount).fill(0) }
+		// 1 / LOD 0 height per type, for the wind's bend; filled below.
+		this.windHeight = { value: new Array(this.typeCount).fill(0) }
 		this.outerRadius = 0
 		this.lastUpdateMs = 0
 		this.updateStartTime = 0
@@ -139,6 +183,11 @@ export default class SceneryMeshes extends Group {
 			const { center, radius } = sources[0].boundingSphere
 			this.bounds.push({ centerY: center.y, radius })
 			this.boundRadius.value[type] = radius
+			if (wind) {
+				// The shared sources are never modified, so their box is not kept.
+				const top = new Box3().setFromBufferAttribute(sources[0].getAttribute('position')).max.y
+				this.windHeight.value[type] = 1 / Math.max(top, 1e-3)
+			}
 
 			sources.forEach((source, lod) => {
 				const level = this.levels[lod]
@@ -195,6 +244,7 @@ export default class SceneryMeshes extends Group {
 			...getCatalogDefines(this.catalog),
 			SCENERY_MESH_LOD: lod,
 		}
+		if (this.wind) Object.assign(material.defines, NOISE_SHADER_DEFINES, { SCENERY_WIND: '' })
 		// Its defines keep the unshadowed program apart from the shadowed one.
 		const lighting = createSceneryLighting(
 			this.receiveShadows
@@ -220,9 +270,14 @@ export default class SceneryMeshes extends Group {
 				...this.palette,
 			}
 			Object.assign(shader.uniforms, lighting.uniforms)
+			if (this.wind) {
+				Object.assign(shader.uniforms, this.wind, { uSceneryWindHeight: this.windHeight })
+			}
 
 			shader.vertexShader = replaceChunks(shader.vertexShader, {
-				common: `${common}\n${sceneryInstanceParsVertex}\n${sceneryMeshParsVertex}`,
+				common: `${common}\n${sceneryInstanceParsVertex}\n${sceneryMeshParsVertex}${
+					this.wind ? `\n${sceneryWindParsVertex}` : ''
+				}`,
 				beginnormal_vertex: sceneryMeshNormalVertex,
 				project_vertex: sceneryMeshVertex,
 			})

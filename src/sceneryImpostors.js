@@ -12,7 +12,10 @@ import {
 	IMPOSTOR_FRAMES_MOBILE,
 	IMPOSTOR_TYPE_COUNT,
 } from './impostors/impostorTypes'
-import SceneryMeshes from './impostors/sceneryMeshes'
+import SceneryMeshes, {
+	createSceneryWindUniforms,
+	setSceneryWindUniforms,
+} from './impostors/sceneryMeshes'
 import { setSceneryWireframe } from './impostors/sceneryWireframe'
 import { getSceneryPaletteLayout } from './sceneryPalettePolicy'
 import { SCENERY_TYPE_KEYS } from './sceneryPlacement'
@@ -21,9 +24,9 @@ import { SCENERY_TYPE_KEYS } from './sceneryPlacement'
 // the atlas bake with the wood detail, the impostor material and its
 // wireframe twin (every chunk draws its instances with them, src/chunk.js),
 // the near meshes (SceneryMeshes, a child), and the live variation, palette,
-// and detail uniforms. `params` is createAppParams(); impostorDetail,
-// impostorVariation, sceneryPalette, sceneryMeshes, sceneryWireframe, and
-// shadows.taps are read from it.
+// detail, and wind uniforms. `params` is createAppParams(); impostorDetail,
+// impostorVariation, sceneryPalette, sceneryMeshes, sceneryWind,
+// sceneryWireframe, and shadows.taps are read from it.
 export default class SceneryImpostors extends Group {
 	constructor({ renderer, uniforms, params, woodTexture, isMobile = false }) {
 		super()
@@ -49,6 +52,9 @@ export default class SceneryImpostors extends Group {
 			uSceneryDetail: { value: Array.from({ length: IMPOSTOR_TYPE_COUNT }, () => new Vector3()) },
 		}
 		this.applyDetail()
+		// The trees' sway near the eye, on the near meshes only.
+		this.wind = createSceneryWindUniforms(IMPOSTOR_TYPE_COUNT)
+		this.applyWind()
 
 		this.material = createImpostorMaterial(this.bake(), uniforms, {
 			singleFrame: isMobile,
@@ -68,6 +74,7 @@ export default class SceneryImpostors extends Group {
 			settings: params.sceneryMeshes,
 			wireframe: params.sceneryWireframe,
 			shadowTaps: params.shadows.taps.mesh,
+			wind: this.wind,
 		})
 		this.add(this.meshes)
 		this.applyWireframe()
@@ -118,8 +125,15 @@ export default class SceneryImpostors extends Group {
 		this.variation.frequency.value = frequency
 	}
 
+	// The wind's range follows the near meshes' band.
 	applyMeshSettings() {
 		this.meshes.applySettings()
+		this.applyWind()
+	}
+
+	// Writes the wind settings into the near meshes' uniforms, live.
+	applyWind() {
+		setSceneryWindUniforms(this.wind, this.params.sceneryWind, this.params.sceneryMeshes)
 	}
 
 	// Shows or recolors the debug wireframe on the near meshes and impostors.

@@ -35,14 +35,22 @@ import {
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
 } from '../src/sceneryMeshPolicy.js'
-import SceneryMeshes from '../src/impostors/sceneryMeshes.js'
+import SceneryMeshes, {
+	createSceneryWindUniforms,
+	setSceneryWindUniforms,
+} from '../src/impostors/sceneryMeshes.js'
+import { createSceneryWindSettings } from '../src/sceneryWindPolicy.js'
 import {
 	createImpostorMaterial,
 	createImpostorWireframeMaterial,
 } from '../src/impostors/impostorMaterial.js'
 import { CLOUD_IMPOSTORS, SCENERY_IMPOSTORS } from '../src/impostors/impostorCatalogs.js'
 import { createHemiOctViews } from '../src/impostors/octahedral.js'
-import { CLOUD_IMPOSTOR_VIEWS, IMPOSTOR_FRAMES_DESKTOP } from '../src/impostors/impostorTypes.js'
+import {
+	CLOUD_IMPOSTOR_VIEWS,
+	IMPOSTOR_FRAMES_DESKTOP,
+	IMPOSTOR_TYPE,
+} from '../src/impostors/impostorTypes.js'
 
 // The source three passes to onBeforeCompile: ShaderLib with its includes
 // still unresolved.
@@ -257,7 +265,10 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 		detail: { uDetail: { value: null }, uSceneryDetail: { value: [] } },
 		wireframe: createSceneryWireframeSettings(),
 	}
-	const scenery = new SceneryMeshes({ ...shared, settings: createSceneryMeshSettings() })
+	const meshSettings = createSceneryMeshSettings()
+	const wind = createSceneryWindUniforms()
+	setSceneryWindUniforms(wind, createSceneryWindSettings(), meshSettings)
+	const scenery = new SceneryMeshes({ ...shared, settings: meshSettings, wind })
 	const clouds = new SceneryMeshes({
 		...shared,
 		settings: createCloudMeshSettings(),
@@ -283,9 +294,23 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 					/getSceneryFloat\(sceneryType, sceneryBase, aInstanceB\.z/,
 				)
 			}
+			// Only the scenery sways in the wind, from the baked noise.
+			const windy = meshes === scenery
+			assert.equal('SCENERY_WIND' in level.material.defines, windy)
+			assert.equal('NOISE_TILE_UV_SCALE' in level.material.defines, windy)
+			assert.equal(/vec3 applySceneryWind\(/.test(shader.vertexShader), windy)
+			assert.match(shader.vertexShader, /sceneryOffset = applySceneryWind\(sceneryOffset/)
+			for (const name of ['uSceneryWind', 'uSceneryWindRange', 'uSceneryWindHeight']) {
+				assert.equal(name in shader.uniforms, windy, name)
+			}
 			patch(level.wireframeMaterial, 'physical')
 		}
 	}
+	// The wind bends each tree over its own height; the clouds keep none.
+	const { ROUND_TREE, PALM } = IMPOSTOR_TYPE
+	assert.ok(scenery.windHeight.value[ROUND_TREE] > 0)
+	assert.ok(scenery.windHeight.value[PALM] > 0)
+	assert.deepEqual(clouds.windHeight.value, new Array(clouds.typeCount).fill(0))
 	// The paint mask reaches the scenery and cloud meshes alike.
 	assert.ok(scenery.levels[0].types[0].geometry.getAttribute('paint'))
 	assert.ok(clouds.levels[0].types[0].geometry.getAttribute('paint'))
