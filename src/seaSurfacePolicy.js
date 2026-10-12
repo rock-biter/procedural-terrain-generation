@@ -169,7 +169,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			end: 13.3,
 			frequency: 2.1,
 			speed: 4,
-			sharpness: 13.9,
+			sharpness: 30,
 			intensity: 1.8,
 			wobbleFrequency: 0.25,
 			wobbleAmount: 0.05,

@@ -1,6 +1,16 @@
 import { clamp01, lerp, smoothstep } from './math.js'
+import { TERRAIN_HEIGHT_BANDS } from './terrainBands.js'
 export const FLIGHT_LIMITS = Object.freeze({
 	minimumTerrainClearance: 10,
+	// Extra clearance where tall scenery stands (getSceneryClearance()): the
+	// forest's trees, whose largest conifers reach about 18 units above the
+	// ground, and the deep ocean islets' palms, about 15. It is full from
+	// `sceneryClearanceShore` units above the sea and starts
+	// `sceneryClearanceDepth` units below it.
+	forestClearance: 9,
+	isletClearance: 7,
+	sceneryClearanceShore: 1,
+	sceneryClearanceDepth: 6,
 	minimumLookAheadScale: 0.5,
 	maximumNearLookAheadDistance: 41.25,
 	maximumMiddleLookAheadDistance: 82.5,
@@ -194,6 +204,26 @@ export function smoothMinimumAltitude({
 	const smoothedAltitude = currentAltitude + (cappedTargetAltitude - currentAltitude) * blend
 
 	return Math.max(collisionAltitude, Math.min(smoothedAltitude, limits.maximumAltitude))
+}
+
+const SNOW_BAND = TERRAIN_HEIGHT_BANDS.snow
+
+// Extra clearance above ground of `height` for the scenery standing there:
+// `forest` and `islets` are the shares (0 to 1) of the forest and of the deep
+// ocean, whose only land is its islets, at that point. It rises from
+// `sceneryClearanceDepth` below the sea to full at `sceneryClearanceShore`,
+// so the airplane climbs over the shallows rather than at the beach. The
+// forest's fades out across the snow band's wave, above which no tree stands,
+// so the mountains keep the plain terrain clearance under the flight ceiling.
+export function getSceneryClearance(height, forest, islets, limits = FLIGHT_LIMITS) {
+	const shore = smoothstep(-limits.sceneryClearanceDepth, limits.sceneryClearanceShore, height)
+	if (shore <= 0) return 0
+	const belowSnow =
+		1 - smoothstep(SNOW_BAND.level, SNOW_BAND.level + 2 * SNOW_BAND.amplitude, height)
+	return (
+		shore *
+		(clamp01(forest) * belowSnow * limits.forestClearance + clamp01(islets) * limits.isletClearance)
+	)
 }
 
 // The object getFlightCorridor() fills: four terrain samples (under the

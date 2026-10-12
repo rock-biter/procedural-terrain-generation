@@ -6,6 +6,7 @@ import {
 	createFlightCorridor,
 	getFlightCorridor,
 	getSafetyClimbSpeed,
+	getSceneryClearance,
 	getNextSpeedEffect,
 	getSpeedForEffect,
 	getTerrainBrakeImpulse,
@@ -228,6 +229,33 @@ test('bases safety climb speed only on topographic relief', () => {
 	assert.ok(slope > flat)
 	assert.ok(slope < FLIGHT_LIMITS.maximumSafetyClimbSpeed)
 	assert.equal(ridge, FLIGHT_LIMITS.maximumSafetyClimbSpeed)
+})
+
+test('raises the clearance over the forest and the islets from the shallows to the shore', () => {
+	const { forestClearance, isletClearance, sceneryClearanceDepth, sceneryClearanceShore } =
+		FLIGHT_LIMITS
+	assert.equal(getSceneryClearance(-sceneryClearanceDepth, 1, 0), 0)
+	assert.equal(getSceneryClearance(-40, 0, 1), 0)
+	const shallows = getSceneryClearance(-sceneryClearanceDepth / 2, 1, 0)
+	assert.ok(shallows > 0 && shallows < forestClearance)
+	assert.equal(getSceneryClearance(sceneryClearanceShore, 1, 0), forestClearance)
+	assert.equal(getSceneryClearance(8, 0, 1), isletClearance)
+	assert.equal(getSceneryClearance(20, 0.5, 0), forestClearance / 2)
+	// The desert and the ice keep the plain terrain clearance.
+	assert.equal(getSceneryClearance(20, 0, 0), 0)
+})
+
+test('fades the forest clearance out above the trees, under the flight ceiling', () => {
+	const { forestClearance, minimumTerrainClearance, maximumAltitude } = FLIGHT_LIMITS
+	assert.equal(getSceneryClearance(40, 1, 0), forestClearance)
+	const snowline = getSceneryClearance(45, 1, 0)
+	assert.ok(snowline > 0 && snowline < forestClearance)
+	assert.equal(getSceneryClearance(51, 1, 0), 0)
+	const summit = maximumAltitude - minimumTerrainClearance
+	assert.equal(
+		summit + getSceneryClearance(summit, 1, 0) + minimumTerrainClearance,
+		maximumAltitude,
+	)
 })
 
 test('the corridor is filled in place when an object is passed in', () => {

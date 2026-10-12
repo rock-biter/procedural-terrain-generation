@@ -1,11 +1,12 @@
 import { MathUtils, Timer } from 'three'
 import Aurora from './aurora'
 import { createBiomeOffset, getIceValue } from './biome'
-import { getHeight } from './chunkGeometry'
+import { getDeepOceanWeight, getDesertWeight, getHeight, getIceWeight } from './chunkGeometry'
 import ChunkManager from './chunkManager'
 import Clouds from './clouds'
 import CloudShadows from './cloudShadows'
 import DayNight from './dayNight'
+import { getSceneryClearance } from './flightPolicy'
 import { createBoatSources } from './impostors/boatSources'
 import { SCENERY_IMPOSTORS, setCatalogSources } from './impostors/impostorCatalogs'
 import { IMPOSTOR_TYPE } from './impostors/impostorTypes'
@@ -21,6 +22,9 @@ import { CHUNK_SIZE } from './worldConstants'
 // Height above the terrain (or the sea) the airplane starts at, and the floor
 // it is lifted to when a new seed raises the ground under it.
 const SPAWN_CLEARANCE = 60
+
+// The biome fields getHeight() writes for sampleFlightHeight().
+const flightFields = { climate: 0, ice: 0, ringDriven: false, ocean: 0 }
 
 // Everything the frame loop updates: the day/night cycle (from construction,
 // so the loading screen already has its colors), then, once the startup
@@ -171,7 +175,7 @@ export default class World {
 			this.seed,
 			{ isMobile },
 		)
-		this.plane.setTerrainSampler((x, z) => this.sampleHeight(x, z))
+		this.plane.setTerrainSampler((x, z) => this.sampleFlightHeight(x, z))
 
 		if (this.features.aurora) {
 			// The ice field with the live biome offset, which a new seed replaces.
@@ -218,6 +222,20 @@ export default class World {
 
 	sampleHeight(x, z) {
 		return getHeight(x, z, this.chunkManager.noise, this.params, this.chunkManager.biomeOffset)
+	}
+
+	// The ground the airplane must clear at (x, z): the terrain, raised by the
+	// scenery clearance (getSceneryClearance() in src/flightPolicy.js) over
+	// the forest's trees and the deep ocean islets' palms. The shares follow
+	// getHeight()'s biome weights, so the clearance blends across the borders.
+	sampleFlightHeight(x, z) {
+		const { params } = this
+		const { noise, biomeOffset } = this.chunkManager
+		const height = getHeight(x, z, noise, params, biomeOffset, flightFields)
+		const deepOcean = getDeepOceanWeight(flightFields.ocean, params)
+		const ice = getIceWeight(flightFields.ice, params)
+		const forest = (1 - deepOcean) * (1 - ice) * (1 - getDesertWeight(flightFields.climate, params))
+		return height + getSceneryClearance(height, forest, deepOcean)
 	}
 
 	getSpawnAltitude(x, z) {

@@ -1421,7 +1421,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['end', 'Band ends at (depth)', 0, 30, 0.1],
 					['frequency', 'Lines per unit of depth', 0.5, 30, 0.1],
 					['speed', 'Speed', -20, 20, 0.1],
-					['sharpness', 'Sharpness', 0.1, 16, 0.1],
+					['sharpness', 'Sharpness', 0.1, 40, 0.1],
 					['wobbleFrequency', 'Wobble frequency', 0, 3, 0.01],
 					['wobbleAmount', 'Wobble (rad)', 0, 4, 0.05],
 					['dashScale', 'Dash frequency', 0.001, 0.5, 0.001],
