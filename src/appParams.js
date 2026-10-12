@@ -62,6 +62,11 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			softness: 0.3,
 			speed: 0.25,
 		},
+		// Shader-side, applied live: the terrain's ink lines (band borders and the
+		// shoreline) keep their width up to `fadeStart` from the camera and thin
+		// away by `fadeEnd` (world units), while their edges soften from one
+		// pixel to `blur` pixels; see updateTerrainLineUniforms().
+		terrainLines: { fadeStart: 150, fadeEnd: 600, blur: 3 },
 		// Shader-side, applied live: the sand's brightness on fully rocky coast
 		// (src/coast.js mask); 1 leaves it unchanged.
 		coastSand: { shade: 0.82 },

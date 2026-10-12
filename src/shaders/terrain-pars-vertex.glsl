@@ -4,6 +4,7 @@
 #include ./biome-value.glsl
 #include ./sea-ice-pars.glsl
 #include ./sea-surface-pars.glsl
+#include ./terrain-band-height.glsl
 
 // The ice and deep ocean fields and the climate at the vertex, interpolated
 // for the fragment.
@@ -14,3 +15,6 @@ varying float vClimateNoise;
 // (getSeaRippleNoise()), as broad, interpolated for the fragment.
 varying float vSeaState;
 varying float vSeaRippleNoise;
+// The band heights (getTerrainBandHeight()) of grass, land, rocks, and snow,
+// interpolated for their change across the pixel (color-fragment.glsl).
+varying vec4 vBandHeights;

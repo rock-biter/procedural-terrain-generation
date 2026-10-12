@@ -74,6 +74,7 @@ export function createSharedUniforms(params, seed) {
 		// The baked tileable noise (src/noiseTexture.js), kept for the page.
 		uNoiseTexture: { value: createNoiseTexture() },
 		uCoastSandShade: { value: params.coastSand.shade },
+		uTerrainLines: { value: new Vector3() },
 		uCoastRockNoise: { value: new Vector3() },
 		uCoastRockEdge: { value: new Vector2() },
 		...createTerrainNormalUniforms(params.terrainNormals),
@@ -124,6 +125,7 @@ export function createSharedUniforms(params, seed) {
 	}
 	updateBiomeOffsetUniforms(uniforms, createBiomeOffset(seed))
 	updateCoastMaskUniforms(uniforms, params.coast.mask)
+	updateTerrainLineUniforms(uniforms, params.terrainLines)
 	updateBiomeUniforms(uniforms, params.biomes)
 	updateTerrainPaletteUniforms(uniforms, params.terrainPalette)
 	updateSeaIceUniforms(uniforms, params.seaIce, params.dayNight?.timeOfDay)
@@ -145,6 +147,18 @@ export function updateBiomeOffsetUniforms(uniforms, offset) {
 export function updateCoastMaskUniforms(uniforms, mask) {
 	uniforms.uCoastRockNoise.value.set(mask.frequency, mask.detailFrequency, mask.detailWeight)
 	uniforms.uCoastRockEdge.value.set(mask.threshold, mask.softness)
+}
+
+// Writes the terrain's ink line fade (params.terrainLines) into uTerrainLines,
+// in place, with the fade end kept beyond its start for the shader's
+// smoothstep() and the blur at least one pixel.
+export function updateTerrainLineUniforms(uniforms, settings) {
+	const fadeStart = Math.max(settings.fadeStart, 0)
+	uniforms.uTerrainLines.value.set(
+		fadeStart,
+		Math.max(settings.fadeEnd, fadeStart + 1),
+		Math.max(settings.blur, 1),
+	)
 }
 
 // Writes the biome distribution (params.biomes) into the biome uniforms, in

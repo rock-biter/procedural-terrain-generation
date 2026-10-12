@@ -110,8 +110,43 @@ float getCoastRockMask(vec2 biomeXZ) {
 	return smoothstep(uCoastRockEdge.x - uCoastRockEdge.y, uCoastRockEdge.x + uCoastRockEdge.y, value);
 }
 
-// The height plus a band's wave (x = frequency, y = amplitude), compared with
-// the band's line and level; getBandHeight() in src/terrainBands.js.
-float getTerrainBandHeight(vec3 position, vec2 wave) {
-	return position.y + sin(position.x * wave.x) * wave.y + cos(position.z * wave.x) * wave.y;
+// The band heights (getTerrainBandHeight()): exact per pixel, and
+// interpolated from the vertices (grass, land, rocks, snow) for their change
+// across the pixel, whose derivatives include the waves' slopes with no
+// trigonometry in the fragment.
+#include ./terrain-band-height.glsl
+varying vec4 vBandHeights;
+
+// The ink lines (the band lines and the shoreline), params.terrainLines: x and
+// y, the distances from the camera where they start thinning and where they
+// are gone; z, the width of their edges in pixels there (one pixel near).
+uniform vec3 uTerrainLines;
+
+// The share of its width an ink line keeps at `cameraDistance` (x, 1 near, 0
+// far) and the width of its edges in pixels (y).
+vec2 getTerrainLineFade(float cameraDistance) {
+	float fade = 1.0 - smoothstep(uTerrainLines.x, uTerrainLines.y, cameraDistance);
+	return vec2(fade, mix(uTerrainLines.z, 1.0, fade));
+}
+
+// Coverage of an ink line `width` units wide that runs below the border
+// `level`, at the value `value`, which changes by `pixel` across the pixel:
+// the share of a window fade.y pixels wide (getTerrainLineFade()) that the
+// line covers, so its edges soften over fade.y pixels and a line thinner than
+// the window keeps its ink, fading evenly instead of breaking into dashes. The
+// line thins toward the border by fade.x. It reaches at most half a window
+// below `level - width` and above `level`.
+float getTerrainLine(float value, float pixel, float level, float width, vec2 fade) {
+	float window = max(fade.y * pixel, 1e-5);
+	float overlap = min(value + 0.5 * window, level) - max(value - 0.5 * window, level - width * fade.x);
+	return max(overlap, 0.0) / window;
+}
+
+// A band's border at band height `value`, which changes by `pixel` across
+// the pixel (fwidth() of vBandHeights): x, the share of the band above its
+// border `level`, antialiased over one pixel; y, the coverage of its ink line
+// from `line` up to the border (getTerrainLine()).
+vec2 getTerrainBandBorder(float value, float pixel, float line, float level, vec2 fade) {
+	pixel = max(pixel, 1e-5);
+	return vec2(clamp((value - level) / pixel + 0.5, 0.0, 1.0), getTerrainLine(value, pixel, level, level - line, fade));
 }

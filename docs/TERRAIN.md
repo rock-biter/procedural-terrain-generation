@@ -154,7 +154,7 @@ The sea's vertices move with its waves within `params.seaSurface.vertex.fadeEnd`
 - The module also holds the rocky coast mask's fixed offset (`COAST_ROCK_OFFSET`, a define); its noise settings are runtime parameters (see [Rocky Coast](#rocky-coast)).
 - The layers are `TERRAIN_BANDS`: `sea`, `sand`, `grass`, `land`, `rocks`, `snow`. Their indices are `terrainBand` in `color-fragment.glsl` and the per-layer normal maps ([Rendering](RENDERING.md#terrain)).
 - The sea fills everything up to `SAND_LEVEL` (`0.1`); sand begins above it.
-- Each higher band begins where the height plus a wave, `sin(x · frequency) · amplitude + cos(z · frequency) · amplitude`, exceeds its `level`, with a black ink line from `line` to `level` below it: grass `0.3`/`0.6`, level `1.7`; land `0.1`/`1.6`, level `14.1`; rocks `0.15`/`2.5`, level `22.2`; snow `0.15`/`5`, level `40.2` (frequency/amplitude). A higher band wins wherever its border is passed, as in the shader.
+- Each higher band begins where the height plus a wave, `sin(x · frequency) · amplitude + cos(z · frequency) · amplitude`, exceeds its `level`, with a black ink line from `line` to `level` below it (the shader thins it away with distance, [Rendering](RENDERING.md#terrain)): grass `0.3`/`0.6`, level `1.7`; land `0.1`/`1.6`, level `14.1`; rocks `0.15`/`2.5`, level `22.2`; snow `0.15`/`5`, level `40.2` (frequency/amplitude). A higher band wins wherever its border is passed, as in the shader.
 - `getTerrainBand(x, y, z)` returns the band the shader colors at a world point. Placement evaluates it at the exact `getHeight()`; the shader evaluates it on the interpolated mesh, so on a coarse LOD the two can disagree within a fraction of a unit near a border.
 
 ## Per-Chunk Scenery

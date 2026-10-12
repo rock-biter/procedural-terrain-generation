@@ -33,6 +33,7 @@ import {
 	updateCoastMaskUniforms,
 	updateSeaIceUniforms,
 	updateSeaSurfaceUniforms,
+	updateTerrainLineUniforms,
 	updateTerrainPaletteUniforms,
 } from '../sharedUniforms'
 import { createRandomSeed, CURATED_SEEDS, DEEP_OCEAN_SEEDS, normalizeWorldSeed } from '../worldSeed'
@@ -114,6 +115,22 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				uniforms[uniform].value = value
 			})
 	}
+
+	// The ink lines of the band borders and the shoreline.
+	const linesFolder = terrainFolder.addFolder('Lines')
+	const updateTerrainLines = () => updateTerrainLineUniforms(uniforms, params.terrainLines)
+	linesFolder
+		.add(params.terrainLines, 'fadeStart', 0, 1500, 10)
+		.name('Thin from')
+		.onChange(updateTerrainLines)
+	linesFolder
+		.add(params.terrainLines, 'fadeEnd', 0, 2000, 10)
+		.name('Gone at')
+		.onChange(updateTerrainLines)
+	linesFolder
+		.add(params.terrainLines, 'blur', 1, 8, 0.1)
+		.name('Far edge blur (px)')
+		.onChange(updateTerrainLines)
 
 	const coastFolder = terrainFolder.addFolder('Coast')
 	coastFolder

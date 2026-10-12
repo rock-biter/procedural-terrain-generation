@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
+import { Vector3 } from 'three'
+import { updateTerrainLineUniforms } from '../src/sharedUniforms.js'
 import {
 	BIOME,
 	BIOME_CLIMATE_LAYERS,
@@ -20,7 +22,9 @@ const shader = (name) => readFileSync(new URL(`../src/shaders/${name}`, import.m
 const code = (name) => shader(name).replace(/\/\/.*$/gm, '')
 const terrainShaders = [
 	'biome-value.glsl',
+	'terrain-band-height.glsl',
 	'terrain-bands-pars.glsl',
+	'terrain-pars-vertex.glsl',
 	'color-fragment.glsl',
 	'terrain-normal-pars.glsl',
 	'sea-ice-pars.glsl',
@@ -92,6 +96,36 @@ test('the shaders sum every biome layer and sample every band layer', () => {
 	// fallback gradients sample the exact fields.
 	assert.doesNotMatch(code('color-fragment.glsl'), /getClimateNoise\(|getIceValue\(/)
 	assert.match(code('terrain-bands-pars.glsl'), /vec2 getClimateGradient\(vec2 biomeXZ\)/)
+})
+
+test('both terrain stages share the band height and the fragment antialiases every band', () => {
+	assert.match(shader('terrain-bands-pars.glsl'), /#include \.\/terrain-band-height\.glsl/)
+	assert.match(shader('terrain-pars-vertex.glsl'), /#include \.\/terrain-band-height\.glsl/)
+	assert.match(
+		code('terrain-band-height.glsl'),
+		/float getTerrainBandHeight\(vec3 position, vec2 wave\)/,
+	)
+	const vertex = code('project-vertex.glsl')
+	const fragment = code('color-fragment.glsl')
+	for (const name of Object.keys(TERRAIN_HEIGHT_BANDS)) {
+		const key = name.toUpperCase()
+		assert.match(vertex, new RegExp(`getTerrainBandHeight\\(bandPosition, TERRAIN_${key}_WAVE\\)`))
+		assert.match(
+			fragment,
+			new RegExp(`getTerrainBandBorder\\([^;]*TERRAIN_${key}_LINE, TERRAIN_${key}_LEVEL`),
+		)
+	}
+	assert.doesNotMatch(fragment, /\bstep\(bandHeight/)
+})
+
+test('the ink line fade keeps its smoothstep() edges ordered and the blur at one pixel or more', () => {
+	const uniforms = { uTerrainLines: { value: new Vector3() } }
+	updateTerrainLineUniforms(uniforms, { fadeStart: 150, fadeEnd: 600, blur: 3 })
+	assert.deepEqual(uniforms.uTerrainLines.value.toArray(), [150, 600, 3])
+	updateTerrainLineUniforms(uniforms, { fadeStart: 700, fadeEnd: 600, blur: 0.5 })
+	assert.deepEqual(uniforms.uTerrainLines.value.toArray(), [700, 701, 1])
+	updateTerrainLineUniforms(uniforms, { fadeStart: -10, fadeEnd: 0, blur: 2 })
+	assert.deepEqual(uniforms.uTerrainLines.value.toArray(), [0, 1, 2])
 })
 
 test('bands follow the height, the waves, and the shader priority', () => {

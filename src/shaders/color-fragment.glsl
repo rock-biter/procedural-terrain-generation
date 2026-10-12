@@ -25,10 +25,10 @@ float pctDeep = smoothstep(- 24., - 40., wPosition.y);
 diffuseColor.rgb = mix(mix(uSeaColors[1], uSeaColors[2], pctDeep), uSeaColors[3], pctAbyss);
 float pctSea = smoothstep(- 6., - 16., wPosition.y);
 diffuseColor.rgb = mix(uSeaColors[0], diffuseColor.rgb, pctSea);
-// The shoreline, raw heights from 0 to the sand level, is a black ink line,
-// except in the ice, where it stays snow: the ice never meets the water with
-// a dark line.
-if (wPosition.y > 0.0) diffuseColor.rgb = iceValue >= 0.0 ? getTerrainColor(BIOME_ICE, 0, 0.0) : vec3(0.0);
+// The shoreline, raw heights from 0 to the sand level, is a black ink line
+// (below, after the frozen sea), except in the ice, where it stays snow: the
+// ice never meets the water with a dark line.
+if (wPosition.y > 0.0 && iceValue >= 0.0) diffuseColor.rgb = getTerrainColor(BIOME_ICE, 0, 0.0);
 float pctSand = step(wPosition.y, TERRAIN_SAND_LEVEL);
 
 // The frozen sea (sea-ice-pars-fragment.glsl): its coverage also stills the
@@ -36,6 +36,22 @@ float pctSand = step(wPosition.y, TERRAIN_SAND_LEVEL);
 float seaIce = 0.0;
 if (wPosition.y < TERRAIN_SAND_LEVEL && iceValue > 0.0) {
 	seaIce = applySeaIce(diffuseColor.rgb, wPosition.y, wPosition.xz, iceValue, groundPixel, heightPixel);
+}
+
+// The ink lines, the shoreline's and the bands', are computed only from here
+// on, so none of their values is kept through the frozen sea. They thin away
+// with the distance and their edges soften (getTerrainLineFade()).
+vec2 lineFade = getTerrainLineFade(distanceFromCamera);
+// The band heights' change across the pixel, from the interpolated ones
+// (vBandHeights), taken in uniform control flow.
+vec4 bandPixels = fwidth(vBandHeights);
+// The shoreline's line (getTerrainLine()) outside the ice, which the frozen
+// sea never reaches, over the sea here and on the sand below. It reaches at
+// most half its window below the waterline, so the open sea skips it.
+float shoreLine = 0.0;
+if (iceValue < 0.0 && wPosition.y > - lineFade.y * heightPixel) {
+	shoreLine = getTerrainLine(wPosition.y, heightPixel, TERRAIN_SAND_LEVEL, TERRAIN_SAND_LEVEL, lineFade);
+	diffuseColor.rgb *= 1.0 - shoreLine;
 }
 
 // Height bands (src/terrainBands.js): 1.0 keeps the color below the band.
@@ -87,8 +103,8 @@ if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 		biomeVariation = sampleNoiseTile(biomeXZ * 0.001, groundPixel * 0.001).z * 0.3 + 0.6
 			+ sampleNoiseTile(biomeXZ * 0.01, groundPixel * 0.01).w * 0.3;
 	}
-	// 0 leaves the band lines black, 1 removes them.
-	float lineShade = 1.0 - terrainStyle.y;
+	// 1 leaves the band lines black, 0 removes them.
+	float lineDarkness = terrainStyle.y;
 
 	vec3 sandColor = getTerrainColor(biome, 0, biomeVariation);
 	// Rocky coast (src/coast.js) darkens the sand gradually, outside the ice
@@ -98,35 +114,39 @@ if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	if (biome != BIOME_ICE && biome != BIOME_DEEP_OCEAN && wPosition.y < TERRAIN_GRASS_LEVEL + 2.0 * TERRAIN_GRASS_WAVE.y) {
 		sandColor *= mix(1.0, uCoastSandShade, getCoastRockMask(biomeXZ));
 	}
-	diffuseColor.rgb = mix(sandColor, diffuseColor.rgb, pctSand);
+	// The shoreline's upper edge reaches onto the sand.
+	diffuseColor.rgb = mix(sandColor * (1.0 - shoreLine), diffuseColor.rgb, pctSand);
 
+	// Each band covers the color below it above its border, then its ink line
+	// darkens the color just below the border, both antialiased and the line
+	// thinning away with the distance (getTerrainBandBorder()).
 	// grass
 	float bandHeight = getTerrainBandHeight(wPosition, TERRAIN_GRASS_WAVE);
-	float pctLine = step(bandHeight, TERRAIN_GRASS_LINE);
-	pct = step(bandHeight, TERRAIN_GRASS_LEVEL);
-	diffuseColor.rgb = mix(diffuseColor.rgb * lineShade, diffuseColor.rgb, pctLine);
+	vec2 border = getTerrainBandBorder(bandHeight, bandPixels.x, TERRAIN_GRASS_LINE, TERRAIN_GRASS_LEVEL, lineFade);
+	pct = 1.0 - border.x;
 	diffuseColor.rgb = mix(getTerrainColor(biome, 1, biomeVariation), diffuseColor.rgb, pct);
+	diffuseColor.rgb *= 1.0 - lineDarkness * border.y;
 
 	// land
 	bandHeight = getTerrainBandHeight(wPosition, TERRAIN_LAND_WAVE);
-	pctLine = step(bandHeight, TERRAIN_LAND_LINE);
-	pct2 = step(bandHeight, TERRAIN_LAND_LEVEL);
-	diffuseColor.rgb = mix(diffuseColor.rgb * lineShade, diffuseColor.rgb, pctLine);
+	border = getTerrainBandBorder(bandHeight, bandPixels.y, TERRAIN_LAND_LINE, TERRAIN_LAND_LEVEL, lineFade);
+	pct2 = 1.0 - border.x;
 	diffuseColor.rgb = mix(getTerrainColor(biome, 2, biomeVariation), diffuseColor.rgb, pct2);
+	diffuseColor.rgb *= 1.0 - lineDarkness * border.y;
 
 	// rocks
 	bandHeight = getTerrainBandHeight(wPosition, TERRAIN_ROCKS_WAVE);
-	pctLine = step(bandHeight, TERRAIN_ROCKS_LINE);
-	pctRock = step(bandHeight, TERRAIN_ROCKS_LEVEL);
-	diffuseColor.rgb = mix(diffuseColor.rgb * lineShade, diffuseColor.rgb, pctLine);
+	border = getTerrainBandBorder(bandHeight, bandPixels.z, TERRAIN_ROCKS_LINE, TERRAIN_ROCKS_LEVEL, lineFade);
+	pctRock = 1.0 - border.x;
 	diffuseColor.rgb = mix(getTerrainColor(biome, 3, biomeVariation), diffuseColor.rgb, pctRock);
+	diffuseColor.rgb *= 1.0 - lineDarkness * border.y;
 
 	// snow
 	bandHeight = getTerrainBandHeight(wPosition, TERRAIN_SNOW_WAVE);
-	pctLine = step(bandHeight, TERRAIN_SNOW_LINE);
-	pct3 = step(bandHeight, TERRAIN_SNOW_LEVEL);
-	diffuseColor.rgb = mix(diffuseColor.rgb * lineShade, diffuseColor.rgb, pctLine);
+	border = getTerrainBandBorder(bandHeight, bandPixels.w, TERRAIN_SNOW_LINE, TERRAIN_SNOW_LEVEL, lineFade);
+	pct3 = 1.0 - border.x;
 	diffuseColor.rgb = mix(getTerrainColor(biome, 4, biomeVariation), diffuseColor.rgb, pct3);
+	diffuseColor.rgb *= 1.0 - lineDarkness * border.y;
 
 	// Soft lighter patches, scaled per biome, and the biome separator, on land
 	// only.

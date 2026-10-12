@@ -37,6 +37,17 @@ vClimateNoise = 0.0;
 if (vIceValue <= uBiomeIce.w * uBiomeClimate.w && vOceanValue <= uBiomeOcean.z * uBiomeClimate.w) {
 	vClimateNoise = getClimateNoise(wPosition.xz + uBiomeOffset.xy);
 }
+// The band heights at the raw height: interpolated, their change across the
+// pixel antialiases the band borders and ink lines (color-fragment.glsl); the
+// waves are about 20 units or longer, so the triangles near the camera follow
+// their slopes.
+vec3 bandPosition = vec3(wPosition.x, height, wPosition.z);
+vBandHeights = vec4(
+	getTerrainBandHeight(bandPosition, TERRAIN_GRASS_WAVE),
+	getTerrainBandHeight(bandPosition, TERRAIN_LAND_WAVE),
+	getTerrainBandHeight(bandPosition, TERRAIN_ROCKS_WAVE),
+	getTerrainBandHeight(bandPosition, TERRAIN_SNOW_WAVE)
+);
 // The sea state and the ripples' phase noise, as broad
 // (sea-surface-pars.glsl); land needs no ripples.
 vSeaState = getSeaState(wPosition.xz);
