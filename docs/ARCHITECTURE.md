@@ -119,7 +119,7 @@ Rendering begins after assets load, before Play is pressed.
 9. Call `sceneryShadows.update(chunks, CHUNK_SIZE, plane, dayNightState)`: pick the shadowing light (`sceneryShadows.light` and `uSceneryShadowLight`, every frame), sync the caster proxies, and render the scheduled cascades, each after syncing the terrain casters that can shadow it, restoring the render target.
 10. Call `cloudShadows.update(sceneryShadows.light, plane)`: render the coverage map again only when needed (travel, light rotation, field regeneration, or settings).
 11. Call `sunOcclusion.update(chunks, CHUNK_SIZE, plane, dayNightState)`: while the sun is low, write the march's strength and render the terrain height map again only when needed (travel, new chunks at a pace, or settings).
-12. Pass the larger of `uAcceleration` (or `0` while paused) and the GUI `params.speedEffect` to `postProcessing.setSpeedEffect()` and the `DayNight` state to `postProcessing.setSun()`, render through `postProcessing.render(delta)` (the lens flare projects the sun with the camera of this render), and schedule the next frame.
+12. Pass the larger of `uAcceleration` (or `0` while paused) and the GUI `params.speedEffect` to `postProcessing.setSpeedEffect()` and the `DayNight` state to `postProcessing.setSun()`, render through `postProcessing.render(delta)` (the lens flare projects the sun with the camera of this render, before the render pass, which resolves the scene depth only when the flare shows), and schedule the next frame.
 
 Keep frame-sensitive behavior in this order unless a change explicitly depends on a different sequence.
 
@@ -143,7 +143,7 @@ Keep frame-sensitive behavior in this order unless a change explicitly depends o
 
 - `getChunkStats()`: desired, live, queue, and in-flight counts, lifecycle and worker-result counters, worker count and failures, revision, seed, and scenery chunk and instance counts.
 - `getFlightStats()`: position, speed, speed effect, pointer input, vertical velocity, camera position and FOV, and a snapshot of the terrain corridor.
-- `getPostProcessingStats()`: whether the speed effect is visible, its intensity, the MSAA sample count, the grain, tone mapping, frame-buffer type, and `lensFlare` (enabled, gate, whether the sun is in front, its screen position, the disc visibility, the edge fade, the visible share, and the tap count).
+- `getPostProcessingStats()`: whether the speed effect is visible, its intensity, the MSAA sample count, the grain, tone mapping, frame-buffer type and format, whether this frame resolved the scene depth, and `lensFlare` (enabled, gate, whether the sun is in front, its screen position, the disc visibility, the edge fade, the visible share, and the tap count).
 - `getDebugStats()`: `{ paused, canPause }` with `?debug=1`, otherwise `null`.
 - `getSceneryMeshStats()`: near-mesh bands, instance and triangle counts, draw calls, selection time, and per-level buckets, or `null` without scenery.
 - `getShadowStats()`: enabled, light and elevation, strength, the glare's specular scale, caster chunks, airplane caster triangles, the terrain caster settings, draw calls, update time, and per-cascade radius, map size, interval, center, last frame, draw calls, triangles, and terrain casters (chunks, triangles, stitched chunks).

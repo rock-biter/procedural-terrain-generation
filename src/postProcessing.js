@@ -17,9 +17,12 @@ import {
 	MathUtils,
 	NeutralToneMapping,
 	ReinhardToneMapping,
+	RGBAFormat,
+	RGBFormat,
 	SRGBColorSpace,
 	Uniform,
 	UnsignedByteType,
+	UnsignedInt101111Type,
 	Vector3,
 } from 'three'
 import LensFlareEffect from './lensFlareEffect'
@@ -36,6 +39,29 @@ const TONE_MAPPING_MODES = {
 	[ACESFilmicToneMapping]: ToneMappingMode.ACES_FILMIC,
 	[AgXToneMapping]: ToneMappingMode.AGX,
 	[NeutralToneMapping]: ToneMappingMode.NEUTRAL,
+}
+
+// Samples of the scene buffer, the only antialiasing (see createComposer()).
+const SCENE_SAMPLES = 2
+
+// Texel type and format of the tone-mapped scene buffers. Tone mapping needs
+// the unclamped scene: R11F_G11F_B10F holds it in 4 bytes per sample, half of
+// RGBA16F, which halves the multisampled store and resolve, the largest cost
+// of the chain. It has no alpha, which nothing reads (the canvas is opaque and
+// the effects pass it through). Where it cannot render with `samples`, half
+// float: a format that only rounds up to more samples would cost more.
+export function getSceneBufferFormat(renderer, samples = SCENE_SAMPLES) {
+	const gl = renderer.getContext()
+	if (
+		renderer.extensions.has('EXT_color_buffer_float') &&
+		typeof gl.getInternalformatParameter === 'function'
+	) {
+		const counts = gl.getInternalformatParameter(gl.RENDERBUFFER, gl.R11F_G11F_B10F, gl.SAMPLES)
+		if (counts && Array.prototype.includes.call(counts, samples)) {
+			return { type: UnsignedInt101111Type, format: RGBFormat }
+		}
+	}
+	return { type: HalfFloatType, format: RGBAFormat }
 }
 
 // Static screen-space grain (film-grain-fragment.glsl). It reads the color in
@@ -91,16 +117,23 @@ export default class PostProcessing {
 		// The only antialiasing: the canvas has no MSAA (src/renderSetup.js). 2x instead of
 		// 4x: without multisampled render-to-texture the whole MSAA buffer is
 		// written to memory and resolved, the largest cost of the chain.
-		// Tone mapping needs the unclamped scene, so its buffers are half float;
-		// otherwise 8-bit buffers keep that resolve at half the bandwidth.
+		// Tone mapping needs the unclamped scene (getSceneBufferFormat());
+		// otherwise 8-bit buffers, as small.
+		const { type, format } = toneMapped
+			? getSceneBufferFormat(this.renderer)
+			: { type: UnsignedByteType, format: RGBAFormat }
 		this.composer = new EffectComposer(this.renderer, {
-			multisampling: 2,
-			frameBufferType: toneMapped ? HalfFloatType : UnsignedByteType,
+			multisampling: SCENE_SAMPLES,
+			frameBufferType: type,
 		})
-		// The lens flare reads the scene's depth around the sun. Three already
-		// resolves the multisampled depth into the input buffer every frame
-		// (resolveDepthBuffer), into a renderbuffer; a depth texture of the same
-		// 24-bit format takes its place at no extra cost. The composer's own
+		// The composer only sets the type; its output buffer is a clone of the
+		// input one. Every pass gets the type through initialize().
+		this.composer.inputBuffer.texture.format = format
+		this.composer.outputBuffer.texture.format = format
+		// The lens flare reads the scene's depth around the sun. Three resolves
+		// the multisampled depth into the input buffer (resolveDepthBuffer, set
+		// per frame in render()), into a renderbuffer; a depth texture of the
+		// same 24-bit format takes its place at no extra cost. The composer's own
 		// depth texture (EffectAttribute.DEPTH) would switch the buffers to
 		// 32-bit float depth and copy it once more per frame. The RenderPass
 		// renders into the input buffer and the effect pass only reads it, so
@@ -155,6 +188,9 @@ export default class PostProcessing {
 
 	render(deltaTime) {
 		this.grainEffect.intensity = Math.max(this.params.grain.intensity, 0)
+		// Only the lens flare reads the scene's depth: frames without it skip the
+		// depth resolve.
+		this.composer.inputBuffer.resolveDepthBuffer = this.lensFlareEffect.prepare()
 		this.composer.render(deltaTime)
 	}
 
@@ -171,6 +207,8 @@ export default class PostProcessing {
 			toneMapping: this.renderer.toneMapping,
 			toneMappingExposure: this.renderer.toneMappingExposure,
 			frameBufferType: this.composer.inputBuffer.texture.type,
+			frameBufferFormat: this.composer.inputBuffer.texture.format,
+			depthResolved: this.composer.inputBuffer.resolveDepthBuffer,
 			lensFlare: this.lensFlareEffect.getStats(),
 		}
 	}

@@ -84,8 +84,8 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 - Chunk size: `256`.
 - Default octaves: `3`.
 - `getHeight()` performs five terrain simplex-noise evaluations at the default octave count (one per octave plus two landmass samples) and six or seven biome-field samples (three climate, two ice, and one or two for the deep ocean, whose detail layer is skipped far from it). Near a biome border the two detail octaves are evaluated twice, for seven terrain samples. Ice land adds the mountains' two to three samples and nine cell hashes. Inside the deep ocean the terrain samples are skipped; a point on an archipelago's bank adds two warp samples and, once per bank, an evaluation of the biome fields at its center.
-- Desktop uses `maxDistance = 6`, `lookAhead = 2`, `rearDistance = 3`, terrain density divisor `2`, and a `4`-unit scenery cell.
-- Mobile uses `maxDistance = 5`, `lookAhead = 1`, `rearDistance = 2.5`, terrain density divisor `4`, and an `8`-unit scenery cell.
+- Desktop uses `maxDistance = 6`, `lookAhead = 2`, `lodLookAhead = 0.5`, `rearDistance = 3`, terrain density divisor `2`, and a `4`-unit scenery cell.
+- Mobile uses `maxDistance = 5`, `lookAhead = 1`, `lodLookAhead = 1`, `rearDistance = 2.5`, terrain density divisor `4`, and an `8`-unit scenery cell.
 - The scenery cells above are the former defaults the scenery counts were computed with. The current defaults are `8` units on desktop and `16` on mobile, a quarter of those candidates; the scenery rows have not been recomputed.
 - Counts model the heading-biased desired set with a northward heading; diagonal headings differ by a few chunks. Keyed pending work prevents duplicate jobs for one coordinate.
 
@@ -94,10 +94,10 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Metric                        |                                                         Desktop |                                             Mobile |
 | ----------------------------- | --------------------------------------------------------------: | -------------------------------------------------: |
 | Desired chunks                |                                                             110 |                                                 73 |
-| LOD distribution              | 15 at LOD 0, 20 at LOD 1, 35 at LOD 2, 29 at LOD 3, 11 at LOD 4 | 12 at LOD 0, 18 at LOD 1, 30 at LOD 2, 13 at LOD 3 |
-| Terrain vertices              |                                                         381,502 |                                             80,025 |
-| Terrain triangles             |                                                         743,296 |                                            152,192 |
-| Terrain noise evaluations     |                                                       1,907,510 |                                            400,125 |
+| LOD distribution              |   9 at LOD 0, 19 at LOD 1, 28 at LOD 2, 28 at LOD 3, 26 at LOD 4 | 12 at LOD 0, 18 at LOD 1, 30 at LOD 2, 13 at LOD 3 |
+| Terrain vertices              |                                                         270,734 |                                             80,025 |
+| Terrain triangles             |                                                         525,568 |                                            152,192 |
+| Terrain noise evaluations     |                                                       1,353,670 |                                            400,125 |
 | Scenery chunks (radial range) |                                                              52 |                                                 51 |
 | Scenery candidates            |                                                         212,992 |                                             52,224 |
 | Scenery height evaluations    |                                                       1,064,960 |                                            261,120 |
@@ -105,7 +105,7 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Former cloud noise evaluations |                                                     14,417,920 |                                          9,568,256 |
 | Cloud field cells per rebuild |                       625 (841 with the two-cell neighbour border) |      225 (361 with the two-cell neighbour border) |
 
-Terrain startup performed about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile at the 2026-09-26 baseline; shared normal samples at desktop LOD 0 now lower the desktop total, which has not been recounted. They are distributed across up to four desktop workers or one mobile worker.
+Terrain startup performed about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile at the 2026-09-26 baseline. The shorter desktop LOD look-ahead (2026-10-12, [Terrain](TERRAIN.md#level-of-detail)) brings the desktop window to the **1.35 million** of the table (five evaluations per vertex), and shared normal samples at desktop LOD 0 lower it further; that has not been recounted. They are distributed across up to four desktop workers or one mobile worker.
 
 Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations, which also give its biome fields. Temperate land candidates add two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
 
@@ -152,6 +152,8 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `PERF-002`  | P1       | In progress | Main-thread commits were limited by job count rather than a frame-time budget.          | Since 2026-10-02 workers take their next job on completion and results commit nearest first within `CHUNK_STREAMING.commitBytes` and `commitMs`; desktop startup converges in `0.46` s instead of `1.55` s (Apple M1). GPU upload time is still unmeasured (`OBS-001`). |
 | `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Each transition still recomputes heights and normals and transfers new position, normal, and height buffers; index and uv are shared per LOD, desktop LOD 0 jobs cost half (shared normal samples), and CPU copies are freed after upload. There is no height cache. |
 | `PERF-004`  | P1       | Done        | Identical cloud base geometries were recreated per chunk.                               | Cloud sources are built once per near-mesh level and baked into one atlas; the field draws one impostor mesh (`FEAT-006`).                        |
+| `PERF-005`  | P1       | In progress | A 120 Hz display gets 70–85 fps at `2400 × 1100` on an Apple M1; the frame is GPU-bound. | 2026-10-12 ablations and four changes: float scene buffers at half the bytes, the depth resolve only with the lens flare, dark lights skipped, the desktop LOD look-ahead `2` → `0.5`, and a lighter idle speed effect ([details](#perf-005-gpu-frame-cost-at-120-hz)). |
+| `CORR-003`  | P1       | Observed    | With the scenery shadows' `enabled` off (`params.shadows`, **Shadows > Enabled**), the terrain is not drawn. | Found by the `PERF-005` ablations: held captures show only sky, clouds, and airplane, with `57` fewer draw calls on a land seed. Cause not yet found. |
 | `STATE-001` | P1       | Done        | Chunk registries must delete historical keys and remain bounded.                        | Live and pending state use keyed `Map` instances; disposal deletes entries. Browser traversal kept `created - disposed = live`.                  |
 | `CORR-001`  | P1       | Done        | Cloud candidates were offset by a full chunk instead of half a chunk.                   | The per-chunk cloud loop was removed; the cloud field places world-space bases on its own grid (`FEAT-006`).                                     |
 | `CORR-002`  | P1       | Done        | Boat world coordinates were assigned as local coordinates on a chunk child.             | The boat clones were removed (2026-10-05); boats are scenery instances with chunk-local bases from the worker, like every other type.            |
@@ -225,6 +227,39 @@ Since 2026-10-02 the scheduler fills every idle worker each frame and again when
 LOD transitions avoid recreating existing decorations but still evaluate heights, compute normals, transfer new position, normal, and height buffers, and replace the old geometry; index and uv are shared per LOD. There is no height cache or reusable geometry buffer. Running work is not interrupted; obsolete responses are discarded by key and revision.
 
 Required direction: instrument worker duration, transfer delay, main-thread wrapping, GPU upload, and scene commit separately, then adopt a millisecond budget for the remaining main-thread stages.
+
+### `PERF-005`: GPU Frame Cost At 120 Hz
+
+The development machine (Apple M1, Chrome, a `3440 × 1440` display at `120` Hz and device pixel ratio `1`) ran a canvas of about `2400 × 1100` at 70–85 fps. The adaptive pixel ratio cannot help there: its maximum is the display's `1`, and it only reacts below 60 fps. The main-thread stages took under `1` ms per frame; the rest was waiting on the GPU.
+
+Method: `pnpm bench --width 2400 --height 1100 --dpr 1 --compare <ref>`, two or three alternated rounds, on the default query (`seed=s762&time=0.35`, a flight mostly over the deep ocean: its shadow cascades hold only the airplane) and on a land seed (`seed=b7dw4ve2&time=0.35`). A build against itself varied by `3`–`5%`. Another Chrome window drawing the app shares the GPU and inflated every time by about `60%` during the first runs: keep it hidden.
+
+Ablations on the 2026-10-12 build, default query (`HEAD` about `11` ms):
+
+| Removed | Frame time |
+| --- | --- |
+| The MSAA (`multisampling: 0`) | `−27%` |
+| Half of the terrain grid (density divisor `4`, `0.81` M → `0.35` M triangles) | `−20%` |
+| The half-float buffers (`NoToneMapping`, 8-bit) | `−19%` |
+| The idle speed effect (`idleSpeedEffect: 0`) | `−13%` |
+| The scenery shadow lookups (strength `0`, passes still drawn) | `−13%` |
+| The blur of the speed effect | `−8%` |
+| PCF taps down to one per cascade | `−7%` |
+| The moon light (hidden: one directional light) | `−7%` |
+| The clouds | `−6%` |
+| The depth resolve | `−4%` |
+| The ice and deep ocean noise in the terrain vertex shader | `−4%` |
+| Cloud shadows, terrain casters, frozen or redirected cascades, the scenery | within the noise |
+
+Applied, each measured against the step before, default query and land seed:
+
+1. Tone-mapped scene buffers in `R11F_G11F_B10F` where the device multisamples it, the depth resolve only on frames with the lens flare (`LensFlareEffect.prepare()`), the pyramid levels cleared before drawing, and the dark light's `RE_Direct()` skipped ([Rendering](RENDERING.md#post-processing-pipeline)): `−17.5%` and `−14.4%`, captures within `43`–`49` dB of the former build (single pixels along alpha-to-coverage edges and the blurred border).
+2. Desktop `lodLookAhead` `0.5` ([Terrain](TERRAIN.md#level-of-detail)): `−10.1%` and `−3.4%`; `1` gave `−4.6%` and `−3.4%`.
+3. The blur level count from the corners' mask, and `idleSpeedEffect` `0.4` → `0.3` (approved as a visible change): `−3.5%` and `−0.5%`. The level count alone measured within the noise; after step 1 the whole idle speed effect cost `−6.8%` and `−4.6%`.
+
+All four together against the former build (three rounds): `10.97` → `8.11` ms (`−26.1%`) on the default query, `11.50` → `9.33` ms (`−18.9%`) on the land seed, and `11.90` → `9.91` ms (`−16.7%`) on it at dusk (`time=0.27&aurora=0`), about 90 → 100–125 fps headless. Still to do: the same check in a visible Chrome at 120 Hz, and phones.
+
+Rejected: clearing the shadow cascades' unused color attachment (within the noise), the far cascade every third frame (`+0.3%` and `−6.3%`, not repeatable), a single sun/moon light (both shine for about `17%` of the cycle; the dark-light skip gets most of its gain), and skipping the speed-effect pyramid's texels the blur never reaches (about `0.1` ms by estimate). Remaining levers, each a visible change for the owner to decide: terrain PCF taps, the near cascade's size, the climate noise per vertex instead of per pixel, the impostors' atlas fetches, and the remaining idle speed effect.
 
 ### `CORR-001` And `CORR-002`: Ownership Coordinates
 
@@ -406,7 +441,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 ### `FEAT-001`: Post-Processing Pipeline And Speed Effect
 
 - **Rejected:** hardware mipmap blur (box-filtered mips look blocky); one blurred image mixed with the sharp one (ghosts). The pyramid with B-spline sampling gives a variable radius at low cost; its downsample moved from the 13-tap Jimenez filter to a 5-tap dual filter (about 60% fewer reads).
-- **MSAA:** measured at 2560×1600 on an Apple M1, the composer alone cost about +6 ms with 4x MSAA, +3–4 ms with 2x, and +0.5 ms without; blur and aberration add 1–2 ms. Hence 2x. Skipping the MSAA depth resolve gave nothing measurable. Untried: rendering to the MSAA canvas and copying only while active, or SMAA with an unsampled composer (about −5 ms, different antialiasing in the sharp center).
+- **MSAA:** measured at 2560×1600 on an Apple M1, the composer alone cost about +6 ms with 4x MSAA, +3–4 ms with 2x, and +0.5 ms without; blur and aberration add 1–2 ms. Hence 2x. Skipping the MSAA depth resolve gave nothing measurable then; at `2400 × 1100` on 2026-10-12 it took about `4%` off the frame, so it now runs only on frames with the lens flare. Since then the tone-mapped buffers are `R11F_G11F_B10F` where the device multisamples it, half the bytes of half float ([`PERF-005`](#perf-005-gpu-frame-cost-at-120-hz)). Untried: rendering to the MSAA canvas and copying only while active, or SMAA with an unsampled composer (about −5 ms, different antialiasing in the sharp center; MSAA off measured `−27%` at `2400 × 1100`, and the owner kept MSAA).
 - **Open:** mobile validation and a baseline frame-time measurement.
 
 ### `FEAT-002`: Day/Night Cycle

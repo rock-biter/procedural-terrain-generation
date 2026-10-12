@@ -87,3 +87,19 @@ test('the low-sun occlusion and the translucency are defines over one text', () 
 	)
 	assert.match(translucent.parsFragment, /vec3 getCloudTranslucency\(/)
 })
+
+test('a directional light whose color is zero skips its RE_Direct()', () => {
+	for (const lighting of [
+		createSceneryLighting({ shadows: SHADOWS }),
+		createSceneryLighting({ ambientScale: { value: 1 }, translucent: true }),
+	]) {
+		const { lightsFragment } = lighting
+		const block = lightsFragment.slice(lightsFragment.indexOf('#if ( NUM_DIR_LIGHTS > 0 )'))
+		assert.match(
+			block,
+			/if \( any\( notEqual\( directionalLight\.color, vec3\( 0\.0 \) \) \) \) RE_Direct\( directLight,/,
+		)
+		// Only the directional lights' call, once: the other light types keep theirs.
+		assert.equal(lightsFragment.match(/notEqual\( directionalLight\.color/g).length, 1)
+	}
+})

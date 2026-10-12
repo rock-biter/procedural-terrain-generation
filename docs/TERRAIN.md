@@ -101,6 +101,7 @@ The terrain shadow casters ([Rendering](RENDERING.md#scenery-shadows)) draw a co
   | -------------- | ------: | -----: | -------------------------------------------------------- |
   | `maxDistance`  |     `6` |    `5` | Reach to the sides and beyond the look-ahead segment.    |
   | `lookAhead`    |     `2` |    `1` | Length of the segment ahead of the current chunk center. |
+  | `lodLookAhead` |   `0.5` |    `1` | Length of the segment the LOD rings are measured to.     |
   | `rearDistance` |     `3` |  `2.5` | Reach straight behind; the rear is a half ellipse.        |
 
   Ahead of the current chunk, a coordinate is desired when its distance to the segment from the chunk center to `lookAhead` chunks along the heading is at most `maxDistance`. Behind it, the set is a half ellipse with semi-axes `rearDistance` (behind) and `maxDistance` (sideways), so the outline stays continuous at the sides. Heading north, this gives `110` coordinates on desktop and `73` on mobile; diagonal headings give slightly different counts.
@@ -123,18 +124,20 @@ The worker pool removes height sampling and normal computation from the renderin
 
 ## Level Of Detail
 
-LOD is distance-based, but the distance is measured to the look-ahead segment instead of to the current chunk:
+LOD is distance-based, but the distance is measured to a look-ahead segment of its own, `lodLookAhead` chunks long, instead of to the current chunk:
 
 ```text
 along       = offset · heading
-lodDistance = distance(offset, heading * clamp(along, 0, lookAhead))
-LOD         = floor(lodDistance * 0.7)
+lodDistance = distance(offset, heading * clamp(along, 0, lodLookAhead))
+LOD         = min(floor(lodDistance * 0.7), floor(maxDistance * 0.7))
 segments    = max(floor(size * 0.5 ** LOD), density) / density
 ```
 
-Offsets are in chunks from the current chunk. Straight ahead, the LOD rings move forward by `lookAhead` chunks: on desktop, LOD `0` reaches three chunks ahead, so LOD seams stay far from a plane flying high. Behind and beside the current chunk, `lodDistance` is the plain radial distance and the rings are unchanged. Desktop can reach LOD `4` (`8` segments); mobile stops at LOD `3`.
+Offsets are in chunks from the current chunk. Straight ahead, the LOD rings move forward by `lodLookAhead` chunks; behind and beside the current chunk, `lodDistance` is the plain radial distance and the rings are unchanged. The streaming shape and the job order (`priority`) still use `lookAhead`, and no chunk is coarser than the LOD at `maxDistance`, the coarsest a radial set reaches: desktop LOD `4` (`8` segments), mobile LOD `3`.
 
-A heading change can change the LOD of many chunks at once: in a continuous desktop turn, each new sector re-generates about 40 to 60 chunks, mostly as `updateLOD` jobs.
+On desktop `lodLookAhead` is `0.5` (until 2026-10-12 it was `lookAhead`, `2`): LOD `0` covers the current chunk and the next one ahead (9 chunks instead of about 15), and LOD `1` reaches about `860` units ahead instead of `1240`. Full detail farther ahead was mostly triangles thinner than a pixel near the horizon, where the terrain shades a whole 2×2 pixel block for each sliver: the view held about `40%` fewer terrain triangles, and the frame took `10%` (over the deep ocean) and `3.4%` (over land) less time at `2400 × 1100` (`--dpr 1`) on an Apple M1. The seams between LODs now stand about `260`–`510` units ahead, as close as those beside the airplane already were. Mobile keeps `lodLookAhead` equal to its `lookAhead` (`1`).
+
+A heading change can change the LOD of many chunks at once: in a continuous desktop turn, each new sector creates about `21` chunks and changes the LOD of about `9` more (`updateLOD` jobs; `39` with the former LOD look-ahead of `2`).
 
 The density divisor is `2` on desktop and `4` on mobile. An LOD job generates a complete replacement buffer set in a worker. `Chunk.replaceGeometry()` then disposes the previous geometry and installs the result on the main thread.
 

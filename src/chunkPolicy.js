@@ -21,8 +21,9 @@ export function hasSceneryAtDistance(distance) {
 
 // Streaming shape, in chunks. The set reaches `maxDistance` ahead of a segment
 // that extends `lookAhead` chunks along the heading, keeps `maxDistance` to the
-// sides, and only `rearDistance` behind. `lookAhead` also pushes the LOD rings
-// forward, so seams between LODs stay far ahead of a high-flying plane.
+// sides, and only `rearDistance` behind. The LOD rings are pushed forward by
+// their own, shorter `lodLookAhead`: full detail far ahead is mostly
+// sub-pixel triangles near the horizon, the costliest part of the terrain.
 // Finished worker results are committed nearest first, at least one per
 // frame, until `commitBytes` of new terrain and scenery buffers (uploaded on
 // the next render) or `commitMs` of main-thread time is reached.
@@ -30,6 +31,7 @@ export const CHUNK_STREAMING = Object.freeze({
 	desktop: Object.freeze({
 		maxDistance: 6,
 		lookAhead: 2,
+		lodLookAhead: 0.5,
 		rearDistance: 3,
 		commitBytes: 1_500_000,
 		commitMs: 4,
@@ -37,6 +39,7 @@ export const CHUNK_STREAMING = Object.freeze({
 	mobile: Object.freeze({
 		maxDistance: 5,
 		lookAhead: 1,
+		lodLookAhead: 1,
 		rearDistance: 2.5,
 		commitBytes: 400_000,
 		commitMs: 3,
@@ -107,16 +110,24 @@ function isInStreamingShape({ lodDistance, along, lateral }, maxDistance, rearDi
 }
 
 // Without `options.heading` the set is the symmetric disc of `maxDistance`.
-// `heading` is a unit [i, j] direction, as from `getSectorDirection()`.
+// `heading` is a unit [i, j] direction, as from `getSectorDirection()`. The
+// LOD rings follow `lodLookAhead` (`lookAhead` when omitted), and no chunk is
+// coarser than the LOD at `maxDistance`, the coarsest a radial set reaches.
 export function getDesiredChunks(centerI, centerJ, maxDistance, options = {}) {
 	const { heading = null, lookAhead = 0, rearDistance = maxDistance } = options
+	const lodLookAhead = options.lodLookAhead ?? lookAhead
 	const reach = heading ? maxDistance + Math.max(lookAhead, 0) : maxDistance
+	const maxLOD = getChunkLOD(maxDistance)
 	const desired = new Map()
 
 	for (let i = centerI - reach; i <= centerI + reach; i++) {
 		for (let j = centerJ - reach; j <= centerJ + reach; j++) {
 			const distances = getStreamingDistances(i - centerI, j - centerJ, heading, lookAhead)
 			if (!isInStreamingShape(distances, maxDistance, rearDistance)) continue
+			const lodDistance =
+				lodLookAhead === lookAhead
+					? distances.lodDistance
+					: getStreamingDistances(i - centerI, j - centerJ, heading, lodLookAhead).lodDistance
 
 			const key = getChunkKey(i, j)
 			desired.set(key, {
@@ -125,7 +136,7 @@ export function getDesiredChunks(centerI, centerJ, maxDistance, options = {}) {
 				distance: distances.distance,
 				// Jobs run in this order, so chunks ahead are generated first.
 				priority: distances.lodDistance,
-				LOD: getChunkLOD(distances.lodDistance),
+				LOD: Math.min(getChunkLOD(lodDistance), maxLOD),
 				scenery: hasSceneryAtDistance(distances.distance),
 			})
 		}

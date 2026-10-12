@@ -84,8 +84,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			preview: 0,
 			// Edge blur and aberration always shown, as for a speed effect of this
 			// value; boosting animates the rest. 0 leaves the edges sharp at rest. The
-			// camera FOV kick ignores it.
-			idleSpeedEffect: 0.4,
+			// camera FOV kick ignores it. 0.3 needs two blur levels at cruise on
+			// desktop, against four at the former 0.4.
+			idleSpeedEffect: 0.3,
 			// Static screen-space grain; intensity is the maximum brightness change
 			// (0.05 = ±5%). 0 disables it.
 			grain: { intensity: 0.035 },

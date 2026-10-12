@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
 	CHUNK_STREAMING,
 	getChunkKey,
+	getChunkLOD,
 	getChunkWorkerCount,
 	getCurvatureDrop,
 	getCurvedBoxSphere,
@@ -14,10 +15,11 @@ import {
 	needsSceneryPlacement,
 } from '../src/chunkPolicy.js'
 
-function getForwardSet(sector, streaming = CHUNK_STREAMING.desktop) {
+function getForwardSet(sector, streaming = CHUNK_STREAMING.desktop, lodLookAhead) {
 	return getDesiredChunks(0, 0, streaming.maxDistance, {
 		heading: getSectorDirection(sector),
 		lookAhead: streaming.lookAhead,
+		lodLookAhead: lodLookAhead ?? streaming.lodLookAhead,
 		rearDistance: streaming.rearDistance,
 	})
 }
@@ -116,8 +118,9 @@ test('streams farther ahead than behind along the heading', () => {
 })
 
 test('shifts LOD rings forward and keeps the rear radial', () => {
+	// With the streaming look-ahead as the LOD look-ahead (mobile's setting).
 	const streaming = CHUNK_STREAMING.desktop
-	const north = getForwardSet(0)
+	const north = getForwardSet(0, streaming, streaming.lookAhead)
 
 	for (let j = 0; j <= streaming.lookAhead; j++) {
 		assert.equal(north.get(getChunkKey(0, j)).LOD, 0)
@@ -132,11 +135,48 @@ test('shifts LOD rings forward and keeps the rear radial', () => {
 	assert.ok(north.get(getChunkKey(0, 2)).priority < north.get(getChunkKey(0, -2)).priority)
 })
 
+test('the desktop LOD rings reach a shorter way ahead than the streaming', () => {
+	const streaming = CHUNK_STREAMING.desktop
+	assert.ok(streaming.lodLookAhead < streaming.lookAhead)
+	const north = getForwardSet(0)
+	assert.equal(north.get(getChunkKey(0, 1)).LOD, 0)
+	assert.equal(north.get(getChunkKey(0, 2)).LOD, 1)
+	assert.equal(north.get(getChunkKey(0, -1)).LOD, 0)
+	assert.equal(north.get(getChunkKey(0, -2)).LOD, 1)
+
+	for (let sector = 0; sector < CHUNK_STREAMING.headingSectors; sector++) {
+		const shifted = getForwardSet(sector)
+		const reference = getForwardSet(sector, streaming, streaming.lookAhead)
+		// Same streamed set and job order; only the LODs change.
+		assert.deepEqual([...shifted.keys()], [...reference.keys()])
+		for (const [key, target] of shifted) {
+			assert.equal(target.priority, reference.get(key).priority)
+			assert.ok(target.LOD >= reference.get(key).LOD)
+			assert.ok(target.LOD <= getChunkLOD(streaming.maxDistance))
+		}
+	}
+})
+
+test('the chunks around the current one keep full detail', () => {
+	for (const streaming of [CHUNK_STREAMING.desktop, CHUNK_STREAMING.mobile]) {
+		for (let sector = 0; sector < CHUNK_STREAMING.headingSectors; sector++) {
+			const desired = getForwardSet(sector, streaming)
+			for (let di = -1; di <= 1; di++) {
+				for (let dj = -1; dj <= 1; dj++) {
+					assert.equal(desired.get(getChunkKey(di, dj)).LOD, 0)
+				}
+			}
+		}
+	}
+})
+
 test('keeps scenery range radial when LOD is shifted forward', () => {
 	for (const target of getForwardSet(0).values()) {
 		assert.equal(target.scenery, hasSceneryAtDistance(target.distance))
 	}
-	const north = getForwardSet(0)
+	// Even when the LOD rings shift as far as the streaming does.
+	const streaming = CHUNK_STREAMING.desktop
+	const north = getForwardSet(0, streaming, streaming.lookAhead)
 	assert.equal(north.get(getChunkKey(0, 5)).LOD <= 2, true)
 	assert.equal(north.get(getChunkKey(0, 5)).scenery, false)
 })
