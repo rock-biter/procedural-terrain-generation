@@ -15,6 +15,19 @@
 //   the roughest regions), the wind `direction` and the `spread` of the
 //   components around it (degrees), and the `speed` multiplier of the deep
 //   water dispersion ω = √(g k), so longer waves travel faster.
+// - Irregularity: four sums of fixed sines would repeat one lattice of
+//   crests everywhere, so two slow simplex fields, `irregularityScale` per
+//   world unit, vary every component: its crests wander along its direction
+//   by up to `irregularity` world units, which bends them, stretches and
+//   squeezes the wavelength, and shifts how the components meet, the short
+//   waves as much as the long ones; and its amplitude varies by up to
+//   ± `groups` of itself, so wave groups form, trading swell for chop, with
+//   calmer gaps between them. The fields drift with the groups, along the
+//   longest wave at half its speed (deep water group velocity), so the crests
+//   run through them. The amplitude grows past the settings by up to
+//   `groups`; the horizontal reach never does, so the crests still never fold
+//   over. Much stronger or faster wandering lines crests of different
+//   components up into long foam lines.
 // - Regions: a slow noise field (wavelength `regions.scale`, sharpened by
 //   `contrast`, drifting at `drift` units per second toward `direction`)
 //   sets a sea state from 0 (calm) to 1 (rough). Each type scales its waves
@@ -114,6 +127,9 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			speed: 0.6,
 			calm: 0.35,
 			rough: 1.3,
+			irregularity: 12,
+			irregularityScale: 0.009,
+			groups: 0.5,
 		}),
 		coast: Object.freeze({ start: 1.5, full: 10 }),
 		ripples: Object.freeze({
@@ -174,6 +190,9 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			speed: 1,
 			calm: 0.3,
 			rough: 1.6,
+			irregularity: 14,
+			irregularityScale: 0.009,
+			groups: 0.5,
 		}),
 		coast: Object.freeze({ start: 4.9, full: 16 }),
 		ripples: Object.freeze({
@@ -293,8 +312,15 @@ export function getSeaWaveComponents(waves) {
 	})
 }
 
+// Largest gain of a component's amplitude in the wave groups: the baked noise
+// stays within ±1.
+export function getSeaWaveGroupGain(waves) {
+	return 1 + Math.max(waves.groups ?? 0, 0)
+}
+
 // Largest displacement of the sea surface, vertical and horizontal, over both
-// types and every sea state, for the terrain's culling bounds.
+// types, every sea state, and the wave groups, for the terrain's culling
+// bounds.
 export function getSeaWaveBound(settings) {
 	let vertical = 0
 	let horizontal = 0
@@ -302,7 +328,7 @@ export function getSeaWaveBound(settings) {
 		const { waves } = settings[type]
 		const components = getSeaWaveComponents(waves)
 		const scale = Math.max(waves.calm, waves.rough, 0)
-		vertical = Math.max(vertical, Math.max(waves.amplitude, 0) * scale)
+		vertical = Math.max(vertical, Math.max(waves.amplitude, 0) * scale * getSeaWaveGroupGain(waves))
 		horizontal = Math.max(
 			horizontal,
 			components.reduce((sum, { reach }) => sum + reach, 0),

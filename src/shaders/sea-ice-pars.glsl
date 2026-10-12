@@ -20,14 +20,17 @@ float getSeaIceAmount(float iceValue) {
 	return smoothstep(0.0, max(uSeaIceShape.y, 1e-6), iceValue);
 }
 
-// 1 where the sea surface stays still: under the sheet and its floes, with a
-// few units of depth of margin for coarse chunk LODs, whose vertices sample
-// the edge sparsely. `height` is the raw terrain height.
+// How still the sea surface stays at raw terrain height `height`: 1 under the
+// sheet up to where its cracks start opening (half a band inside its edge,
+// applySeaIce()), then easing smoothly through the floe band, so the floes
+// ride a little of the waves that grows seaward, to 0 a few units of depth
+// beyond the band's outer limit and its wobble.
 float getSeaIceStill(float height, float iceValue) {
 	float amount = getSeaIceAmount(iceValue);
 	if (amount <= 0.0) return 0.0;
 	float edge = height + uSeaIceShape.x * amount;
-	float reach = (uSeaIceShape.z + uSeaIceEdge.z) * amount;
-	return smoothstep(0.0, 0.2, amount) * smoothstep(-reach - 3.0, -reach, edge);
+	float band = uSeaIceShape.z * amount;
+	float reach = band + uSeaIceEdge.z * amount;
+	return smoothstep(0.0, 0.2, amount) * smoothstep(-reach - 3.0, 0.5 * band, edge);
 }
 #endif

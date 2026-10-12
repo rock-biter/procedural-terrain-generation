@@ -7,10 +7,11 @@
 // The dashes, the crest flicker, and the fray sample the baked noise.
 #include ./noise-texture-pars.glsl
 
-// The sea state and the ripples' phase noise, interpolated from the vertices
-// (project-vertex.glsl).
+// The sea state, the ripples' phase noise, and the waves' irregularity,
+// interpolated from the vertices (project-vertex.glsl).
 varying float vSeaState;
 varying float vSeaRippleNoise;
+varying vec2 vSeaWaveNoise;
 
 // Linear color of the foam lines of the coast and the crests.
 uniform vec3 uSeaFoamColor;

@@ -31,8 +31,8 @@ diffuseColor.rgb = mix(uSeaColors[0], diffuseColor.rgb, pctSea);
 if (wPosition.y > 0.0 && iceValue >= 0.0) diffuseColor.rgb = getTerrainColor(BIOME_ICE, 0, 0.0);
 float pctSand = step(wPosition.y, TERRAIN_SAND_LEVEL);
 
-// The frozen sea (sea-ice-pars-fragment.glsl): its coverage also stills the
-// waves and the foam lines and picks the snow normal layer below.
+// The frozen sea (sea-ice-pars-fragment.glsl): its coverage keeps the foam
+// off the ice and picks the snow normal layer below.
 float seaIce = 0.0;
 if (wPosition.y < TERRAIN_SAND_LEVEL && iceValue > 0.0) {
 	seaIce = applySeaIce(diffuseColor.rgb, wPosition.y, wPosition.xz, iceValue, groundPixel, heightPixel);
@@ -168,19 +168,21 @@ if (pct3 < 0.5) terrainBand = TERRAIN_BAND_SNOW;
 if (seaIce > 0.5) terrainBand = TERRAIN_BAND_SNOW;
 
 // The moving sea (sea-surface-pars.glsl): its waves, calm toward the coast
-// and still under the frozen sea, tilt the normals (normal-fragment-map.glsl)
-// and draw foam lines along their highest crests, a few even in calm water.
-// The deep ocean's settings take over inside its border.
+// and still under the frozen sea's sheet, tilt the normals
+// (normal-fragment-map.glsl), the floes' too where the waves reach under them
+// (getSeaIceStill()), and draw foam lines along their highest crests, a few
+// even in calm water, never on the ice. The deep ocean's settings take over
+// inside its border.
 float seaState = vSeaState;
 float seaOceanMask = getSeaOceanMask(oceanValue);
 SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, vec4(0.0), 0.0, 0.0);
 if (wPosition.y < 0.0) {
-	float seaStill = iceValue > 0.0 ? max(getSeaIceStill(wPosition.y, iceValue), seaIce) : 0.0;
-	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel);
+	float seaStill = iceValue > 0.0 ? getSeaIceStill(wPosition.y, iceValue) : 0.0;
+	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel, vSeaWaveNoise);
 	int crestFoamStyle = int(uSeaCrestFoam + 0.5);
 	float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel) : 0.0;
 	if (crestFoamStyle > 0) crestFoam = max(crestFoam, getSeaBreakingFoam(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel));
-	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam);
+	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam * (1.0 - seaIce));
 }
 vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
 

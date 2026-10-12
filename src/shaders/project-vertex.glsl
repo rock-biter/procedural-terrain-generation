@@ -48,21 +48,27 @@ vBandHeights = vec4(
 	getTerrainBandHeight(bandPosition, TERRAIN_ROCKS_WAVE),
 	getTerrainBandHeight(bandPosition, TERRAIN_SNOW_WAVE)
 );
-// The sea state and the ripples' phase noise, as broad
-// (sea-surface-pars.glsl); land needs no ripples.
+// The sea state, the ripples' phase noise, and the waves' irregularity, as
+// broad (sea-surface-pars.glsl); land needs neither ripples nor waves.
 vSeaState = getSeaState(wPosition.xz);
 float seaOceanMask = getSeaOceanMask(vOceanValue);
-vSeaRippleNoise = height < 0.0 ? getSeaRippleNoise(wPosition.xz, seaOceanMask) : 0.0;
+vSeaRippleNoise = 0.0;
+vec2 seaWaveNoise = vec2(0.0);
+if (height < 0.0) {
+	vSeaRippleNoise = getSeaRippleNoise(wPosition.xz, seaOceanMask);
+	seaWaveNoise = getSeaWaveNoise(wPosition.xz, seaOceanMask);
+}
+vSeaWaveNoise = seaWaveNoise;
 
 // Near the airplane the sea's vertices follow its waves, calm toward the
-// coast and still under the frozen sea; farther, inside the LOD 0 block, they
-// rest and the waves live in the fragment's normals alone.
+// coast and still under the frozen sea's sheet; farther, inside the LOD 0
+// block, they rest and the waves live in the fragment's normals alone.
 vec3 seaOffset = vec3(0.0);
 if (height < 0.0) {
 	float seaFade = getSeaVertexFade(wPosition.xz);
 	if (seaFade > 0.0) {
 		float seaStill = getSeaIceStill(height, vIceValue);
-		SeaWaves seaWaves = getSeaWaves(wPosition.xz, -height, seaOceanMask, vSeaState, seaStill, 0.0);
+		SeaWaves seaWaves = getSeaWaves(wPosition.xz, -height, seaOceanMask, vSeaState, seaStill, 0.0, seaWaveNoise);
 		seaOffset = seaWaves.offset * seaFade;
 	}
 }

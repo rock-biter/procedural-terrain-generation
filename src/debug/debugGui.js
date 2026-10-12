@@ -1355,6 +1355,9 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['speed', 'Speed', 0, 4, 0.05],
 					['calm', 'Calm regions ×', 0, 2, 0.01],
 					['rough', 'Rough regions ×', 0, 3, 0.01],
+					['irregularity', 'Crests wander (units)', 0, 60, 0.5],
+					['irregularityScale', 'Wander frequency', 0.0005, 0.03, 0.0005],
+					['groups', 'Wave groups ±', 0, 1, 0.01],
 				],
 			],
 			[

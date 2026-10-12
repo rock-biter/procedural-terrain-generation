@@ -15,6 +15,8 @@ varying float vClimateNoise;
 // (getSeaRippleNoise()), as broad, interpolated for the fragment.
 varying float vSeaState;
 varying float vSeaRippleNoise;
+// The waves' irregularity fields (getSeaWaveNoise()), as broad.
+varying vec2 vSeaWaveNoise;
 // The band heights (getTerrainBandHeight()) of grass, land, rocks, and snow,
 // interpolated for their change across the pixel (color-fragment.glsl).
 varying vec4 vBandHeights;

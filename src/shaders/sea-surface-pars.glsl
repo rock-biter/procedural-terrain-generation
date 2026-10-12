@@ -27,6 +27,10 @@ uniform vec4 uSeaWaveLagSin[SEA_SURFACE_TYPE_COUNT * SEA_SURFACE_WAVE_COUNT];
 // Per type, x, y: wave scale in the calmest and roughest regions, z, w:
 // depths where the waves start and are full toward the coast.
 uniform vec4 uSeaWaveShape[SEA_SURFACE_TYPE_COUNT];
+// Per type, the irregularity of the components (getSeaTypeWaves()). x:
+// how far their crests wander (world units), y: the frequency of its noise
+// (per world unit), z: the wave groups' amplitude variation (share).
+uniform vec3 uSeaWaveVariation[SEA_SURFACE_TYPE_COUNT];
 // Per type, how many of the longest waves carry the crest lines
 // (SeaWaves.ridge, getSeaCrestLine()).
 uniform float uSeaCrestWaves[SEA_SURFACE_TYPE_COUNT];
@@ -92,12 +96,48 @@ float getSeaVertexFade(vec2 xz) {
 	return 1.0 - smoothstep(uSeaSurface.x, uSeaSurface.y, length(xz - uCamera.xz));
 }
 
+// The waves' irregularity of sea type `type` at flat world `xz`: two slow
+// simplex fields n1, n2 (getSeaTypeWaves() turns them into each component's
+// crest shift and amplitude gain). They drift with the wave groups, along the
+// longest wave at half its speed (deep water group velocity), so the crests
+// run through them. They are hundreds of units wide: the terrain evaluates
+// them per vertex and the fragment reads them interpolated. Two simplex
+// fields, not one per component or the baked tile: the terrain's vertex
+// shader weighs on the frame, and a texture read or eight noises there cost
+// a sixth of it.
+vec2 getSeaTypeWaveNoise(int type, vec2 xz) {
+	vec4 swell = uSeaWaves[type * SEA_SURFACE_WAVE_COUNT];
+	vec2 p = (xz - swell.xy * (0.5 * swell.w / max(swell.z, 1e-4) * uTime)) * uSeaWaveVariation[type].y;
+	return vec2(snoise(p), snoise(p + vec2(31.7, -17.3)));
+}
+
+// The irregularity's fields at flat world `xz`, blending the sea's and the
+// deep ocean's by `oceanMask` (getSeaOceanMask()), so one pair serves both
+// types.
+vec2 getSeaWaveNoise(vec2 xz, float oceanMask) {
+	if (oceanMask <= 0.0) return getSeaTypeWaveNoise(0, xz);
+	vec2 ocean = getSeaTypeWaveNoise(1, xz);
+	if (oceanMask >= 1.0) return ocean;
+	return mix(getSeaTypeWaveNoise(0, xz), ocean, oceanMask);
+}
+
 // The waves of sea type `type` at flat world `xz`, `depth` world units deep
 // (the raw height's opposite), in sea state `state`, `still` being the frozen
 // sea's stillness (getSeaIceStill()). `pixel` is the pixel's size on the
 // ground: components shorter than a few pixels fade instead of aliasing (0
-// keeps them all).
-SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float still, float pixel) {
+// keeps them all). `noise` holds the irregularity's fields n1, n2
+// (getSeaWaveNoise()), so the components meet differently everywhere instead
+// of repeating one lattice of crests. Each component's crests wander along
+// its direction (the phase offset is the shift times the wavenumber, so the
+// short waves bend as much as the long ones) by (n1, n2, -n1, -n2) times
+// uSeaWaveVariation.x: every pair drifts out of phase by its own mix of the
+// two (the longest and the third by (k0 + k2) n1, the longest and the second
+// by k0 n1 - k1 n2, ...). Their amplitudes take the gains 1 + (n2, n1, -n2,
+// -n1) times uSeaWaveVariation.z, the wave groups, trading swell for chop; a
+// gain lifts the amplitude alone, never the horizontal reach beyond its own,
+// so the crests never fold over. The fields are slow enough that their own
+// slope is left out of the normals and the squeeze.
+SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float still, float pixel, vec2 noise) {
 	SeaWaves waves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, vec4(0.0), 0.0, 0.0);
 	vec4 shape = uSeaWaveShape[type];
 	waves.amount = smoothstep(shape.z, shape.w, depth) * (1.0 - still);
@@ -107,16 +147,19 @@ SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float stil
 	// The steepness is reached in the roughest regions.
 	float reach = waves.amount * min(scale / max(shape.y, 1e-4), 1.0);
 	float ridgeWaves = uSeaCrestWaves[type];
+	vec3 variation = uSeaWaveVariation[type];
+	vec4 shifts = vec4(noise, -noise) * variation.x;
+	vec4 gains = max(1.0 + vec4(noise.y, noise.x, -noise.y, -noise.x) * variation.z, 0.0);
 	for (int i = 0; i < SEA_SURFACE_WAVE_COUNT; i++) {
 		int index = type * SEA_SURFACE_WAVE_COUNT + i;
 		vec4 wave = uSeaWaves[index];
 		vec2 size = uSeaWaveSizes[index];
 		float detail = 1.0 - smoothstep(1.0, 2.5, pixel * wave.z);
-		float theta = wave.z * dot(wave.xy, xz) - wave.w * uTime;
+		float theta = wave.z * (dot(wave.xy, xz) + shifts[i]) - wave.w * uTime;
 		float c = cos(theta);
 		float s = sin(theta);
-		float a = size.x * height * detail;
-		float h = size.y * reach * detail;
+		float a = size.x * height * detail * gains[i];
+		float h = size.y * reach * detail * min(gains[i], 1.0);
 		vec2 wavevector = wave.xy * wave.z;
 		waves.offset += vec3(wave.x * h * c, a * s, wave.y * h * c);
 		waves.slope += wavevector * (a * c);
@@ -133,11 +176,11 @@ SeaWaves getSeaTypeWaves(int type, vec2 xz, float depth, float state, float stil
 
 // The waves at flat world `xz`, blending the sea's and the deep ocean's by
 // `oceanMask` (getSeaOceanMask()); the other arguments as getSeaTypeWaves().
-SeaWaves getSeaWaves(vec2 xz, float depth, float oceanMask, float state, float still, float pixel) {
-	if (oceanMask <= 0.0) return getSeaTypeWaves(0, xz, depth, state, still, pixel);
-	SeaWaves ocean = getSeaTypeWaves(1, xz, depth, state, still, pixel);
+SeaWaves getSeaWaves(vec2 xz, float depth, float oceanMask, float state, float still, float pixel, vec2 noise) {
+	if (oceanMask <= 0.0) return getSeaTypeWaves(0, xz, depth, state, still, pixel, noise);
+	SeaWaves ocean = getSeaTypeWaves(1, xz, depth, state, still, pixel, noise);
 	if (oceanMask >= 1.0) return ocean;
-	SeaWaves sea = getSeaTypeWaves(0, xz, depth, state, still, pixel);
+	SeaWaves sea = getSeaTypeWaves(0, xz, depth, state, still, pixel, noise);
 	return SeaWaves(
 		mix(sea.offset, ocean.offset, oceanMask),
 		mix(sea.slope, ocean.slope, oceanMask),
@@ -164,7 +207,7 @@ void getSeaFloatPose(vec2 xz, float depth, out vec3 offset, out vec3 normal) {
 	normal = vec3(0.0, 1.0, 0.0);
 	float fade = getSeaVertexFade(xz);
 	if (fade <= 0.0) return;
-	SeaWaves waves = getSeaTypeWaves(0, xz, depth, getSeaState(xz), 0.0, 0.0);
+	SeaWaves waves = getSeaTypeWaves(0, xz, depth, getSeaState(xz), 0.0, 0.0, getSeaTypeWaveNoise(0, xz));
 	offset = waves.offset * fade;
 	normal = normalize(vec3(-waves.slope.x * fade, 1.0 - waves.squeeze * fade, -waves.slope.y * fade));
 }

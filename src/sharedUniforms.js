@@ -104,6 +104,7 @@ export function createSharedUniforms(params, seed) {
 			value: Array.from({ length: SEA_TYPES.length * SEA_WAVE_COUNT }, () => new Vector4()),
 		},
 		uSeaWaveShape: { value: perSeaType(() => new Vector4()) },
+		uSeaWaveVariation: { value: perSeaType(() => new Vector3()) },
 		uSeaCrestWaves: { value: perSeaType(() => 0) },
 		uSeaRegions: { value: new Vector4() },
 		uSeaSurface: { value: new Vector4() },
@@ -229,9 +230,9 @@ const MIN_EDGE_GAP = 0.01
 
 // Writes the moving sea's settings (params.seaSurface, src/seaSurfacePolicy.js)
 // into their uniforms, in place: the Gerstner components of both sea types
-// (getSeaWaveComponents()), the regions, the vertex fade, the ripples, the
-// crest lines, and the foam lines, with the foam color converted from sRGB to
-// linear.
+// (getSeaWaveComponents()) and their irregularity, the regions, the vertex
+// fade, the ripples, the crest lines, and the foam lines, with the foam color
+// converted from sRGB to linear.
 export function updateSeaSurfaceUniforms(uniforms, settings) {
 	const { regions, vertex, oceanBlend, foamColor, crestFoam, debugView, rippleDrift } = settings
 	const fadeStart = Math.max(vertex.fadeStart, 0)
@@ -263,6 +264,11 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 			Math.max(waves.rough, 0),
 			coastStart,
 			Math.max(coast.full, coastStart + MIN_EDGE_GAP),
+		)
+		uniforms.uSeaWaveVariation.value[type].set(
+			Math.max(waves.irregularity, 0),
+			Math.max(waves.irregularityScale, 0),
+			Math.max(waves.groups, 0),
 		)
 		uniforms.uSeaRipples.value[type].set(
 			ripples.amplitude,

@@ -102,6 +102,19 @@ test('the terrain patches fit the standard material', () => {
 	assert.match(terrain.vertexShader, /mvPosition\.xyz \+= seaOffset;/)
 	assert.match(terrain.vertexShader, /vSeaState = getSeaState\(wPosition\.xz\);/)
 	assert.match(terrain.fragmentShader, /getSeaIceStill\(wPosition\.y, iceValue\)/)
+	// Every component varies its phase and amplitude by simplex noise, so the
+	// waves never repeat one lattice of crests: the vertices evaluate it (no
+	// texture read there), the fragment reads it interpolated.
+	assert.doesNotMatch(terrain.vertexShader, /uNoiseTexture/)
+	assert.match(
+		terrain.vertexShader,
+		/seaWaveNoise = getSeaWaveNoise\(wPosition\.xz, seaOceanMask\);/,
+	)
+	assert.match(terrain.fragmentShader, /seaStill, groundPixel, vSeaWaveNoise\);/)
+	assert.match(terrain.fragmentShader, /wave\.z \* \(dot\(wave\.xy, xz\) \+ shifts\[i\]\)/)
+	// The floes ride the waves where they reach under them, without foam.
+	assert.match(terrain.fragmentShader, /uSeaFoamColor, crestFoam \* \(1\.0 - seaIce\)\)/)
+	assert.match(terrain.fragmentShader, /if \(seaWaves\.amount > 0\.0\) \{\s*vec3 waveN/)
 	// Foam lines ride the waves' crests.
 	assert.match(
 		terrain.fragmentShader,
@@ -199,6 +212,8 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		/getSceneryFloat\(impostorType, impostorBase, aInstanceB\.z/,
 	)
 	assert.match(sceneryShader.vertexShader, /void getSeaFloatPose\(/)
+	// They float on the same varied waves, from simplex noise.
+	assert.match(sceneryShader.vertexShader, /getSeaTypeWaveNoise\(0, xz\)\);/)
 	for (const name of ['uImpostorPaint', 'uSceneryPaletteColors', 'uSceneryPaletteWeights']) {
 		assert.ok(name in sceneryShader.uniforms, name)
 	}

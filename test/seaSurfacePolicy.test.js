@@ -8,6 +8,7 @@ import {
 	getSeaRegionDrift,
 	getSeaWaveBound,
 	getSeaWaveComponents,
+	getSeaWaveGroupGain,
 	SEA_BREAKING_LAGS,
 	SEA_GRAVITY,
 	SEA_SURFACE_DEFAULTS,
@@ -96,12 +97,31 @@ test('the bound covers the largest displacement of both types', () => {
 	const bound = getSeaWaveBound(settings)
 	for (const type of SEA_TYPES) {
 		const { waves } = settings[type]
-		assert.ok(bound.vertical >= waves.amplitude * Math.max(waves.calm, waves.rough))
+		// The wave groups lift the amplitude, never the horizontal reach.
+		assert.ok(
+			bound.vertical >= waves.amplitude * Math.max(waves.calm, waves.rough) * (1 + waves.groups),
+		)
 		const reach = getSeaWaveComponents(waves).reduce((sum, component) => sum + component.reach, 0)
 		assert.ok(bound.horizontal >= reach)
 	}
 	settings.ocean.waves.calm = 5
-	assert.equal(getSeaWaveBound(settings).vertical, settings.ocean.waves.amplitude * 5)
+	settings.ocean.waves.groups = 0.5
+	assert.equal(getSeaWaveBound(settings).vertical, settings.ocean.waves.amplitude * 5 * 1.5)
+	settings.ocean.waves.groups = -1
+	assert.equal(getSeaWaveGroupGain(settings.ocean.waves), 1)
+})
+
+test('every component varies on its own across the sea', () => {
+	for (const type of SEA_TYPES) {
+		const { waves } = SEA_SURFACE_DEFAULTS[type]
+		assert.ok(waves.irregularity > 0 && waves.irregularityScale > 0, type)
+		assert.ok(waves.groups > 0 && waves.groups <= 1, type)
+		// The noise is slower than the longest wave, so its own slope can be
+		// left out of the normals, and it bends the crests' wavenumber by a few
+		// tens of percent.
+		assert.ok(1 / waves.irregularityScale > waves.wavelength, type)
+		assert.ok(waves.irregularity * waves.irregularityScale <= 0.15, type)
+	}
 })
 
 test('the breaking foam samples its trail evenly, short of its end', () => {
@@ -137,6 +157,11 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 			waves.rough,
 			coast.start,
 			coast.full,
+		])
+		assert.deepEqual(uniforms.uSeaWaveVariation.value[type].toArray(), [
+			waves.irregularity,
+			waves.irregularityScale,
+			waves.groups,
 		])
 		assert.deepEqual(uniforms.uSeaMinimum.value[type].toArray(), [
 			crests.minimum,
