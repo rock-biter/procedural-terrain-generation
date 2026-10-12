@@ -87,6 +87,11 @@ test('the terrain patches fit the standard material', () => {
 		terrain.fragmentShader,
 		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
 	)
+	// The sea's ribs drift across themselves over time.
+	assert.match(
+		terrain.fragmentShader,
+		/terrainNormalSampleUv -= seaRippleDrift \* \(uSeaRippleDrift \* uTime\);/,
+	)
 	// The waves move the sea's vertices, tilt its normals, and stay still
 	// under the frozen sea in both stages.
 	assert.match(terrain.vertexShader, /mvPosition\.xyz \+= seaOffset;/)

@@ -28,6 +28,9 @@ uniform vec2 uSeaFoamLineDash[SEA_SURFACE_TYPE_COUNT];
 // y: wavelength along them (world units), z: speed (world units per second),
 // w: irregularity (radians of phase noise).
 uniform vec4 uSeaRipples[SEA_SURFACE_TYPE_COUNT];
+// World units per second the ribs drift along the map's v axis, the same for
+// both types (normal-fragment-map.glsl).
+uniform float uSeaRippleDrift;
 // Foam lines along the crests, per type. x: crest height, as a share of the
 // highest the waves that carry them (uSeaCrestWaves) reach there, where they
 // start, y: softness, z: half-width (world units), w: intensity.

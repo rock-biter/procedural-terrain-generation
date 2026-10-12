@@ -184,4 +184,10 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 	assert.ok(shape.w > shape.z)
 	const band = uniforms.uSeaFoamLineBand.value[1]
 	assert.ok(band.y > band.x && band.w > band.z)
+
+	// One ripple drift for both sea types, reversible.
+	assert.equal(uniforms.uSeaRippleDrift.value, SEA_SURFACE_DEFAULTS.rippleDrift)
+	settings.rippleDrift = -2
+	updateSeaSurfaceUniforms(uniforms, settings)
+	assert.equal(uniforms.uSeaRippleDrift.value, -2)
 })

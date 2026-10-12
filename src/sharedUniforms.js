@@ -112,6 +112,7 @@ export function createSharedUniforms(params, seed) {
 		uSeaFoamLineStyle: { value: perSeaType(() => new Vector4()) },
 		uSeaFoamLineDash: { value: perSeaType(() => new Vector2()) },
 		uSeaRipples: { value: perSeaType(() => new Vector4()) },
+		uSeaRippleDrift: { value: 0 },
 		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
 		uSeaCrestLines: { value: perSeaType(() => new Vector4()) },
 		uSeaCrestFlicker: { value: perSeaType(() => new Vector3()) },
@@ -217,7 +218,7 @@ const MIN_EDGE_GAP = 0.01
 // crest lines, and the foam lines, with the foam color converted from sRGB to
 // linear.
 export function updateSeaSurfaceUniforms(uniforms, settings) {
-	const { regions, vertex, oceanBlend, foamColor, crestFoam, debugView } = settings
+	const { regions, vertex, oceanBlend, foamColor, crestFoam, debugView, rippleDrift } = settings
 	const fadeStart = Math.max(vertex.fadeStart, 0)
 	uniforms.uSeaSurface.value.set(
 		fadeStart,
@@ -229,6 +230,7 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 	uniforms.uSeaRegions.value.set(1 / Math.max(regions.scale, 1), regions.contrast, driftX, driftZ)
 	uniforms.uSeaFoamColor.value.set(foamColor)
 	uniforms.uSeaCrestFoam.value = crestFoam
+	uniforms.uSeaRippleDrift.value = rippleDrift
 	SEA_TYPES.forEach((key, type) => {
 		const { waves, coast, ripples, crests, breaking, foam } = settings[key]
 		const lags = getSeaBreakingLags(breaking.trail)

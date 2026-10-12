@@ -22,13 +22,16 @@ normal = normalize(normalMatrix * normal);
 // sampled in world XZ so tiles continue across chunks. V runs along -Z like
 // the chunk uv, so the tangent frame built from vNormalMapUv still applies.
 vec2 terrainNormalUv = vec2(wPosition.x, - wPosition.z);
-// The sea's ribs snake across themselves (getSeaRippleWarp()) as far as its
-// waves reach, stronger in rough regions; the mip level keeps the unwarped
-// gradients.
+// The sea's ribs drift over time (uSeaRippleDrift) along the map's v axis,
+// a quarter turn from uTerrainNormalRotation[0], and snake
+// (getSeaRippleWarp()) as far as its waves reach, stronger in rough regions;
+// the mip level keeps the unwarped gradients.
 vec2 terrainNormalSampleUv = terrainNormalUv;
 float seaRippleBoost = 1.0;
 if (terrainBand == TERRAIN_BAND_SEA) {
 	seaRippleBoost = getSeaRippleBoost(seaOceanMask, seaState);
+	vec2 seaRippleDrift = vec2(- uTerrainNormalRotation[0].y, uTerrainNormalRotation[0].x);
+	terrainNormalSampleUv -= seaRippleDrift * (uSeaRippleDrift * uTime);
 	if (seaWaves.amount > 0.0 && distanceFromCamera < uTerrainNormalFade.y) {
 		terrainNormalSampleUv += getSeaRippleWarp(terrainNormalUv, vSeaRippleNoise, seaOceanMask, seaWaves.amount * seaRippleBoost);
 	}

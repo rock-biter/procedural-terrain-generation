@@ -1247,6 +1247,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.add(settings, 'oceanBlend', 0.001, 0.3, 0.001)
 			.name('Deep ocean blend (field)')
 			.onChange(apply)
+		// Both sea types: the ribs of the sea's normal map drift over time.
+		folder.add(settings, 'rippleDrift', -5, 5, 0.05).name('Ripple drift (units/s)').onChange(apply)
 
 		const regionsFolder = folder.addFolder('Regions (sea state)')
 		for (const [key, label, min, max, step] of [

@@ -31,7 +31,10 @@
 //   ribs, travelling at `speed` units per second, its phase broken by a noise
 //   (`irregularity` radians, `irregularityScale` per world unit). The map's
 //   strength grows with the sea state by up to ± `stateStrength`, never below
-//   `minimum`, so calm water keeps its ripples.
+//   `minimum`, so calm water keeps its ripples. The ribs also drift along the
+//   map's v axis at `rippleDrift` units per second (negative reverses them),
+//   one speed for both types: a speed that differed across the deep ocean's
+//   border would stretch the texture there more and more over time.
 // - Crest lines: foam lines `width` world units wide on each side along the
 //   ridges of the `waves` longest waves (all four: short strokes on every
 //   crest; two: long lines along the swell), `intensity` bright, where the
@@ -96,6 +99,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	foamColor: '#ffffff',
 	crestFoam: SEA_CREST_FOAM_STYLES.lines,
 	debugView: SEA_SURFACE_DEBUG_VIEWS.none,
+	rippleDrift: -2.5,
 	sea: Object.freeze({
 		waves: Object.freeze({
 			amplitude: 3.05,
@@ -226,6 +230,7 @@ export function createSeaSurfaceSettings(defaults = SEA_SURFACE_DEFAULTS) {
 		foamColor: defaults.foamColor,
 		crestFoam: defaults.crestFoam,
 		debugView: defaults.debugView,
+		rippleDrift: defaults.rippleDrift,
 		sea: copyType(defaults.sea),
 		ocean: copyType(defaults.ocean),
 	}
@@ -240,6 +245,7 @@ export function copySeaSurfaceSettings(source, target) {
 	target.foamColor = source.foamColor
 	target.crestFoam = source.crestFoam
 	target.debugView = source.debugView
+	target.rippleDrift = source.rippleDrift
 	for (const type of SEA_TYPES) {
 		for (const group of GROUPS) Object.assign(target[type][group], source[type][group])
 	}
