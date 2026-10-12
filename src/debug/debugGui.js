@@ -1407,6 +1407,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 					['dashScale', 'Dash frequency', 0.001, 0.5, 0.001],
 					['dashAmount', 'Dashes', 0, 2, 0.01],
 					['stateBoost', 'Boost by sea state ±', 0, 1, 0.01],
+					['fray', 'Fray (share of width)', 0, 1.5, 0.01],
+					['frayScale', 'Fray frequency', 0.02, 3, 0.01],
 				],
 			],
 		]

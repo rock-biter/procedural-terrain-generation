@@ -111,6 +111,7 @@ export function createSharedUniforms(params, seed) {
 		uSeaFoamLineMotion: { value: perSeaType(() => new Vector4()) },
 		uSeaFoamLineStyle: { value: perSeaType(() => new Vector4()) },
 		uSeaFoamLineDash: { value: perSeaType(() => new Vector2()) },
+		uSeaFoamLineFray: { value: perSeaType(() => new Vector2()) },
 		uSeaRipples: { value: perSeaType(() => new Vector4()) },
 		uSeaRippleDrift: { value: 0 },
 		uSeaRippleDetail: { value: perSeaType(() => new Vector2()) },
@@ -293,5 +294,6 @@ export function updateSeaSurfaceUniforms(uniforms, settings) {
 			0,
 		)
 		uniforms.uSeaFoamLineDash.value[type].set(foam.dashScale, foam.dashAmount)
+		uniforms.uSeaFoamLineFray.value[type].set(foam.fray, foam.frayScale)
 	})
 }

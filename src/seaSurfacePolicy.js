@@ -57,11 +57,15 @@
 // - `crestFoam` picks which foam the crests carry: SEA_CREST_FOAM_STYLES.
 // - Foam lines: the coast's animated contour lines (getSeaRipple()), from
 //   `start` to `full` and from `fadeStart` to `end` units of depth,
-//   `frequency` lines per unit of depth moving at `speed`, sharpened by the
-//   power `sharpness`, `intensity` bright, wobbling by `wobbleAmount` radians
-//   at `wobbleFrequency` per world unit, and broken into dashes by a noise of
-//   `dashScale` per world unit weighted by `dashAmount`. The sea state scales
-//   them by up to ± `stateBoost`.
+//   `frequency` lines per unit of depth moving at `speed`, wobbling by
+//   `wobbleAmount` radians at `wobbleFrequency` per world unit, and broken
+//   into dashes by a noise of `dashScale` per world unit weighted by
+//   `dashAmount`. They are strokes like the crest lines: each covers where a
+//   soft profile, sharpened by the power `sharpness` and scaled by the band,
+//   the dashes, `intensity`, and the sea state (up to ± `stateBoost`), reaches
+//   half, so a higher intensity or a rougher sea draws wider, longer strokes.
+//   A noise of `frayScale` per world unit varies their width and nudges them
+//   sideways by up to `fray` of the half-width, so their edges are ragged.
 // - `foamColor` (sRGB) colors the foam of the coast and the crests;
 //   `debugView` paints the sea with one of SEA_SURFACE_DEBUG_VIEWS.
 
@@ -156,6 +160,8 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			dashScale: 0.071,
 			dashAmount: 2,
 			stateBoost: 0.3,
+			fray: 0.5,
+			frayScale: 0.5,
 		}),
 	}),
 	ocean: Object.freeze({
@@ -208,12 +214,14 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 			frequency: 8,
 			speed: 4,
 			sharpness: 4,
-			intensity: 0.5,
+			intensity: 1,
 			wobbleFrequency: 0.5,
 			wobbleAmount: 1,
 			dashScale: 0.05,
 			dashAmount: 1,
 			stateBoost: 0.3,
+			fray: 0.5,
+			frayScale: 0.35,
 		}),
 	}),
 })

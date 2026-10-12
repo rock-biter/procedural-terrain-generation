@@ -24,6 +24,9 @@ uniform vec4 uSeaFoamLineMotion[SEA_SURFACE_TYPE_COUNT];
 uniform vec4 uSeaFoamLineStyle[SEA_SURFACE_TYPE_COUNT];
 // x: dash noise frequency (per world unit), y: its weight.
 uniform vec2 uSeaFoamLineDash[SEA_SURFACE_TYPE_COUNT];
+// The foam lines' fray, per type, like the crest lines'. x: amount (share of
+// the half-width), y: frequency (per world unit).
+uniform vec2 uSeaFoamLineFray[SEA_SURFACE_TYPE_COUNT];
 // Ripples of the sea's normal map, per type. x: amplitude across the ribs and
 // y: wavelength along them (world units), z: speed (world units per second),
 // w: irregularity (radians of phase noise).
@@ -70,10 +73,29 @@ uniform vec4 uSeaFoamShape;
 // Height range over which the coast and the rocks blend (smooth maximum).
 uniform float uSeaFoamBlend;
 
-// Foam line brightness at sea height `seaHeight`, flat world `xz`, deep ocean
-// share `oceanMask`, and sea state `state`: animated contour lines that run
-// toward the coast within the depth band, wobbling and broken into dashes.
-float getSeaRipple(float seaHeight, vec2 xz, float oceanMask, float state, float pixel) {
+// Share of a pixel `pixel` world units wide, `distance` from a line's
+// center, covered by the line `halfWidth` wide on each side: a box filter,
+// so lines thinner than a pixel fade instead of flickering.
+float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
+	float overlap = min(distance + pixel * 0.5, halfWidth) - max(distance - pixel * 0.5, -halfWidth);
+	return clamp(overlap / max(pixel, 1e-4), 0.0, 1.0);
+}
+
+// Foam line coverage at sea height `seaHeight`, which changes by `heightPixel`
+// across the pixel, flat world `xz`, deep ocean share `oceanMask`, sea state
+// `state`, for a pixel `pixel` world units wide: animated contour lines that
+// run toward the coast within the depth band, wobbling and broken into dashes.
+// The lines are the crest lines' strokes (getSeaCrestLine()) on the former
+// soft profile, pow(sin(phase) * 0.5 + 0.5, sharpness) times the band, the
+// dashes, the intensity, and the sea state boost: each covers where that
+// profile reaches half, so it keeps the former lines' shape and motion,
+// narrows where they faded (the band's edges, the dashes' gaps) and widens
+// where they were brighter. The distance from the line's center is in phase
+// units, like its half-width, box-filtered by the pixel's size in the same
+// units; where the pixel spans the spacing between lines, the coverage turns
+// into its mean. The fray varies the width and nudges the line sideways, as
+// on the crests, so its edges are ragged.
+float getSeaRipple(float seaHeight, float heightPixel, vec2 xz, float oceanMask, float state, float pixel) {
 	vec4 band = mix(uSeaFoamLineBand[0], uSeaFoamLineBand[1], oceanMask);
 	float depth = -seaHeight;
 	float inBand = smoothstep(band.x, band.y, depth) - smoothstep(band.z, band.w, depth);
@@ -81,11 +103,26 @@ float getSeaRipple(float seaHeight, vec2 xz, float oceanMask, float state, float
 	vec4 motion = mix(uSeaFoamLineMotion[0], uSeaFoamLineMotion[1], oceanMask);
 	vec4 style = mix(uSeaFoamLineStyle[0], uSeaFoamLineStyle[1], oceanMask);
 	vec2 dash = mix(uSeaFoamLineDash[0], uSeaFoamLineDash[1], oceanMask);
-	float wobble = (sin(xz.x * motion.z) + sin(xz.y * motion.z)) * motion.w;
-	float ripple = sin(seaHeight * motion.x - uTime * motion.y + wobble) * 0.5 + 0.5;
-	ripple = pow(ripple, style.x) * inBand;
 	float dashes = max(1.0 - dash.y * sampleNoiseTile(xz * dash.x, pixel * dash.x).x, 0.0);
-	return ripple * dashes * style.y * mix(1.0 - style.z, 1.0 + style.z, state);
+	float peak = inBand * dashes * style.y * mix(1.0 - style.z, 1.0 + style.z, state);
+	if (peak <= 0.5) return 0.0;
+	float halfWidth = acos(2.0 * pow(0.5 / peak, 1.0 / style.x) - 1.0);
+	vec2 wobbleAngle = xz * motion.z;
+	float wobble = (sin(wobbleAngle.x) + sin(wobbleAngle.y)) * motion.w;
+	float phase = seaHeight * motion.x - uTime * motion.y + wobble;
+	// The profile peaks where sin(phase) = 1.
+	float distance = mod(phase - 1.5707963 + 3.1415927, 6.2831853) - 3.1415927;
+	float phasePixel = abs(motion.x) * heightPixel + length(cos(wobbleAngle)) * abs(motion.z * motion.w) * pixel;
+	vec2 fray = mix(uSeaFoamLineFray[0], uSeaFoamLineFray[1], oceanMask);
+	float frayDetail = fray.x * (1.0 - smoothstep(0.15, 0.35, pixel * fray.y));
+	if (frayDetail > 0.0) {
+		// Two fields of one sample: the width and the sideways nudge.
+		vec4 frayNoise = sampleNoiseTile(xz * fray.y + uTime * 0.1 + 57.0, pixel * fray.y);
+		distance += frayDetail * 0.5 * halfWidth * frayNoise.x;
+		halfWidth *= max(1.0 + frayDetail * frayNoise.w, 0.0);
+	}
+	float coverage = getSeaLineCoverage(abs(distance), halfWidth, phasePixel);
+	return mix(coverage, min(halfWidth / 3.1415927, 1.0), smoothstep(3.1415927, 6.2831853, phasePixel));
 }
 
 // Strength of the sea's normal map in sea state `state`, never below the
@@ -106,14 +143,6 @@ vec2 getSeaRippleWarp(vec2 uv, float noise, float oceanMask, float strength) {
 	vec2 along = vec2(-across.y, across.x);
 	float phase = 6.2831853 / ripples.y * (dot(uv, along) - ripples.z * uTime) + ripples.w * noise;
 	return across * (ripples.x * strength * sin(phase));
-}
-
-// Share of a pixel `pixel` world units wide, `distance` from a line's
-// center, covered by the line `halfWidth` wide on each side: a box filter,
-// so lines thinner than a pixel fade instead of flickering.
-float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
-	float overlap = min(distance + pixel * 0.5, halfWidth) - max(distance - pixel * 0.5, -halfWidth);
-	return clamp(overlap / max(pixel, 1e-4), 0.0, 1.0);
 }
 
 // Foam line coverage along the crests of the waves `waves` at flat world `xz`,

@@ -82,10 +82,15 @@ test('the terrain patches fit the standard material', () => {
 	const terrain = patch(chunk.material, 'physical')
 	assert.match(terrain.fragmentShader, /getSceneryShadow\(vShadowPosition, 0\.0\)/)
 	// The coast and the sea rocks share one sea height for the foam lines,
-	// whose settings follow the sea type and the sea state.
+	// whose settings follow the sea type and the sea state; its change across
+	// the pixel antialiases their strokes.
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
+		/seaFoamHeight = getSeaFoamHeight\(wPosition\.y, wPosition\.xz\);/,
+	)
+	assert.match(
+		terrain.fragmentShader,
+		/getSeaRipple\(seaFoamHeight, seaFoamHeightPixel, wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
 	)
 	// The sea's ribs drift across themselves over time.
 	assert.match(

@@ -167,6 +167,9 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 			crests.flickerSpeed,
 		])
 		assert.deepEqual(uniforms.uSeaCrestFray.value[type].toArray(), [crests.fray, crests.frayScale])
+		// The foam lines fray like the crest lines, with their own settings.
+		const { foam } = settings[key]
+		assert.deepEqual(uniforms.uSeaFoamLineFray.value[type].toArray(), [foam.fray, foam.frayScale])
 	})
 
 	settings.vertex.fadeStart = 300

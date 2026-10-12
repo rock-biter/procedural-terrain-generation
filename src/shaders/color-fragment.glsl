@@ -165,10 +165,13 @@ if (wPosition.y < 0.0) {
 vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
 
 // Foam lines (sea-ripple-pars-fragment.glsl) on one sea height: the raw
-// height fused with the sea rocks' virtual height from the foam map. The ice
-// stills them.
-float onda = getSeaRipple(getSeaFoamHeight(wPosition.y, wPosition.xz), wPosition.xz, seaOceanMask, seaState, groundPixel) * (1.0 - seaIce);
-diffuseColor.rgb = mix(uSeaFoamColor * onda, diffuseColor.rgb, 1. - onda);
+// height fused with the sea rocks' virtual height from the foam map, whose
+// change across the pixel is taken here, in uniform control flow. The ice
+// stills them; they mix toward the foam color like the crest lines.
+float seaFoamHeight = getSeaFoamHeight(wPosition.y, wPosition.xz);
+float seaFoamHeightPixel = 0.5 * (abs(dFdx(seaFoamHeight)) + abs(dFdy(seaFoamHeight)));
+float onda = getSeaRipple(seaFoamHeight, seaFoamHeightPixel, wPosition.xz, seaOceanMask, seaState, groundPixel) * (1.0 - seaIce);
+diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, onda);
 
 int seaDebugView = int(uSeaSurface.w + 0.5);
 if (seaDebugView > 0 && wPosition.y < 0.0) {
