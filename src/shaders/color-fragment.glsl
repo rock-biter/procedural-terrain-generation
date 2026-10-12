@@ -172,28 +172,39 @@ if (seaIce > 0.5) terrainBand = TERRAIN_BAND_SNOW;
 // (normal-fragment-map.glsl), the floes' too where the waves reach under them
 // (getSeaIceStill()), and draw foam lines along their highest crests, a few
 // even in calm water, never on the ice. The deep ocean's settings take over
-// inside its border.
+// inside its border. Every foam thins away with the distance and is skipped
+// once gone (getSeaFoamFade()); the waves still shade the sea to the horizon.
 float seaState = vSeaState;
 float seaOceanMask = getSeaOceanMask(oceanValue);
 SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, vec4(0.0), 0.0, 0.0);
 if (wPosition.y < 0.0) {
 	float seaStill = iceValue > 0.0 ? getSeaIceStill(wPosition.y, iceValue) : 0.0;
 	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel, vSeaWaveNoise);
-	int crestFoamStyle = int(uSeaCrestFoam + 0.5);
-	float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel) : 0.0;
-	if (crestFoamStyle > 0) crestFoam = max(crestFoam, getSeaBreakingFoam(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel));
-	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam * (1.0 - seaIce));
+	// Taken where it is used, from the distance that stays live anyway, so no
+	// extra value is held through the waves.
+	vec2 seaFoamFade = getSeaFoamFade(distanceFromCamera);
+	if (seaFoamFade.x > 0.0) {
+		int crestFoamStyle = int(uSeaCrestFoam + 0.5);
+		float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel, seaFoamFade) : 0.0;
+		if (crestFoamStyle > 0) crestFoam = max(crestFoam, getSeaBreakingFoam(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel, seaFoamFade.x));
+		diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam * (1.0 - seaIce));
+	}
 }
 vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
 
 // Foam lines (sea-ripple-pars-fragment.glsl) on one sea height: the raw
 // height fused with the sea rocks' virtual height from the foam map, whose
 // change across the pixel is taken here, in uniform control flow. The ice
-// stills them; they mix toward the foam color like the crest lines.
-float seaFoamHeight = getSeaFoamHeight(wPosition.y, wPosition.xz);
+// stills them; they mix toward the foam color like the crest lines. Beyond
+// the foam's fade neither the map nor the lines are read.
+vec2 seaFoamFade = getSeaFoamFade(distanceFromCamera);
+bool seaFoamNear = seaFoamFade.x > 0.0;
+float seaFoamHeight = seaFoamNear ? getSeaFoamHeight(wPosition.y, wPosition.xz) : wPosition.y;
 float seaFoamHeightPixel = 0.5 * (abs(dFdx(seaFoamHeight)) + abs(dFdy(seaFoamHeight)));
-float onda = getSeaRipple(seaFoamHeight, seaFoamHeightPixel, wPosition.xz, seaOceanMask, seaState, groundPixel) * (1.0 - seaIce);
-diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, onda);
+if (seaFoamNear) {
+	float onda = getSeaRipple(seaFoamHeight, seaFoamHeightPixel, wPosition.xz, seaOceanMask, seaState, groundPixel, seaFoamFade) * (1.0 - seaIce);
+	diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, onda);
+}
 
 int seaDebugView = int(uSeaSurface.w + 0.5);
 if (seaDebugView > 0 && wPosition.y < 0.0) {

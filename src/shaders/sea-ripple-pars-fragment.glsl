@@ -15,6 +15,12 @@ varying vec2 vSeaWaveNoise;
 
 // Linear color of the foam lines of the coast and the crests.
 uniform vec3 uSeaFoamColor;
+// The foam's fade with the distance, as the ink lines' (getTerrainLineFade()):
+// x and y, the distances from the airplane (uCamera) where it starts thinning
+// and where it is gone with the airplane at sea level; z, the width of the
+// lines' edges in pixels there (one pixel near); w, how far both move out per
+// unit of the airplane's altitude.
+uniform vec4 uSeaFoamFade;
 // Foam lines, per type. Band: depths (positive) where the lines start, are
 // full, start fading, and end.
 uniform vec4 uSeaFoamLineBand[SEA_SURFACE_TYPE_COUNT];
@@ -74,6 +80,17 @@ uniform vec4 uSeaFoamShape;
 // Height range over which the coast and the rocks blend (smooth maximum).
 uniform float uSeaFoamBlend;
 
+// The share of its width the foam keeps at `cameraDistance` (x, 1 near, 0
+// far, where the foam is skipped) and the width of its lines' edges in pixels
+// (y): the lines thin away instead of aliasing into a haze far out. The
+// higher the airplane, the farther the fade: the sea is seen less edge-on
+// and the curved horizon lies farther away.
+vec2 getSeaFoamFade(float cameraDistance) {
+	float reach = max(uCamera.y, 0.0) * uSeaFoamFade.w;
+	float fade = 1.0 - smoothstep(uSeaFoamFade.x + reach, uSeaFoamFade.y + reach, cameraDistance);
+	return vec2(fade, mix(uSeaFoamFade.z, 1.0, fade));
+}
+
 // Share of a pixel `pixel` world units wide, `distance` from a line's
 // center, covered by the line `halfWidth` wide on each side: a box filter,
 // so lines thinner than a pixel fade instead of flickering.
@@ -84,8 +101,9 @@ float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
 
 // Foam line coverage at sea height `seaHeight`, which changes by `heightPixel`
 // across the pixel, flat world `xz`, deep ocean share `oceanMask`, sea state
-// `state`, for a pixel `pixel` world units wide: animated contour lines that
-// run toward the coast within the depth band, wobbling and broken into dashes.
+// `state`, for a pixel `pixel` world units wide, `fade` the distance fade
+// (getSeaFoamFade()): animated contour lines that run toward the coast within
+// the depth band, wobbling and broken into dashes.
 // The lines are the crest lines' strokes (getSeaCrestLine()) on the former
 // soft profile, pow(sin(phase) * 0.5 + 0.5, sharpness) times the band, the
 // dashes, the intensity, and the sea state boost: each covers where that
@@ -95,8 +113,9 @@ float getSeaLineCoverage(float distance, float halfWidth, float pixel) {
 // units, like its half-width, box-filtered by the pixel's size in the same
 // units; where the pixel spans the spacing between lines, the coverage turns
 // into its mean. The fray varies the width and nudges the line sideways, as
-// on the crests, so its edges are ragged.
-float getSeaRipple(float seaHeight, float heightPixel, vec2 xz, float oceanMask, float state, float pixel) {
+// on the crests, so its edges are ragged. With the distance the line keeps
+// fade.x of its width and its edges widen to fade.y pixels.
+float getSeaRipple(float seaHeight, float heightPixel, vec2 xz, float oceanMask, float state, float pixel, vec2 fade) {
 	vec4 band = mix(uSeaFoamLineBand[0], uSeaFoamLineBand[1], oceanMask);
 	float depth = -seaHeight;
 	float inBand = smoothstep(band.x, band.y, depth) - smoothstep(band.z, band.w, depth);
@@ -107,13 +126,13 @@ float getSeaRipple(float seaHeight, float heightPixel, vec2 xz, float oceanMask,
 	float dashes = max(1.0 - dash.y * sampleNoiseTile(xz * dash.x, pixel * dash.x).x, 0.0);
 	float peak = inBand * dashes * style.y * mix(1.0 - style.z, 1.0 + style.z, state);
 	if (peak <= 0.5) return 0.0;
-	float halfWidth = acos(2.0 * pow(0.5 / peak, 1.0 / style.x) - 1.0);
+	float halfWidth = acos(2.0 * pow(0.5 / peak, 1.0 / style.x) - 1.0) * fade.x;
 	vec2 wobbleAngle = xz * motion.z;
 	float wobble = (sin(wobbleAngle.x) + sin(wobbleAngle.y)) * motion.w;
 	float phase = seaHeight * motion.x - uTime * motion.y + wobble;
 	// The profile peaks where sin(phase) = 1.
 	float distance = mod(phase - 1.5707963 + 3.1415927, 6.2831853) - 3.1415927;
-	float phasePixel = abs(motion.x) * heightPixel + length(cos(wobbleAngle)) * abs(motion.z * motion.w) * pixel;
+	float phasePixel = (abs(motion.x) * heightPixel + length(cos(wobbleAngle)) * abs(motion.z * motion.w) * pixel) * fade.y;
 	vec2 fray = mix(uSeaFoamLineFray[0], uSeaFoamLineFray[1], oceanMask);
 	float frayDetail = fray.x * (1.0 - smoothstep(0.15, 0.35, pixel * fray.y));
 	if (frayDetail > 0.0) {
@@ -168,8 +187,9 @@ vec2 getSeaRippleWarp(vec2 uv, float noise, float oceanMask, float strength) {
 // shape, hides part of the lines, which narrow where it closes, so strokes
 // appear, grow, shrink, and vanish. The fray varies the width and nudges the
 // line sideways, so its edges are ragged; it fades out before it gets finer
-// than a few pixels.
-float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, float pixel) {
+// than a few pixels. With the distance (`fade`, getSeaFoamFade()) the line
+// keeps fade.x of its width and its edges widen to fade.y pixels.
+float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, float pixel, vec2 fade) {
 	if (waves.ridge.w <= 0.0) return 0.0;
 	vec4 lines = mix(uSeaCrestLines[0], uSeaCrestLines[1], oceanMask);
 	float presence = mix(mix(uSeaMinimum[0].x, uSeaMinimum[1].x, oceanMask), 1.0, state);
@@ -184,9 +204,11 @@ float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, flo
 	float acrossLength = length(across);
 	across = acrossLength > 1e-8 ? across / acrossLength : (curvature.x < curvature.z ? vec2(1.0, 0.0) : vec2(0.0, 1.0));
 	float distance = dot(waves.ridge.xy, across) / -bend;
-	float halfWidth = lines.z * sqrt(crest);
+	float width = lines.z * fade.x;
+	float window = pixel * fade.y;
+	float halfWidth = width * sqrt(crest);
 	vec2 fray = mix(uSeaCrestFray[0], uSeaCrestFray[1], oceanMask);
-	if (abs(distance) > halfWidth * (1.0 + 1.5 * fray.x) + pixel) return 0.0;
+	if (abs(distance) > halfWidth * (1.0 + 1.5 * fray.x) + window) return 0.0;
 	// The frame riding the longest wave: rest position minus its travel.
 	vec4 swell = mix(uSeaWaves[0], uSeaWaves[SEA_SURFACE_WAVE_COUNT], oceanMask);
 	vec2 riding = xz - swell.xy * (swell.w / max(swell.z, 1e-4) * uTime);
@@ -199,16 +221,16 @@ float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, flo
 	float cut = mix(-1.0, 1.0, flicker.x);
 	float alive = smoothstep(cut - 0.2, cut + 0.2, noise);
 	if (alive <= 0.0) return 0.0;
-	halfWidth = lines.z * sqrt(crest * alive);
+	halfWidth = width * sqrt(crest * alive);
 	float frayDetail = fray.x * (1.0 - smoothstep(0.15, 0.35, pixel * fray.y));
 	if (frayDetail > 0.0) {
 		vec2 f = riding * fray.y + uTime * 0.1;
 		// Two fields of one sample: the width and the sideways nudge.
 		vec4 frayNoise = sampleNoiseTile(f + 57.0, pixel * fray.y);
 		halfWidth *= max(1.0 + frayDetail * frayNoise.w, 0.0);
-		distance += frayDetail * 0.5 * lines.z * frayNoise.x;
+		distance += frayDetail * 0.5 * width * frayNoise.x;
 	}
-	float coverage = getSeaLineCoverage(abs(distance), halfWidth, pixel);
+	float coverage = getSeaLineCoverage(abs(distance), halfWidth, window);
 	return coverage * lines.w * min(waves.amount * 2.0, 1.0);
 }
 
@@ -224,8 +246,8 @@ float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, flo
 // lace is drawn on the rest position, so it rides the water's orbits, and its
 // octaves drift apart, so it changes shape; far away, where it would alias,
 // the foam turns into its mean coverage. The coast and the ice calm it with
-// the waves.
-float getSeaBreakingFoam(SeaWaves waves, vec2 xz, float oceanMask, float state, float pixel) {
+// the waves, and the distance fades it by `fade` (getSeaFoamFade().x).
+float getSeaBreakingFoam(SeaWaves waves, vec2 xz, float oceanMask, float state, float pixel, float fade) {
 	if (waves.peak <= 0.0) return 0.0;
 	vec4 breaking = mix(uSeaBreaking[0], uSeaBreaking[1], oceanMask);
 	float presence = mix(mix(uSeaMinimum[0].z, uSeaMinimum[1].z, oceanMask), 1.0, state);
@@ -242,7 +264,7 @@ float getSeaBreakingFoam(SeaWaves waves, vec2 xz, float oceanMask, float state, 
 		float lace = 0.5 + 0.5 * (snoise(p + uTime * vec2(0.05, 0.02)) * 0.65 + snoise(p * 2.7 + uTime * vec2(-0.04, 0.07) + 11.0) * 0.35);
 		coverage = mix(foam, smoothstep(0.92 - foam, 1.08 - foam, lace), detail);
 	}
-	return coverage * breaking.z;
+	return coverage * breaking.z * fade;
 }
 
 // The sea painted by the debug view `view` (SEA_SURFACE_DEBUG_VIEWS in

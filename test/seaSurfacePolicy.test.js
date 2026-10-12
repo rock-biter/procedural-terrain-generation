@@ -218,4 +218,14 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 	settings.rippleDrift = -2
 	updateSeaSurfaceUniforms(uniforms, settings)
 	assert.equal(uniforms.uSeaRippleDrift.value, -2)
+
+	// The foam's distance fade, kept ordered for smoothstep() with the blur at
+	// one pixel or more, as the ink lines'.
+	const { start, end, blur, altitudeGain } = SEA_SURFACE_DEFAULTS.foamFade
+	assert.deepEqual(uniforms.uSeaFoamFade.value.toArray(), [start, end, blur, altitudeGain])
+	// It moves out as the airplane climbs, never in.
+	assert.ok(altitudeGain > 0)
+	Object.assign(settings.foamFade, { start: 700, end: 600, blur: 0.5, altitudeGain: -1 })
+	updateSeaSurfaceUniforms(uniforms, settings)
+	assert.deepEqual(uniforms.uSeaFoamFade.value.toArray(), [700, 701, 1, 0])
 })

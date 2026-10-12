@@ -1288,6 +1288,20 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.name('Still beyond (units)')
 			.onChange(apply)
 
+		// Every foam thins away with the distance, as the terrain's ink lines,
+		// farther as the airplane climbs.
+		const foamFadeFolder = folder.addFolder('Foam distance')
+		foamFadeFolder.add(settings.foamFade, 'start', 0, 1500, 10).name('Thin from').onChange(apply)
+		foamFadeFolder.add(settings.foamFade, 'end', 0, 2000, 10).name('Gone at').onChange(apply)
+		foamFadeFolder
+			.add(settings.foamFade, 'blur', 1, 8, 0.1)
+			.name('Far edge blur (px)')
+			.onChange(apply)
+		foamFadeFolder
+			.add(settings.foamFade, 'altitudeGain', 0, 10, 0.1)
+			.name('Farther per unit of altitude')
+			.onChange(apply)
+
 		addSeaTypeControls(folder.addFolder('Sea'), settings.sea, apply)
 		addSeaTypeControls(folder.addFolder('Deep ocean'), settings.ocean, apply)
 

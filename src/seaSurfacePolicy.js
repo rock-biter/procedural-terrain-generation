@@ -81,6 +81,12 @@
 //   sideways by up to `fray` of the half-width, so their edges are ragged.
 // - `foamColor` (sRGB) colors the foam of the coast and the crests;
 //   `debugView` paints the sea with one of SEA_SURFACE_DEBUG_VIEWS.
+// - `foamFade`: every foam (the crest lines, the breaking foam, the coast's
+//   foam lines) keeps its width up to `start` world units from the airplane
+//   and thins away by `end`, as the terrain's ink lines do, while the lines'
+//   edges soften from one pixel to `blur` pixels; beyond `end` the shader
+//   skips the foam altogether. Both distances hold with the airplane at sea
+//   level and move out by `altitudeGain` units per unit of its altitude.
 
 export const SEA_TYPES = Object.freeze(['sea', 'ocean'])
 export const SEA_WAVE_COUNT = 4
@@ -114,6 +120,7 @@ export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	vertex: Object.freeze({ fadeStart: 180, fadeEnd: 360 }),
 	oceanBlend: 0.05,
 	foamColor: '#ffffff',
+	foamFade: Object.freeze({ start: 250, end: 450, blur: 3, altitudeGain: 2.5 }),
 	crestFoam: SEA_CREST_FOAM_STYLES.lines,
 	debugView: SEA_SURFACE_DEBUG_VIEWS.none,
 	rippleDrift: -2.5,
@@ -255,6 +262,7 @@ export function createSeaSurfaceSettings(defaults = SEA_SURFACE_DEFAULTS) {
 		vertex: { ...defaults.vertex },
 		oceanBlend: defaults.oceanBlend,
 		foamColor: defaults.foamColor,
+		foamFade: { ...defaults.foamFade },
 		crestFoam: defaults.crestFoam,
 		debugView: defaults.debugView,
 		rippleDrift: defaults.rippleDrift,
@@ -270,6 +278,7 @@ export function copySeaSurfaceSettings(source, target) {
 	Object.assign(target.vertex, source.vertex)
 	target.oceanBlend = source.oceanBlend
 	target.foamColor = source.foamColor
+	Object.assign(target.foamFade, source.foamFade)
 	target.crestFoam = source.crestFoam
 	target.debugView = source.debugView
 	target.rippleDrift = source.rippleDrift

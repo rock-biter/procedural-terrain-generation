@@ -83,14 +83,18 @@ test('the terrain patches fit the standard material', () => {
 	assert.match(terrain.fragmentShader, /getSceneryShadow\(vShadowPosition, 0\.0\)/)
 	// The coast and the sea rocks share one sea height for the foam lines,
 	// whose settings follow the sea type and the sea state; its change across
-	// the pixel antialiases their strokes.
+	// the pixel antialiases their strokes. Every foam thins away with the
+	// distance, and beyond its fade neither the foam map nor the lines are read.
+	assert.match(terrain.fragmentShader, /vec2 seaFoamFade = getSeaFoamFade\(distanceFromCamera\);/)
+	// The higher the airplane, the farther the foam reaches.
+	assert.match(terrain.fragmentShader, /float reach = max\(uCamera\.y, 0\.0\) \* uSeaFoamFade\.w;/)
 	assert.match(
 		terrain.fragmentShader,
-		/seaFoamHeight = getSeaFoamHeight\(wPosition\.y, wPosition\.xz\);/,
+		/seaFoamHeight = seaFoamNear \? getSeaFoamHeight\(wPosition\.y, wPosition\.xz\) : wPosition\.y;/,
 	)
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaRipple\(seaFoamHeight, seaFoamHeightPixel, wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
+		/if \(seaFoamNear\) \{\s*float onda = getSeaRipple\(seaFoamHeight, seaFoamHeightPixel, wPosition\.xz, seaOceanMask, seaState, groundPixel, seaFoamFade\)/,
 	)
 	// The sea's ribs drift across themselves over time.
 	assert.match(
@@ -115,15 +119,16 @@ test('the terrain patches fit the standard material', () => {
 	// The floes ride the waves where they reach under them, without foam.
 	assert.match(terrain.fragmentShader, /uSeaFoamColor, crestFoam \* \(1\.0 - seaIce\)\)/)
 	assert.match(terrain.fragmentShader, /if \(seaWaves\.amount > 0\.0\) \{\s*vec3 waveN/)
-	// Foam lines ride the waves' crests.
+	// Foam lines ride the waves' crests, only within the foam's fade.
+	assert.match(terrain.fragmentShader, /if \(seaFoamFade\.x > 0\.0\) \{\s*int crestFoamStyle/)
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaCrestLine\(seaWaves, wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
+		/getSeaCrestLine\(seaWaves, wPosition\.xz, seaOceanMask, seaState, groundPixel, seaFoamFade\)/,
 	)
 	// Or breaking foam trailing behind them, from the squeeze of the recent past.
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaBreakingFoam\(seaWaves, wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
+		/getSeaBreakingFoam\(seaWaves, wPosition\.xz, seaOceanMask, seaState, groundPixel, seaFoamFade\.x\)/,
 	)
 	assert.match(terrain.fragmentShader, /waves\.squeezeLag \+= /)
 	assert.match(
