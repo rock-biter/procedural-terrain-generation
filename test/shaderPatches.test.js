@@ -85,7 +85,7 @@ test('the terrain patches fit the standard material', () => {
 	// whose settings follow the sea type and the sea state.
 	assert.match(
 		terrain.fragmentShader,
-		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz, seaOceanMask, seaState\)/,
+		/getSeaRipple\(getSeaFoamHeight\(wPosition\.y, wPosition\.xz\), wPosition\.xz, seaOceanMask, seaState, groundPixel\)/,
 	)
 	// The waves move the sea's vertices, tilt its normals, and stay still
 	// under the frozen sea in both stages.
@@ -114,6 +114,32 @@ test('the terrain patches fit the standard material', () => {
 	assert.match(terrain.vertexShader, /vIceValue = getIceValue\(/)
 	assert.match(terrain.vertexShader, /getSeaIceStill\(height, vIceValue\)/)
 	assert.match(terrain.fragmentShader, /float iceValue = vIceValue;/)
+	// So is the climate, skipped where the ice or the deep ocean covers every
+	// triangle around the vertex; the fragment reads it outside them.
+	assert.match(
+		terrain.vertexShader,
+		/vClimateNoise = getClimateNoise\(wPosition\.xz \+ uBiomeOffset\.xy\);/,
+	)
+	assert.match(terrain.vertexShader, /vOceanValue <= uBiomeOcean\.z \* uBiomeClimate\.w/)
+	assert.match(
+		terrain.fragmentShader,
+		/float climateNoise = iceValue < 0\.0 && !inOcean \? vClimateNoise : 0\.0;/,
+	)
+	// The separators take the fields' gradients from their screen derivatives,
+	// with the exact fields' differences only where those degenerate.
+	assert.match(terrain.fragmentShader, /dFdx\(vClimateNoise\)/)
+	assert.match(terrain.fragmentShader, /dFdx\(vIceValue\)/)
+	assert.match(
+		terrain.fragmentShader,
+		/if \(!getFieldGradient\(ringDriven \? iceScreen : climateScreen, groundDx, groundDy, gradient\)\)/,
+	)
+	// The land's purely visual noise samples the baked tile, with the pixel's
+	// ground size for its mip level.
+	assert.match(terrain.fragmentShader, /uniform sampler2D uNoiseTexture;/)
+	assert.match(terrain.fragmentShader, /getTerrainColorShade\(biomeXZ, groundPixel\)/)
+	assert.match(terrain.fragmentShader, /biomeVariation = sampleNoiseTile\(biomeXZ \* 0\.001,/)
+	assert.doesNotMatch(terrain.fragmentShader, /snoise\(p \+ 71\.3/)
+	assert.ok('NOISE_TILE_UV_SCALE' in chunk.material.defines)
 	// Without the low-sun settings the march is never compiled.
 	assert.ok(!('SUN_OCCLUSION_STEPS' in chunk.material.defines))
 })

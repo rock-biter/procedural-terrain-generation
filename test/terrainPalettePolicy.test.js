@@ -18,6 +18,7 @@ import {
 	TERRAIN_SEA_COLORS,
 } from '../src/terrainPalettePolicy.js'
 import {
+	BIOME_VERTEX_SKIP_EDGE,
 	createBiomeOffset,
 	createBiomeSettings,
 	getBiomeGradientBounds,
@@ -154,7 +155,7 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 		0.5,
 		biomes.desertBias,
 		bounds.climate,
-		0,
+		BIOME_VERTEX_SKIP_EDGE,
 	])
 	assert.deepEqual(uniforms.uBiomeIce.value.toArray(), [
 		0.25,
@@ -162,7 +163,12 @@ test('the uniforms mirror the palette, biome, and sea ice settings', () => {
 		biomes.iceRing,
 		bounds.ice,
 	])
-	assert.deepEqual(uniforms.uBiomeOcean.value.toArray(), [2, biomes.oceanThreshold, 0, 0])
+	assert.deepEqual(uniforms.uBiomeOcean.value.toArray(), [
+		2,
+		biomes.oceanThreshold,
+		bounds.ocean,
+		0,
+	])
 
 	const seaIce = { ...createSeaIceSettings(), shelf: 3, cellSize: 9 }
 	updateSeaIceUniforms(uniforms, seaIce)

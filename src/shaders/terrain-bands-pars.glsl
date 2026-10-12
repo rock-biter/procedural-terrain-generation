@@ -3,10 +3,11 @@
 
 // The biome fields.
 #include ./biome-value.glsl
-// The ice and deep ocean fields, interpolated from the vertices
-// (project-vertex.glsl).
+// The ice and deep ocean fields and the climate (before the forest ring),
+// interpolated from the vertices (project-vertex.glsl).
 varying float vIceValue;
 varying float vOceanValue;
+varying float vClimateNoise;
 
 // Land band colors per biome (src/terrainPalettePolicy.js, written by
 // updateTerrainPaletteUniforms() in src/sharedUniforms.js), linear, at
@@ -32,15 +33,42 @@ vec3 getTerrainColor(int biome, int band, float variation) {
 	return mix(uTerrainColors[index], drift.rgb, variation * drift.a);
 }
 
-// Half-width in world units of the black line along biome borders, and the
-// world steps of the forward differences that measure the fields' gradients
+// Half-width in world units of the black line along biome borders, the
+// smallest sine between the pixel's ground axes that getFieldGradient()
+// solves, and the world steps of the fallback differences of the exact fields
 // (the ice field is broader, so its step is longer).
 #define BIOME_LINE_HALF_WIDTH 0.6
+#define BIOME_GRADIENT_MIN_SINE 0.02
 #define BIOME_CLIMATE_GRADIENT_STEP 0.5
 #define BIOME_ICE_GRADIENT_STEP 4.0
 
-// World-space gradient of the ice field, by central differences: the
-// interpolated vIceValue would not do for a difference across a few units.
+// World-space gradient of a field interpolated across the triangle (the
+// vertex fields), from its screen derivatives `screen` (dFdx, dFdy) and the
+// ground's, `groundDx` and `groundDy`: both are affine on the triangle, so
+// screen = (groundDx · g, groundDy · g) holds exactly for the interpolated
+// field, the one the separators threshold, with no noise sample. False where
+// the pixel's ground axes are nearly parallel (a cliff seen head-on), whose
+// solution the derivatives' precision would spoil; the callers then take the
+// exact field's differences below.
+bool getFieldGradient(vec2 screen, vec2 groundDx, vec2 groundDy, out vec2 gradient) {
+	float determinant = groundDx.x * groundDy.y - groundDx.y * groundDy.x;
+	bool solvable = abs(determinant) > BIOME_GRADIENT_MIN_SINE * length(groundDx) * length(groundDy);
+	gradient = vec2(
+		screen.x * groundDy.y - screen.y * groundDx.y,
+		screen.y * groundDx.x - screen.x * groundDy.x
+	) / (solvable ? determinant : 1.0);
+	return solvable;
+}
+
+// Fallback world-space gradients of the exact fields, by differences.
+vec2 getClimateGradient(vec2 biomeXZ) {
+	float climate = getClimateNoise(biomeXZ);
+	return (vec2(
+		getClimateNoise(biomeXZ + vec2(BIOME_CLIMATE_GRADIENT_STEP, 0.0)),
+		getClimateNoise(biomeXZ + vec2(0.0, BIOME_CLIMATE_GRADIENT_STEP))
+	) - climate) / BIOME_CLIMATE_GRADIENT_STEP;
+}
+
 vec2 getIceGradient(vec2 biomeXZ) {
 	vec2 dx = vec2(BIOME_ICE_GRADIENT_STEP, 0.0);
 	vec2 dz = vec2(0.0, BIOME_ICE_GRADIENT_STEP);

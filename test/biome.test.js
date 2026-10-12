@@ -9,13 +9,17 @@ import {
 	getBiome,
 	getBiomeFields,
 	getBiomeGradientBounds,
+	BIOME_VERTEX_SKIP_EDGE,
 	getClimateNoise,
 	getIceValue,
+	getOceanValue,
 	ICE_BORDER_MARGIN,
 	isNearBiomeBorder,
 	OCEAN_BORDER_MARGIN,
 } from '../src/biome.js'
 import { snoise } from '../src/noise.js'
+import { getChunkSegments } from '../src/chunkGeometry.js'
+import { CHUNK_STREAMING, getChunkLOD } from '../src/chunkPolicy.js'
 
 const settings = BIOME_DEFAULTS
 
@@ -216,4 +220,38 @@ test('settings are mutable copies of the defaults', () => {
 	assert.deepEqual(copy, BIOME_DEFAULTS)
 	copy.size = 3
 	assert.notEqual(BIOME_DEFAULTS.size, 3)
+})
+
+test('the deep ocean gradient bound holds where the field is exact', () => {
+	const bounds = getBiomeGradientBounds(settings)
+	assert.ok(bounds.ocean >= bounds.ice)
+	const offset = createBiomeOffset('gradient')
+	const step = 0.5
+	let checked = 0
+	for (let index = 0; index < 20000; index++) {
+		const x = ((index * 7919) % 200000) - 100000
+		const z = ((index * 104729) % 200000) - 100000
+		const ocean = getOceanValue(x, z, offset, settings)
+		// Far from the deep ocean the CPU skips the detail layer.
+		if (ocean < -0.3) continue
+		const slope =
+			Math.hypot(
+				getOceanValue(x + step, z, offset, settings) - ocean,
+				getOceanValue(x, z + step, offset, settings) - ocean,
+			) / step
+		assert.ok(slope < bounds.ocean, `ocean slope ${slope}`)
+		checked++
+	}
+	assert.ok(checked > 100)
+})
+
+test('the climate skip edge covers the longest terrain triangle', () => {
+	// The coarsest grid of either device, from the farthest streamed LOD.
+	for (const [streaming, density] of [
+		[CHUNK_STREAMING.desktop, 2],
+		[CHUNK_STREAMING.mobile, 4],
+	]) {
+		const segments = getChunkSegments(256, getChunkLOD(streaming.maxDistance), density)
+		assert.ok((256 / segments) * Math.SQRT2 <= BIOME_VERTEX_SKIP_EDGE)
+	}
 })

@@ -194,10 +194,19 @@ function getLayerSlope(layers) {
 }
 
 // Upper bounds of the fields' gradients per world unit: `climate` for the
-// effective climate (which follows the ice field along the ring) and `ice`.
-// At size 1 the climate bound is the former constant, 0.014.
+// effective climate (which follows the ice field along the ring), `ice`, and
+// `ocean` for the effective deep ocean field (cut by the ice). At size 1 the
+// climate bound is the former constant, 0.014.
 export function getBiomeGradientBounds(settings) {
 	const ice = (BIOME_GRADIENT_SAFETY * getLayerSlope(BIOME_ICE_LAYERS)) / settings.iceSize
 	const climate = (BIOME_GRADIENT_SAFETY * getLayerSlope(BIOME_CLIMATE_LAYERS)) / settings.size
-	return { climate: Math.max(climate, ice), ice }
+	const ocean = (BIOME_GRADIENT_SAFETY * getLayerSlope(BIOME_OCEAN_LAYERS)) / settings.oceanSize
+	return { climate: Math.max(climate, ice), ice, ocean: Math.max(ocean, ice) }
 }
+
+// Longest edge of a terrain triangle, in world units: the diagonal of the
+// coarsest grid (32 units on desktop LOD 4 and mobile LOD 3), with margin. A
+// vertex this many slope bounds inside the ice or the deep ocean shares no
+// triangle with a pixel outside them, so the terrain skips its climate there
+// (project-vertex.glsl).
+export const BIOME_VERTEX_SKIP_EDGE = 46

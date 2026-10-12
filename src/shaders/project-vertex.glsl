@@ -25,6 +25,18 @@ vIceValue = getIceValue(wPosition.xz + uBiomeOffset.xy);
 // The deep ocean field, as broad: the fragment reads it for the islets'
 // biome and the deep ocean's sea settings.
 vOceanValue = getOceanValue(wPosition.xz + uBiomeOffset.xy, vIceValue);
+// The climate, which splits the forest from the desert: its finest layer is
+// about 125 units wide, so the vertices of every LOD that carries scenery
+// (8 units apart at most) interpolate its border within a few units. The
+// fragment never reads it inside the ice or the deep ocean: a vertex deeper
+// inside either than its slope bound times the longest triangle edge
+// (uBiomeClimate.w) shares no triangle with a pixel outside, so it skips it.
+// An if, not a conditional expression, which compilers may evaluate on both
+// sides.
+vClimateNoise = 0.0;
+if (vIceValue <= uBiomeIce.w * uBiomeClimate.w && vOceanValue <= uBiomeOcean.z * uBiomeClimate.w) {
+	vClimateNoise = getClimateNoise(wPosition.xz + uBiomeOffset.xy);
+}
 // The sea state and the ripples' phase noise, as broad
 // (sea-surface-pars.glsl); land needs no ripples.
 vSeaState = getSeaState(wPosition.xz);
