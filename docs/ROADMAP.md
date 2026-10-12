@@ -273,6 +273,8 @@ Feature cost, 2026-10-12: the antialiased and distance-thinned terrain ink lines
 
 Feature cost, 2026-10-12: the sea waves' irregularity ([Rendering](RENDERING.md#sea-surface)) at `2400 × 1100` on the default query (two or three rounds each; a build against itself measured `+1.3%`). The terrain's vertex shader weighs on this frame: two [noise tile](RENDERING.md#noise-tile) reads per sea vertex cost `+19%` (`+17.5%` with the reads in the fragment as well), eight `snoise` per vertex `+14%` even at zero strength, and two `vec4` varyings feeding the waves `+4.5%` with no noise at all, while the same per-component shift taken from a uniform cost `+4.7%`, within the noise. Kept: two `snoise` per sea vertex and one `vec2` varying, `+3.9%`. Untried: the fields from the chunk workers as an attribute (no vertex noise, but static, so the wave groups would not travel).
 
+Defaults tuned in the GUI, 2026-10-12: a stronger speed-effect blur mask (all four pyramid levels at rest, against two), larger clouds (about a third fewer per field), and the sea's foam lines ([Rendering](RENDERING.md#post-processing-pipeline), [Terrain](TERRAIN.md#cloud-settings)): `−1.6%` against the build before, within the noise (`2400 × 1100`, default query, three rounds).
+
 ### `CORR-001` And `CORR-002`: Ownership Coordinates
 
 `CORR-001` is resolved: the former cloud loop generated local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`, so most instances were owned by a neighboring spatial region. The loop was removed; the cloud field uses world-space bases on its own grid, and scenery uses a jittered grid aligned to chunk borders.

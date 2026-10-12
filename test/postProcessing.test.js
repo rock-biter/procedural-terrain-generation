@@ -8,6 +8,7 @@ import {
 	UnsignedByteType,
 	UnsignedInt101111Type,
 } from 'three'
+import { createAppParams } from '../src/appParams.js'
 import { getSceneBufferFormat } from '../src/postProcessing.js'
 import SpeedEffect, { getRequiredBlurLevels } from '../src/speedEffect.js'
 
@@ -71,7 +72,8 @@ test('the speed-effect pyramid takes the scene buffer type and format', () => {
 })
 
 test('the blur renders the levels its corners need, within a tolerance', () => {
-	// The default mask (setMaskParams() of appParams' blur), 1100 pixels tall.
+	// The default mask until 2026-10-12 (as setMaskParams() packs appParams'
+	// blur), 1100 pixels tall.
 	const blur = { x: 0.075, y: 0.35, z: 1.5, w: 1.2 }
 	const levels = (intensity) => getRequiredBlurLevels(blur, intensity, 1100, 0.78)
 	assert.equal(levels(0), 0)
@@ -84,4 +86,10 @@ test('the blur renders the levels its corners need, within a tolerance', () => {
 	// Any blur at all renders a level for the composite to read.
 	assert.equal(getRequiredBlurLevels(blur, 0.126, 280, 0.78), 1)
 	assert.equal(getRequiredBlurLevels(blur, 0.01, 1100, 0.78), 0)
+	// The current, stronger mask blurs the idle corners by about 12 pixels: all
+	// four levels.
+	const { postProcessing } = createAppParams({ urlParams: new URLSearchParams(), isMobile: false })
+	const { strength, start, end, curve } = postProcessing.blur
+	const current = { x: strength, y: start, z: end, w: curve }
+	assert.equal(getRequiredBlurLevels(current, 0.126, 1100, postProcessing.verticalScale), 4)
 })

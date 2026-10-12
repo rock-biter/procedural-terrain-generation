@@ -98,7 +98,7 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			// Radii: 0 = viewport center, ~0.71 = edge midpoints, 1 = corners.
 			// verticalScale shrinks only the vertical distance (1 = circular falloff).
 			verticalScale: 0.78,
-			blur: { strength: 0.075, start: 0.35, end: 1.5, curve: 1.2 },
+			blur: { strength: 0.117, start: 0.36, end: 1.13, curve: 1.2 },
 			aberration: { strength: 0.016, start: 0.28, end: 0.9, curve: 2.2 },
 			// The sun's lens flare, occluded by the scene's depth, applied live;
 			// see createLensFlareSettings().

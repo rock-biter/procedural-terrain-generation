@@ -83,7 +83,7 @@ export function createCloudSettings({ isMobile = false } = {}) {
 		density: 0.55,
 		coverage: 0.6,
 		altitude: { min: 197, range: 60 },
-		size: { bank: 1.69, heap: 1.04, puff: 1.14, tower: 1 },
+		size: { bank: 2.48, heap: 2, puff: 2.21, tower: 2.24 },
 		regional: {
 			scale: 4000,
 			// Relative: density × (1 ± amount).
