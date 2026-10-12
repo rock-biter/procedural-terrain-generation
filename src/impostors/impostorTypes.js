@@ -39,9 +39,10 @@ export const CLOUD_TYPE = Object.freeze({
 	BANK: 0,
 	HEAP: 1,
 	PUFF: 2,
+	TOWER: 3,
 })
 
-export const CLOUD_TYPE_COUNT = 3
+export const CLOUD_TYPE_COUNT = 4
 
 // Clouds always turn to face the airplane and float above it, so the camera
 // sees them only from the front and below. Their atlas therefore bakes a
@@ -64,5 +65,7 @@ export const CLOUD_IMPOSTOR_FRAME_SIZE_MOBILE = 64
 // separate small lower-hemisphere atlas of coverage (src/cloudShadows.js).
 export const CLOUD_SHADOW_IMPOSTOR_FRAMES = 8
 export const CLOUD_SHADOW_IMPOSTOR_FRAME_SIZE = 32
-export const CLOUD_ATLAS_COLUMNS = 3
+// One row of type blocks: four frontal blocks of 96 px frames make a 1152 x
+// 960 atlas.
+export const CLOUD_ATLAS_COLUMNS = 4
 export const CLOUD_ATLAS_ROWS = 1

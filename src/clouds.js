@@ -5,7 +5,9 @@ import {
 	createImpostorMaterial,
 	createImpostorMesh,
 	createImpostorWireframeMaterial,
+	createSceneryPaletteUniforms,
 	setImpostorAtlas,
+	setSceneryPaletteUniforms,
 } from './impostors/impostorMaterial'
 import { createFrontalViews } from './impostors/octahedral'
 import {
@@ -17,6 +19,7 @@ import {
 import SceneryMeshes from './impostors/sceneryMeshes'
 import { setSceneryWireframe } from './impostors/sceneryWireframe'
 import { SCENERY_MESH_DISABLED_RANGE } from './sceneryMeshPolicy'
+import { getCloudPaletteLayout } from './sceneryPalettePolicy'
 import {
 	CLOUD_CONFIG,
 	CLOUD_TYPE_KEYS,
@@ -35,11 +38,11 @@ import {
 //
 // Ownership: this object owns the cloud atlas, impostor material and mesh,
 // near meshes, and its own uniforms. `uniforms` is the shared object (src/sharedUniforms.js)
-// (uCamera, uCurvature, uAtmosphere, uTime, and the shadow uniforms the shared
-// shader chunks declare); a copy carries the clouds' own uSceneryMeshRange.
-// `settings` is params.clouds ({ placement, meshes, detail, ambient,
-// variation }), `wireframe` the shared scenery wireframe settings, and
-// `woodTexture` the shared wood color map.
+// (uCamera, uCurvature, uAtmosphere, uTime, uBiomeOffset, and the shadow
+// uniforms the shared shader chunks declare); a copy carries the clouds' own
+// uSceneryMeshRange. `settings` is params.clouds ({ placement, meshes, detail,
+// ambient, variation, palette }), `wireframe` the shared scenery wireframe
+// settings, and `woodTexture` the shared wood color map.
 export default class Clouds extends Group {
 	constructor({ renderer, uniforms, settings, wireframe, woodTexture, seed, isMobile = false }) {
 		super()
@@ -64,6 +67,9 @@ export default class Clouds extends Group {
 			amount: { value: new Array(CLOUD_TYPE_COUNT).fill(0) },
 			frequency: { value: settings.variation.frequency },
 		}
+		// Shared with the near meshes: the cloud palette, the same for every type.
+		this.palette = createSceneryPaletteUniforms(CLOUD_TYPE_COUNT)
+		this.applyPalette()
 		// One wood setting for every cloud type, always normalized so the grain
 		// keeps the light cloud color.
 		this.detail = {
@@ -81,6 +87,7 @@ export default class Clouds extends Group {
 		this.material = createImpostorMaterial(this.bake(), this.uniforms, {
 			singleFrame: isMobile,
 			variation: this.variation,
+			palette: this.palette,
 			receiveShadows: false,
 			farFade: this.farFade,
 			ambientScale: this.ambient,
@@ -90,6 +97,7 @@ export default class Clouds extends Group {
 			uniforms: this.uniforms,
 			variation: this.variation,
 			detail: this.detail,
+			palette: this.palette,
 			settings: settings.meshes,
 			wireframe,
 			catalog: CLOUD_IMPOSTORS,
@@ -138,6 +146,14 @@ export default class Clouds extends Group {
 	// Re-reads the near-mesh distance bands.
 	applyMeshSettings() {
 		this.meshes.applySettings()
+	}
+
+	// Writes the cloud palette into the shared uniforms, live.
+	applyPalette() {
+		setSceneryPaletteUniforms(
+			this.palette,
+			getCloudPaletteLayout(this.settings.palette, CLOUD_TYPE_COUNT),
+		)
 	}
 
 	// Re-reads the ambient boost and the brightness variation.

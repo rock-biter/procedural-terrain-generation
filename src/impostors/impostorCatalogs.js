@@ -49,8 +49,10 @@ export const SCENERY_IMPOSTORS = Object.freeze({
 
 // Clouds (src/clouds.js): seen only from below, turned in the shaders so their
 // front face looks at the airplane (the yaw slot only seeds the dither), and
-// faded by fog alone (no atmosphere clamp). Their normalized wood grain keeps
-// their light color (src/clouds.js sets it).
+// faded by fog alone (no atmosphere clamp). Painted whole like the cacti:
+// SCENERY_PALETTE picks each cloud's color from the cloud palette
+// (getCloudPaletteLayout(), src/sceneryPalettePolicy.js), and their normalized
+// wood grain keeps that color (src/clouds.js sets it).
 export const CLOUD_IMPOSTORS = Object.freeze({
 	name: 'clouds',
 	typeCount: CLOUD_TYPE_COUNT,
@@ -59,6 +61,8 @@ export const CLOUD_IMPOSTORS = Object.freeze({
 	hemisphere: -1,
 	createSources: createCloudSources,
 	defines: Object.freeze({
+		SCENERY_PALETTE: '',
+		SCENERY_PALETTE_SIZE,
 		SCENERY_FACE_AIRPLANE: '',
 		SCENERY_NO_ATMOSPHERE_CLAMP: '',
 	}),

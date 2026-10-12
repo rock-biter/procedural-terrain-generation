@@ -9,7 +9,7 @@ import {
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
 } from './sceneryMeshPolicy'
-import { createSceneryPaletteSettings } from './sceneryPalettePolicy'
+import { createCloudPaletteSettings, createSceneryPaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createSeaIceSettings } from './seaIcePolicy'
@@ -155,8 +155,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// createCloudSettings()), near-mesh bands like sceneryMeshes, the wood
 		// detail baked into the cloud atlas (changing it re-bakes), the ambient
 		// light multiplier that keeps the undersides bright, the brightness
-		// variation per type, and the cloud shadows on terrain and scenery (see
-		// createCloudShadowSettings()).
+		// variation per type, the palette that colors them, applied live (see
+		// createCloudPaletteSettings()), and the cloud shadows on terrain and
+		// scenery (see createCloudShadowSettings()).
 		clouds: {
 			placement: createCloudSettings({ isMobile }),
 			meshes: createCloudMeshSettings({ isMobile }),
@@ -165,8 +166,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			variation: {
 				frequency: 0.0405,
 				// Keyed like CLOUD_TYPE_KEYS.
-				amount: { bank: 0.99, heap: 1.26, puff: 0.99 },
+				amount: { bank: 0.99, heap: 1.26, puff: 0.99, tower: 1.1 },
 			},
+			palette: createCloudPaletteSettings(),
 			shadows: createCloudShadowSettings({ isMobile }),
 		},
 		// The aurora over the ice biome (src/aurora.js): its chance (?aurora=

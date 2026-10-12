@@ -22,6 +22,7 @@ import {
 	CLOUD_ATLAS_COLUMNS,
 	CLOUD_ATLAS_ROWS,
 	CLOUD_IMPOSTOR_VIEWS,
+	CLOUD_TYPE_COUNT,
 	IMPOSTOR_ATLAS_COLUMNS,
 	IMPOSTOR_ATLAS_ROWS,
 	IMPOSTOR_TYPE_COUNT,
@@ -241,10 +242,12 @@ test('blends neighbouring frontal frames and clamps views outside the band', () 
 })
 
 test('sizes atlases per layout and fits the texture limit', () => {
+	// The cloud atlas: four types in one row of blocks.
+	assert.ok(CLOUD_ATLAS_COLUMNS * CLOUD_ATLAS_ROWS >= CLOUD_TYPE_COUNT)
 	assert.deepEqual(getAtlasLayout(CLOUD_VIEWS, CLOUD_ATLAS, 96), {
 		blockWidth: 288,
 		blockHeight: 960,
-		width: 864,
+		width: 1152,
 		height: 960,
 	})
 	// The scenery atlas: eleven types in 4 x 3 blocks.

@@ -667,19 +667,20 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			const palette = palettes[key]
 			if (!palette) continue
 			// A group with one palette (the cacti) shows it directly.
-			const paletteFolder = keys.size > 1 ? folder.addFolder(key) : folder
-			if (palette.trunk !== undefined) {
-				paletteFolder.addColor(palette, 'trunk').name('Trunk').onChange(updatePalette)
-			}
-			palette.colors.forEach((entry, slot) => {
-				const label = entry.label ?? `Color ${slot + 1}`
-				paletteFolder.addColor(entry, 'color').name(label).onChange(updatePalette)
-				paletteFolder
-					.add(entry, 'weight', 0, 1, 0.01)
-					.name(`${label} weight`)
-					.onChange(updatePalette)
-			})
+			addPaletteColors(keys.size > 1 ? folder.addFolder(key) : folder, palette, updatePalette)
 		}
+	}
+
+	// A palette's trunk color, if it has one, and each slot's color and weight.
+	function addPaletteColors(folder, palette, onChange) {
+		if (palette.trunk !== undefined) {
+			folder.addColor(palette, 'trunk').name('Trunk').onChange(onChange)
+		}
+		palette.colors.forEach((entry, slot) => {
+			const label = entry.label ?? `Color ${slot + 1}`
+			folder.addColor(entry, 'color').name(label).onChange(onChange)
+			folder.add(entry, 'weight', 0, 1, 0.01).name(`${label} weight`).onChange(onChange)
+		})
 	}
 
 	// One folder per biome with its colors and topography, after the
@@ -982,6 +983,18 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.name(`${key} variation`)
 			.onChange(updateCloudAppearance)
 	}
+	// Live: the colors every cloud type picks from, like a scenery palette.
+	const updateCloudPalette = () => world.clouds?.applyPalette()
+	const cloudPaletteFolder = cloudsFolder.addFolder('Palette')
+	cloudPaletteFolder
+		.add(cloudSettings.palette, 'frequency', 0.0001, 0.01, 0.0001)
+		.name('Patch frequency')
+		.onChange(updateCloudPalette)
+	cloudPaletteFolder
+		.add(cloudSettings.palette, 'mix', 0, 1, 0.01)
+		.name('Random mix')
+		.onChange(updateCloudPalette)
+	addPaletteColors(cloudPaletteFolder, cloudSettings.palette, updateCloudPalette)
 	const rebakeClouds = () => world.clouds?.rebake()
 	const cloudDetailFolder = cloudsFolder.addFolder('Wood detail')
 	cloudDetailFolder

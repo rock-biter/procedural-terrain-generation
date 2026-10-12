@@ -23,15 +23,17 @@ export const CLOUD_CONFIG = Object.freeze({
 	// Softness of the coverage edge, in noise units.
 	coverageSoftness: 0.2,
 	types: Object.freeze([
-		[CLOUD_TYPE.BANK, 0.35],
-		[CLOUD_TYPE.HEAP, 0.3],
-		[CLOUD_TYPE.PUFF, 0.35],
+		[CLOUD_TYPE.BANK, 0.3],
+		[CLOUD_TYPE.HEAP, 0.25],
+		[CLOUD_TYPE.PUFF, 0.25],
+		[CLOUD_TYPE.TOWER, 0.2],
 	]),
 	// [min scale, max scale, min stretch, max stretch]
 	shape: Object.freeze({
 		[CLOUD_TYPE.BANK]: Object.freeze([0.85, 1.35, 0.9, 1.1]),
 		[CLOUD_TYPE.HEAP]: Object.freeze([0.85, 1.4, 0.9, 1.15]),
 		[CLOUD_TYPE.PUFF]: Object.freeze([0.7, 1.6, 0.85, 1.15]),
+		[CLOUD_TYPE.TOWER]: Object.freeze([0.8, 1.25, 0.9, 1.15]),
 	}),
 	// Upper bounds of each source model at scale 1 (cloudArchetypes.js):
 	// [half width (x), height (y), half depth (z)], so neighbours that could
@@ -41,6 +43,7 @@ export const CLOUD_CONFIG = Object.freeze({
 		[CLOUD_TYPE.BANK]: Object.freeze([39, 28, 10]),
 		[CLOUD_TYPE.HEAP]: Object.freeze([34, 33, 11]),
 		[CLOUD_TYPE.PUFF]: Object.freeze([19, 20, 8]),
+		[CLOUD_TYPE.TOWER]: Object.freeze([35, 39, 12]),
 	}),
 })
 
@@ -49,6 +52,7 @@ export const CLOUD_TYPE_KEYS = Object.freeze({
 	[CLOUD_TYPE.BANK]: 'bank',
 	[CLOUD_TYPE.HEAP]: 'heap',
 	[CLOUD_TYPE.PUFF]: 'puff',
+	[CLOUD_TYPE.TOWER]: 'tower',
 })
 
 // Field radius around the airplane, in world units. Clouds shrink into the
@@ -79,7 +83,7 @@ export function createCloudSettings({ isMobile = false } = {}) {
 		density: 0.55,
 		coverage: 0.6,
 		altitude: { min: 197, range: 60 },
-		size: { bank: 1.69, heap: 1.04, puff: 1.14 },
+		size: { bank: 1.69, heap: 1.04, puff: 1.14, tower: 1 },
 		regional: {
 			scale: 4000,
 			// Relative: density × (1 ± amount).
@@ -286,6 +290,8 @@ export function generateCloudInstances({
 			}
 			if (blocked) continue
 
+			// Brightness only: the cloud palette paints the color (its shaders
+			// read the red byte alone).
 			const brightness = 0.94 + cellRandom(seedHash, cellX, cellZ, 7) * 0.12
 			values.push(
 				cloud.x,
@@ -294,7 +300,7 @@ export function generateCloudInstances({
 				cloud.scale,
 				cellRandom(seedHash, cellX, cellZ, 6) * Math.PI * 2,
 				cloud.type,
-				packTint(brightness, brightness, brightness * 0.98),
+				packTint(brightness, brightness, brightness),
 				cloud.stretch,
 			)
 		}

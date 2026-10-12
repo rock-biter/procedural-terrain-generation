@@ -139,7 +139,7 @@ test('drops neighbours that could cut through each other at any heading', () => 
 
 test('checks farther cells when clouds can outgrow the adjacent ones', () => {
 	const small = createCloudSettings()
-	small.size = { bank: 1, heap: 1, puff: 1 }
+	small.size = { bank: 1, heap: 1, puff: 1, tower: 1 }
 	assert.equal(getCloudNeighbourRing(small), 1)
 	assert.ok(getCloudNeighbourRing(createCloudSettings()) >= 2)
 
@@ -149,7 +149,7 @@ test('checks farther cells when clouds can outgrow the adjacent ones', () => {
 		density: 1,
 		coverage: 1,
 		altitude: { min: 130, range: 0 },
-		size: { bank: 3, heap: 3, puff: 3 },
+		size: { bank: 3, heap: 3, puff: 3, tower: 3 },
 	}
 	large.regional = { ...large.regional, size: 1.5 }
 	assert.ok(getCloudNeighbourRing(large) > 2)

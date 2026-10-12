@@ -1,5 +1,6 @@
 import { BufferAttribute, BufferGeometry, Color, ExtrudeGeometry, Shape, Vector2 } from 'three'
 import { mergeGeometries, mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js'
+import { SCENERY_PAINT_BASE } from '../sceneryPalettePolicy.js'
 import { CLOUD_TYPE } from './impostorTypes.js'
 
 // Source models for the cloud impostors and the near cloud meshes, in the
@@ -9,9 +10,15 @@ import { CLOUD_TYPE } from './impostorTypes.js'
 // (-Z) is the one the shaders turn toward the airplane (scenery-facing.glsl).
 // World units, base (the flat bottom) on y = 0.
 
+// Clouds are painted whole like the cacti: every slab is baked in the gray of
+// the painted scenery with a paint mask of 1, and the shaders pick each
+// cloud's color from the cloud palette (createCloudPaletteSettings() in
+// src/sceneryPalettePolicy.js). The slabs behind the front one are baked a
+// little darker, so the palette color is the front face's.
 const COLORS = {
-	front: '#ffeac2',
-	back: '#f3d9aa',
+	front: new Color().setScalar(SCENERY_PAINT_BASE),
+	middle: new Color().setScalar(SCENERY_PAINT_BASE * 0.92),
+	back: new Color().setScalar(SCENERY_PAINT_BASE * 0.85),
 }
 
 // Per level of detail: samples per full circle along the bumps, segments of
@@ -30,8 +37,8 @@ const FILLET = 2.2
 
 // Each slab: bumps [x, y, radius] from left to right (consecutive bumps must
 // intersect, and the outer ones must reach y = 0), extrusion depth, z offset
-// of its front face, and color. The first slab is the front one (lowest z,
-// toward the airplane); the others sit behind it, offset sideways like the
+// of its front face, and baked gray. The first slab is the front one (lowest
+// z, toward the airplane); the others sit behind it, offset sideways like the
 // reference.
 const CLOUD_SLABS = {
 	// Long and low.
@@ -106,6 +113,43 @@ const CLOUD_SLABS = {
 			],
 			depth: 5,
 			z: 7,
+			color: COLORS.back,
+		},
+	],
+	// Three slabs that climb toward the back: a low front slab, a taller one
+	// behind it to the right, and the tallest at the back on the left.
+	[CLOUD_TYPE.TOWER]: [
+		{
+			bumps: [
+				[-16, 5, 6],
+				[-6, 9, 9],
+				[7, 10, 10],
+				[18, 5, 6],
+			],
+			depth: 6,
+			z: 0,
+			color: COLORS.front,
+		},
+		{
+			bumps: [
+				[-6, 6, 7],
+				[5, 13, 11],
+				[17, 11, 9],
+				[26, 5, 6],
+			],
+			depth: 6,
+			z: 7,
+			color: COLORS.middle,
+		},
+		{
+			bumps: [
+				[-27, 5, 6],
+				[-17, 12, 10],
+				[-4, 21, 14],
+				[10, 6, 8],
+			],
+			depth: 6,
+			z: 14,
 			color: COLORS.back,
 		},
 	],
@@ -224,15 +268,18 @@ function extractGroup(geometry, materialIndex) {
 	return part
 }
 
+// Fills the vertex color with the slab's gray and the paint mask with 1: the
+// palette paints the whole cloud.
 function paint(geometry, color) {
-	const base = new Color(color)
-	const colors = new Float32Array(geometry.getAttribute('position').count * 3)
+	const count = geometry.getAttribute('position').count
+	const colors = new Float32Array(count * 3)
 	for (let i = 0; i < colors.length; i += 3) {
-		colors[i] = base.r
-		colors[i + 1] = base.g
-		colors[i + 2] = base.b
+		colors[i] = color.r
+		colors[i + 1] = color.g
+		colors[i + 2] = color.b
 	}
 	geometry.setAttribute('color', new BufferAttribute(colors, 3))
+	geometry.setAttribute('paint', new BufferAttribute(new Float32Array(count).fill(1), 1))
 }
 
 // One slab: flat caps keep their exact ±Z normal, while the bevel and the
@@ -293,9 +340,9 @@ function buildCloud(type, lod) {
 }
 
 // Returns [LOD 0, LOD 1, ...] geometries of one cloud type, indexed, with
-// position, normal, and color. Every level is shifted by the LOD 0 placement:
-// flat bottom on y = 0 and bounding-sphere center on the y axis, so the levels
-// and the impostor share one local frame.
+// position, normal, color, and paint. Every level is shifted by the LOD 0
+// placement: flat bottom on y = 0 and bounding-sphere center on the y axis, so
+// the levels and the impostor share one local frame.
 export function createCloudSources(type, lodCount = 1) {
 	if (!CLOUD_SLABS[type]) throw new Error(`Unknown cloud type: ${type}`)
 	const sources = []

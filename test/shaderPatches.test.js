@@ -133,7 +133,8 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 	// The bend shared with the aurora (curvature-bend.glsl).
 	assert.match(sceneryShader.vertexShader, /void getCurvatureBend\(/)
 	assert.match(sceneryShader.vertexShader, /getCurvatureBend\(impostorBase,/)
-	// Only the scenery paints crowns; the palette uniforms always exist.
+	// The scenery paints crowns, cacti, and rocks; the palette uniforms always
+	// exist.
 	assert.ok('SCENERY_PALETTE' in scenery.defines)
 	assert.match(sceneryShader.vertexShader, /getSceneryPaletteTints\(/)
 	assert.match(sceneryShader.fragmentShader, /uImpostorPaint/)
@@ -161,11 +162,15 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		},
 	)
 	// Unshadowed: the lighting never calls the shadow lookup.
-	assert.doesNotMatch(
-		patch(clouds, 'physical').fragmentShader,
-		/getSceneryShadow\(impostorShadowPosition/,
-	)
-	assert.ok(!('SCENERY_PALETTE' in clouds.defines))
+	const cloudShader = patch(clouds, 'physical')
+	assert.doesNotMatch(cloudShader.fragmentShader, /getSceneryShadow\(impostorShadowPosition/)
+	// The clouds are painted whole from their own palette.
+	assert.ok('SCENERY_PALETTE' in clouds.defines)
+	assert.match(cloudShader.vertexShader, /getSceneryPaletteTints\(/)
+	assert.match(cloudShader.fragmentShader, /uImpostorPaint/)
+	for (const name of ['uImpostorPaint', 'uSceneryPaletteColors', 'uSceneryPaletteNoise']) {
+		assert.ok(name in cloudShader.uniforms, name)
+	}
 	assert.ok(!('SCENERY_SEA_WAVES' in clouds.defines))
 })
 
@@ -189,10 +194,10 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 			const shader = patch(level.material, 'physical')
 			assert.ok('uSceneryDetail' in shader.uniforms)
 			assert.ok('uSceneryPaletteNoise' in shader.uniforms)
+			assert.match(shader.vertexShader, /getSceneryPaletteTints\(sceneryTint, aInstanceB\.z/)
 			// The rocks read their biome from the instance tint: no per-vertex field.
 			if (meshes === scenery) {
 				assert.doesNotMatch(shader.vertexShader, /getIceValue|getClimateNoise/)
-				assert.match(shader.vertexShader, /getSceneryPaletteTints\(sceneryTint, aInstanceB\.z/)
 				// Boats float and tilt with the waves.
 				assert.match(
 					shader.vertexShader,
@@ -202,10 +207,12 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 			patch(level.wireframeMaterial, 'physical')
 		}
 	}
-	// The crown mask reaches the scenery meshes only; cloud sources have none.
+	// The paint mask reaches the scenery and cloud meshes alike.
 	assert.ok(scenery.levels[0].types[0].geometry.getAttribute('paint'))
-	assert.equal(clouds.levels[0].types[0].geometry.getAttribute('paint'), undefined)
-	assert.match(patch(scenery.levels[0].material, 'physical').vertexShader, /vSceneryPaint = paint/)
+	assert.ok(clouds.levels[0].types[0].geometry.getAttribute('paint'))
+	for (const meshes of [scenery, clouds]) {
+		assert.match(patch(meshes.levels[0].material, 'physical').vertexShader, /vSceneryPaint = paint/)
+	}
 })
 
 test('the trail, propeller, and debug marker patches fit their materials', () => {

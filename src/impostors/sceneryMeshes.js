@@ -140,8 +140,8 @@ export default class SceneryMeshes extends Group {
 				const level = this.levels[lod]
 				const geometry = new InstancedBufferGeometry()
 				geometry.setIndex(source.index)
-				// Cloud sources carry no paint mask (`paint`); only model sources
-				// carry a uv, for their color map.
+				// Only model sources (the boat) carry no paint mask (`paint`) and a
+				// uv, for their color map.
 				for (const name of ['position', 'normal', 'color', 'paint', 'uv']) {
 					const attribute = source.getAttribute(name)
 					if (attribute) geometry.setAttribute(name, attribute)

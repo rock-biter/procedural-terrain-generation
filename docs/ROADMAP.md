@@ -138,7 +138,7 @@ vertices = triangles * 3
 
 The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead, in two levels of detail (140 to 876 triangles per type at LOD 0, 60 to 364 at LOD 1). They share one baked atlas of about `71` MB on desktop and mobile (albedo, normal, and the paint mask of trees and cacti; `57` MB before the ice spikes' column, `43` MB before the sea rock's), and each chunk adds a quad plus 32 bytes per instance.
 
-The former clouds created new copies of that base geometry in every chunk. The current clouds (`FEAT-006`) are one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of three shared extruded sources per level: about 2,870–4,350 triangles at LOD 0 and 680–1,040 at LOD 1. A desktop flight view drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Their frontal-view atlas takes about `9` MB on desktop (about `42` MB with the former lower-hemisphere grid), plus about `2` MB for the shadow atlas.
+The former clouds created new copies of that base geometry in every chunk. The current clouds (`FEAT-006`) are one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of four shared extruded sources per level: about 2,870–5,450 triangles at LOD 0 and 680–1,280 at LOD 1. A desktop flight view with the first three types drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Their frontal-view atlas takes about `13` MB on desktop (about `42` MB for three types with the former lower-hemisphere grid), plus about `3` MB for the shadow atlas.
 
 ## Known Problem Register
 
@@ -433,7 +433,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 ### `FEAT-006`: Carved-Wood Clouds With Impostors And Cloud Shadows
 
 - **Rejected:** per-chunk clouds in the worker (clouds are few, large, and must stay visible beyond the scenery range); clouds in the scenery cascades (their `450`-unit fade would cut cloud shadows near the airplane, and depth cascades need many taps, while a coverage map needs one); a full-sphere atlas and then the lower-hemisphere grid (a frontal band of 30 views replaces 144, about four times less memory; only the shadow caster keeps a small lower-hemisphere coverage atlas).
-- **Open:** tuning of density, sizes, and the ambient boost.
+- **Open:** tuning of density, sizes, the ambient boost, and the cloud palette.
 
 ### `FEAT-007`: Ice Biome, Frozen Sea, And Biome Tuning Tools
 

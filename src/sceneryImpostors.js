@@ -5,6 +5,7 @@ import {
 	createImpostorWireframeMaterial,
 	createSceneryPaletteUniforms,
 	setImpostorAtlas,
+	setSceneryPaletteUniforms,
 } from './impostors/impostorMaterial'
 import {
 	IMPOSTOR_FRAMES_DESKTOP,
@@ -13,11 +14,7 @@ import {
 } from './impostors/impostorTypes'
 import SceneryMeshes from './impostors/sceneryMeshes'
 import { setSceneryWireframe } from './impostors/sceneryWireframe'
-import {
-	SCENERY_PAINT_BASE,
-	SCENERY_PALETTE_SIZE,
-	getSceneryPaletteLayout,
-} from './sceneryPalettePolicy'
+import { getSceneryPaletteLayout } from './sceneryPalettePolicy'
 import { SCENERY_TYPE_KEYS } from './sceneryPlacement'
 
 // The scenery's impostors and near meshes, as Clouds owns the cloud field's:
@@ -105,27 +102,12 @@ export default class SceneryImpostors extends Group {
 		})
 	}
 
-	// Writes the scenery palettes into the shared uniforms, live: colors become
-	// linear (Color.set() converts the sRGB hex) and are divided by the gray
-	// the painted types are baked in; unused entries stay white.
+	// Writes the scenery palettes into the shared uniforms, live.
 	applyPalette() {
-		const layout = getSceneryPaletteLayout(this.params.sceneryPalette, IMPOSTOR_TYPE_COUNT)
-		const setPaint = (color, hex) => {
-			if (hex === null) color.setRGB(1, 1, 1)
-			else color.set(hex).multiplyScalar(1 / SCENERY_PAINT_BASE)
-		}
-		const {
-			uSceneryPaletteColors,
-			uSceneryPaletteWeights,
-			uSceneryTrunkColors,
-			uSceneryPaletteNoise,
-		} = this.palette
-		uSceneryPaletteColors.value.forEach((color, index) => setPaint(color, layout.colors[index]))
-		uSceneryTrunkColors.value.forEach((color, type) => setPaint(color, layout.trunks[type]))
-		uSceneryPaletteWeights.value.forEach((weights, type) =>
-			weights.fromArray(layout.weights, type * SCENERY_PALETTE_SIZE),
+		setSceneryPaletteUniforms(
+			this.palette,
+			getSceneryPaletteLayout(this.params.sceneryPalette, IMPOSTOR_TYPE_COUNT),
 		)
-		uSceneryPaletteNoise.value.forEach((noise, type) => noise.fromArray(layout.noise[type]))
 	}
 
 	applyVariation() {

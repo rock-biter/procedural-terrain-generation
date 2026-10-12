@@ -26,7 +26,7 @@ import { getCatalogDefines } from './impostorCatalogs'
 import { getViewDefines, isSameViews } from './octahedral'
 import { IMPOSTOR_INSTANCE_STRIDE } from './impostorTypes'
 import { makeSceneryWireframeMaterial, patchSceneryWireframeShader } from './sceneryWireframe'
-import { SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy'
+import { SCENERY_PAINT_BASE, SCENERY_PALETTE_SIZE } from '../sceneryPalettePolicy'
 
 // Far fade of the scenery impostors: they shrink into the fog between these
 // eye distances, before the scenery LOD limit removes their chunk.
@@ -35,8 +35,8 @@ export const SCENERY_IMPOSTOR_FAR_FADE = Object.freeze([800, 950])
 // Palette uniforms read by SCENERY_PALETTE shaders
 // (getSceneryPaletteTints() in scenery-instance-pars-vertex.glsl), keyed by
 // uniform name. The defaults (white colors, zero weights) leave every type
-// with its plain tint; src/sceneryImpostors.js writes the GUI palette into
-// them in place.
+// with its plain tint; src/sceneryImpostors.js and src/clouds.js write the
+// GUI palettes into them in place (setSceneryPaletteUniforms()).
 export function createSceneryPaletteUniforms(typeCount) {
 	return {
 		uSceneryPaletteColors: {
@@ -46,6 +46,30 @@ export function createSceneryPaletteUniforms(typeCount) {
 		uSceneryTrunkColors: { value: Array.from({ length: typeCount }, () => new Color(1, 1, 1)) },
 		uSceneryPaletteNoise: { value: Array.from({ length: typeCount }, () => new Vector4()) },
 	}
+}
+
+// Writes a palette layout (getSceneryPaletteLayout() or
+// getCloudPaletteLayout() in src/sceneryPalettePolicy.js) into `palette`
+// (createSceneryPaletteUniforms()), live: colors become linear (Color.set()
+// converts the sRGB hex) and are divided by the gray the painted types are
+// baked in; unused entries stay white.
+export function setSceneryPaletteUniforms(palette, layout) {
+	const setPaint = (color, hex) => {
+		if (hex === null) color.setRGB(1, 1, 1)
+		else color.set(hex).multiplyScalar(1 / SCENERY_PAINT_BASE)
+	}
+	const {
+		uSceneryPaletteColors,
+		uSceneryPaletteWeights,
+		uSceneryTrunkColors,
+		uSceneryPaletteNoise,
+	} = palette
+	uSceneryPaletteColors.value.forEach((color, index) => setPaint(color, layout.colors[index]))
+	uSceneryTrunkColors.value.forEach((color, type) => setPaint(color, layout.trunks[type]))
+	uSceneryPaletteWeights.value.forEach((weights, type) =>
+		weights.fromArray(layout.weights, type * SCENERY_PALETTE_SIZE),
+	)
+	uSceneryPaletteNoise.value.forEach((noise, type) => noise.fromArray(layout.noise[type]))
 }
 
 // One shared material for every instance of the atlas's catalog
