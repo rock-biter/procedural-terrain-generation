@@ -25,16 +25,38 @@ if (!ShaderChunk.lights_fragment_begin.includes(INCIDENT_LIGHT)) {
 	console.warn('Curved lights: specular hook not found')
 }
 
+// Three.js r186 include text of the directional lights' block and of the
+// RE_Direct() call that ends each light (the first one after the block start).
+const DIRECTIONAL_LIGHTS_BLOCK = '#if ( NUM_DIR_LIGHTS > 0 ) && defined( RE_Direct )'
+const DIRECT_LIGHT_CALL =
+	'RE_Direct( directLight, geometryPosition, geometryNormal, geometryViewDir, geometryClearcoatNormal, material, reflectedLight );'
+
+// Sun and moon are both in every lit program, but by day the moon's color is
+// exactly zero, and by night the sun's (their fade, src/dayNightPolicy.js).
+// A directional light's whole contribution scales with its color, so a light
+// whose uniform color is zero adds nothing: the branch skips its RE_Direct()
+// (the GGX lighting, the costliest part of the loop) on every pixel at once,
+// with the same result. Only the twilight, when both shine, runs both.
+const directionalBlockStart = ShaderChunk.lights_fragment_begin.indexOf(DIRECTIONAL_LIGHTS_BLOCK)
+const directLightCall = ShaderChunk.lights_fragment_begin.indexOf(
+	DIRECT_LIGHT_CALL,
+	directionalBlockStart,
+)
+if (directionalBlockStart < 0 || directLightCall < 0) {
+	console.warn('Curved lights: directional RE_Direct hook not found')
+}
+const LIGHTS_FRAGMENT_BEGIN =
+	directionalBlockStart < 0 || directLightCall < 0
+		? ShaderChunk.lights_fragment_begin
+		: `${ShaderChunk.lights_fragment_begin.slice(0, directLightCall)}if ( any( notEqual( directionalLight.color, vec3( 0.0 ) ) ) ) ${ShaderChunk.lights_fragment_begin.slice(directLightCall)}`
+
 // Adds `code` to every directional light, before its RE_Direct(). Three.js
 // unrolls that loop by copying its body without the braces (unrollLoops() in
 // WebGLProgram.js), and its pattern ends the body at the first closing brace,
 // so `code` may only assign and call: a declaration would repeat for every
 // light, and a brace would cut the loop short.
 function addToDirectionalLights(code) {
-	return ShaderChunk.lights_fragment_begin.replace(
-		DIRECTIONAL_LIGHT_INFO,
-		`${DIRECTIONAL_LIGHT_INFO}\n${code}`,
-	)
+	return LIGHTS_FRAGMENT_BEGIN.replace(DIRECTIONAL_LIGHT_INFO, `${DIRECTIONAL_LIGHT_INFO}\n${code}`)
 }
 
 // Scenery shadows (src/sceneryShadows.js) dim only the direct light of the

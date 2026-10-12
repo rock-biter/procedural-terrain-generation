@@ -5,9 +5,11 @@
 #include ./sea-ice-pars.glsl
 #include ./sea-surface-pars.glsl
 
-// The ice and deep ocean fields at the vertex, interpolated for the fragment.
+// The ice and deep ocean fields and the climate at the vertex, interpolated
+// for the fragment.
 varying float vIceValue;
 varying float vOceanValue;
+varying float vClimateNoise;
 // The sea state (getSeaState()) and the ripples' phase noise
 // (getSeaRippleNoise()), as broad, interpolated for the fragment.
 varying float vSeaState;

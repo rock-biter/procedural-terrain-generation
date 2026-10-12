@@ -36,9 +36,10 @@ export function getSceneryShadowTapDefines(near, far = near) {
 // - `softness`: penumbra radius in world units, near and at `fade.end`.
 // - `terrainCasters`: `segments` of the terrain's shadow grid per chunk side,
 //   [near, far] cascade (powers of two that divide the LOD 0 and LOD 1
-//   chunk grids, the only LODs inside the cascades), and `maxReach`, the
-//   farthest horizontal distance upstream of a cascade's disk toward the
-//   light where terrain still casts into it.
+//   chunk grids; a coarser chunk, which the far cascade can reach ahead of
+//   the plane, casts from its own grid, getTerrainShadowSegments()), and
+//   `maxReach`, the farthest horizontal distance upstream of a cascade's disk
+//   toward the light where terrain still casts into it.
 export const SCENERY_SHADOW_PRESETS = Object.freeze({
 	desktop: Object.freeze({
 		cascades: Object.freeze([

@@ -108,8 +108,9 @@ class VisibilityPass extends Pass {
 //
 // `camera` renders the scene, `settings` is params.postProcessing.lensFlare
 // (createLensFlareSettings()), and `sun` is PostProcessing's { direction,
-// color (linear), discVisibility }, written every frame. update() needs a depth
-// texture on the input buffer (PostProcessing.createComposer()). The depth
+// color (linear), discVisibility }, written every frame. prepare() runs before
+// the scene renders and update() after. update() needs a depth texture on the
+// input buffer (PostProcessing.createComposer()). The depth
 // texture lives only in uniforms: Effect.dispose() would dispose a texture
 // property, and the composer owns it.
 export default class LensFlareEffect extends Effect {
@@ -151,8 +152,14 @@ export default class LensFlareEffect extends Effect {
 		this.readbackByte = new Uint8Array(4)
 	}
 
-	update(renderer, inputBuffer, deltaTime) {
-		const { settings, sun, camera, uniforms } = this
+	// Projects the sun through this frame's camera and decides whether the
+	// flare shows. PostProcessing calls it before the scene renders, which
+	// resolves the scene's depth only when this returns true; update() then
+	// reads the result.
+	prepare() {
+		const { settings, sun, camera } = this
+		// The camera rides the airplane; render() would update both later.
+		camera.updateWorldMatrix(true, false)
 		const projection = camera.projectionMatrix.elements
 		const screen = getSunScreenPosition(
 			sun.direction.toArray(SUN_DIRECTION),
@@ -162,7 +169,13 @@ export default class LensFlareEffect extends Effect {
 		)
 		const radius = getOcclusionRadiusUv(projection, settings.occlusionRadius, this.radius)
 		this.edgeFade = getScreenEdgeFade(screen.u, screen.v, radius.u, radius.v, settings.edgeMargin)
-		let gate = getLensFlareGate(settings, sun.discVisibility, screen, this.edgeFade)
+		this.gate = getLensFlareGate(settings, sun.discVisibility, screen, this.edgeFade)
+		return this.gate > 0
+	}
+
+	update(renderer, inputBuffer, deltaTime) {
+		const { settings, sun, uniforms, screen, radius } = this
+		let { gate } = this
 		const depthTexture = inputBuffer.depthTexture
 		if (!depthTexture && gate > 0) {
 			if (!this.missingDepthWarned)

@@ -9,7 +9,12 @@ vec2 groundDy = dFdy(wPosition.xz);
 // The pixel's size on the ground, and the raw height change across it.
 float groundPixel = 0.5 * (length(groundDx) + length(groundDy));
 float heightPixel = fwidth(wPosition.y);
-// Interpolated from the vertices: no noise per pixel.
+// Screen derivatives of the interpolated climate and ice fields, for their
+// world gradients at the biome separators (getFieldGradient()).
+vec2 climateScreen = vec2(dFdx(vClimateNoise), dFdy(vClimateNoise));
+vec2 iceScreen = vec2(dFdx(vIceValue), dFdy(vIceValue));
+// Interpolated from the vertices: no noise per pixel. So is the climate
+// (vClimateNoise), read only outside the ice and the deep ocean.
 float iceValue = vIceValue;
 float oceanValue = vOceanValue;
 
@@ -44,14 +49,16 @@ float pct3 = 1.0;
 if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	// The ice and the deep ocean's islets need no climate.
 	bool inOcean = oceanValue >= 0.0;
-	float climateNoise = iceValue < 0.0 && !inOcean ? getClimateNoise(biomeXZ) : 0.0;
+	float climateNoise = iceValue < 0.0 && !inOcean ? vClimateNoise : 0.0;
 	float climateValue = getClimateValue(climateNoise, iceValue);
 	int biome = getBiome(climateValue, iceValue, oceanValue);
 
 	// Biome separators with a constant world-space width (getBiomeSeparator()),
-	// their gradients evaluated only near a border: the climate border outside
-	// the ice and the deep ocean, and the ice border. Along the forest ring the
-	// effective climate follows the ice field, so its gradient does too.
+	// only near a border: the climate border outside the ice and the deep
+	// ocean, and the ice border. The gradients come from the interpolated
+	// fields' screen derivatives (getFieldGradient()), with no noise. Along the
+	// forest ring the effective climate follows the ice field, so its gradient
+	// does too.
 	// uBiomeClimate.z and uBiomeIce.w bound the fields' slopes; the extra
 	// pixels keep the search wide enough for the antialiasing. The deep ocean
 	// border needs none: its slope sinks all land before it.
@@ -59,27 +66,26 @@ if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	float borderReach = BIOME_LINE_HALF_WIDTH + 2.0 * groundPixel;
 	if (iceValue < 0.0 && !inOcean && abs(climateValue) < borderReach * uBiomeClimate.z) {
 		vec2 gradient;
-		if (climateNoise >= iceValue + uBiomeIce.z) {
-			gradient = (vec2(
-				getClimateNoise(biomeXZ + vec2(BIOME_CLIMATE_GRADIENT_STEP, 0.0)),
-				getClimateNoise(biomeXZ + vec2(0.0, BIOME_CLIMATE_GRADIENT_STEP))
-			) - climateNoise) / BIOME_CLIMATE_GRADIENT_STEP;
-		} else {
-			gradient = getIceGradient(biomeXZ);
+		bool ringDriven = climateNoise < iceValue + uBiomeIce.z;
+		if (!getFieldGradient(ringDriven ? iceScreen : climateScreen, groundDx, groundDy, gradient)) {
+			gradient = ringDriven ? getIceGradient(biomeXZ) : getClimateGradient(biomeXZ);
 		}
 		biomeBoundary = getBiomeSeparator(climateValue, gradient, groundDx, groundDy);
 	}
 	if (abs(iceValue) < borderReach * uBiomeIce.w) {
-		biomeBoundary = max(biomeBoundary, getBiomeSeparator(iceValue, getIceGradient(biomeXZ), groundDx, groundDy));
+		vec2 iceGradient;
+		if (!getFieldGradient(iceScreen, groundDx, groundDy, iceGradient)) iceGradient = getIceGradient(biomeXZ);
+		biomeBoundary = max(biomeBoundary, getBiomeSeparator(iceValue, iceGradient, groundDx, groundDy));
 	}
 
 	// The biome's palette (src/terrainPalettePolicy.js). The slow variation
-	// noise drifts the bands that ask for it (the forest's grass, land, and
-	// rocks).
+	// noise (two fields of the baked noise, noise-texture-pars.glsl) drifts the
+	// bands that ask for it (the forest's grass, land, and rocks).
 	vec3 terrainStyle = uTerrainStyles[biome];
 	float biomeVariation = 0.0;
 	if (terrainStyle.z > 0.0) {
-		biomeVariation = snoise(biomeXZ * 0.001) * 0.3 + 0.6 + snoise(biomeXZ * 0.01) * 0.3;
+		biomeVariation = sampleNoiseTile(biomeXZ * 0.001, groundPixel * 0.001).z * 0.3 + 0.6
+			+ sampleNoiseTile(biomeXZ * 0.01, groundPixel * 0.01).w * 0.3;
 	}
 	// 0 leaves the band lines black, 1 removes them.
 	float lineShade = 1.0 - terrainStyle.y;
@@ -125,7 +131,7 @@ if (wPosition.y >= TERRAIN_SAND_LEVEL) {
 	// Soft lighter patches, scaled per biome, and the biome separator, on land
 	// only.
 	if (terrainStyle.x > 0.0) {
-		diffuseColor.rgb *= 1.0 + (getTerrainColorShade(biomeXZ) - 1.0) * terrainStyle.x;
+		diffuseColor.rgb *= 1.0 + (getTerrainColorShade(biomeXZ, groundPixel) - 1.0) * terrainStyle.x;
 	}
 	diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.0), biomeBoundary);
 }
@@ -161,7 +167,7 @@ vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
 // Foam lines (sea-ripple-pars-fragment.glsl) on one sea height: the raw
 // height fused with the sea rocks' virtual height from the foam map. The ice
 // stills them.
-float onda = getSeaRipple(getSeaFoamHeight(wPosition.y, wPosition.xz), wPosition.xz, seaOceanMask, seaState) * (1.0 - seaIce);
+float onda = getSeaRipple(getSeaFoamHeight(wPosition.y, wPosition.xz), wPosition.xz, seaOceanMask, seaState, groundPixel) * (1.0 - seaIce);
 diffuseColor.rgb = mix(uSeaFoamColor * onda, diffuseColor.rgb, 1. - onda);
 
 int seaDebugView = int(uSeaSurface.w + 0.5);

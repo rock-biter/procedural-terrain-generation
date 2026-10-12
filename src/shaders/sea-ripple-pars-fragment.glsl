@@ -4,6 +4,8 @@
 // sea type (0 the sea, 1 the deep ocean), blended by getSeaOceanMask(); see
 // src/seaSurfacePolicy.js.
 #include ./sea-surface-pars.glsl
+// The dashes, the crest flicker, and the fray sample the baked noise.
+#include ./noise-texture-pars.glsl
 
 // The sea state and the ripples' phase noise, interpolated from the vertices
 // (project-vertex.glsl).
@@ -68,7 +70,7 @@ uniform float uSeaFoamBlend;
 // Foam line brightness at sea height `seaHeight`, flat world `xz`, deep ocean
 // share `oceanMask`, and sea state `state`: animated contour lines that run
 // toward the coast within the depth band, wobbling and broken into dashes.
-float getSeaRipple(float seaHeight, vec2 xz, float oceanMask, float state) {
+float getSeaRipple(float seaHeight, vec2 xz, float oceanMask, float state, float pixel) {
 	vec4 band = mix(uSeaFoamLineBand[0], uSeaFoamLineBand[1], oceanMask);
 	float depth = -seaHeight;
 	float inBand = smoothstep(band.x, band.y, depth) - smoothstep(band.z, band.w, depth);
@@ -79,7 +81,7 @@ float getSeaRipple(float seaHeight, vec2 xz, float oceanMask, float state) {
 	float wobble = (sin(xz.x * motion.z) + sin(xz.y * motion.z)) * motion.w;
 	float ripple = sin(seaHeight * motion.x - uTime * motion.y + wobble) * 0.5 + 0.5;
 	ripple = pow(ripple, style.x) * inBand;
-	float dashes = max(1.0 - dash.y * snoise(xz * dash.x), 0.0);
+	float dashes = max(1.0 - dash.y * sampleNoiseTile(xz * dash.x, pixel * dash.x).x, 0.0);
 	return ripple * dashes * style.y * mix(1.0 - style.z, 1.0 + style.z, state);
 }
 
@@ -158,7 +160,9 @@ float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, flo
 	vec3 flicker = mix(uSeaCrestFlicker[0], uSeaCrestFlicker[1], oceanMask);
 	vec2 q = riding * flicker.y;
 	float drift = uTime * flicker.z;
-	float noise = snoise(q + vec2(drift, -0.6 * drift)) * 0.65 + snoise(q * 2.1 + vec2(-0.8 * drift, drift) + 23.0) * 0.35;
+	float footprint = pixel * flicker.y;
+	float noise = sampleNoiseTile(q + vec2(drift, -0.6 * drift), footprint).y * 0.65
+		+ sampleNoiseTile(q * 2.1 + vec2(-0.8 * drift, drift) + 23.0, footprint * 2.1).z * 0.35;
 	float cut = mix(-1.0, 1.0, flicker.x);
 	float alive = smoothstep(cut - 0.2, cut + 0.2, noise);
 	if (alive <= 0.0) return 0.0;
@@ -166,8 +170,10 @@ float getSeaCrestLine(SeaWaves waves, vec2 xz, float oceanMask, float state, flo
 	float frayDetail = fray.x * (1.0 - smoothstep(0.15, 0.35, pixel * fray.y));
 	if (frayDetail > 0.0) {
 		vec2 f = riding * fray.y + uTime * 0.1;
-		halfWidth *= max(1.0 + frayDetail * snoise(f + 57.0), 0.0);
-		distance += frayDetail * 0.5 * lines.z * snoise(f * 1.7 + 91.0);
+		// Two fields of one sample: the width and the sideways nudge.
+		vec4 frayNoise = sampleNoiseTile(f + 57.0, pixel * fray.y);
+		halfWidth *= max(1.0 + frayDetail * frayNoise.w, 0.0);
+		distance += frayDetail * 0.5 * lines.z * frayNoise.x;
 	}
 	float coverage = getSeaLineCoverage(abs(distance), halfWidth, pixel);
 	return coverage * lines.w * min(waves.amount * 2.0, 1.0);

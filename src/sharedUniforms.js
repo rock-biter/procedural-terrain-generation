@@ -1,11 +1,13 @@
 import { Color, Vector2, Vector3, Vector4 } from 'three'
 import {
 	BIOME_COUNT,
+	BIOME_VERTEX_SKIP_EDGE,
 	createBiomeOffset,
 	getBiomeGradientBounds,
 	getOceanNoiseOffset,
 } from './biome'
 import { createCloudShadowUniforms } from './cloudShadows'
+import { createNoiseTexture } from './noiseTexture'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
 import { createSunOcclusionUniforms } from './sunOcclusion'
@@ -69,6 +71,8 @@ export function createSharedUniforms(params, seed) {
 		uColorNoiseThreshold: { value: params.terrainColorNoise.threshold },
 		uColorNoiseSoftness: { value: params.terrainColorNoise.softness },
 		uColorNoiseSpeed: { value: params.terrainColorNoise.speed },
+		// The baked tileable noise (src/noiseTexture.js), kept for the page.
+		uNoiseTexture: { value: createNoiseTexture() },
 		uCoastSandShade: { value: params.coastSand.shade },
 		uCoastRockNoise: { value: new Vector3() },
 		uCoastRockEdge: { value: new Vector2() },
@@ -146,14 +150,19 @@ export function updateCoastMaskUniforms(uniforms, mask) {
 // The gradient bounds follow the sizes, so the separators keep their width.
 export function updateBiomeUniforms(uniforms, settings) {
 	const bounds = getBiomeGradientBounds(settings)
-	uniforms.uBiomeClimate.value.set(1 / settings.size, settings.desertBias, bounds.climate, 0)
+	uniforms.uBiomeClimate.value.set(
+		1 / settings.size,
+		settings.desertBias,
+		bounds.climate,
+		BIOME_VERTEX_SKIP_EDGE,
+	)
 	uniforms.uBiomeIce.value.set(
 		1 / settings.iceSize,
 		settings.iceThreshold,
 		settings.iceRing,
 		bounds.ice,
 	)
-	uniforms.uBiomeOcean.value.set(1 / settings.oceanSize, settings.oceanThreshold, 0, 0)
+	uniforms.uBiomeOcean.value.set(1 / settings.oceanSize, settings.oceanThreshold, bounds.ocean, 0)
 }
 
 const color = new Color()

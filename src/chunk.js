@@ -11,6 +11,7 @@ import seaIcePars from './shaders/sea-ice-pars-fragment.glsl'
 import terrainParsVertex from './shaders/terrain-pars-vertex.glsl'
 import { FLAT_TERRAIN_NORMAL } from './terrainNormals'
 import { TERRAIN_SHADER_DEFINES } from './terrainBands'
+import { NOISE_SHADER_DEFINES } from './noiseTexturePolicy'
 import { createSceneryLighting } from './curvedLights'
 import { getCurvedBoxSphere, getFlatBoxHalfHeight } from './chunkPolicy'
 import { replaceChunks } from './shaderChunks'
@@ -84,7 +85,11 @@ export default class Chunk extends Mesh {
 			sunOcclusion: sunOcclusion ? { steps: sunOcclusion.steps } : null,
 		})
 		// The band and biome constants shared with the CPU (src/terrainBands.js).
-		this.material.defines = { ...lighting.defines, ...TERRAIN_SHADER_DEFINES }
+		this.material.defines = {
+			...lighting.defines,
+			...TERRAIN_SHADER_DEFINES,
+			...NOISE_SHADER_DEFINES,
+		}
 		this.material.onBeforeCompile = (shader) => {
 			if (this.uniforms) {
 				shader.uniforms = {

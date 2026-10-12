@@ -88,6 +88,10 @@ test('the shaders sum every biome layer and sample every band layer', () => {
 	assert.deepEqual([...new Set(sampled)].sort(), [...TERRAIN_BANDS.keys()])
 	// The biome fields left the shared common chunk with their constants.
 	assert.doesNotMatch(shader('common.glsl'), /getClimateNoise|getIceValue/)
+	// The terrain's pixels read them from the vertices; only the separators'
+	// fallback gradients sample the exact fields.
+	assert.doesNotMatch(code('color-fragment.glsl'), /getClimateNoise\(|getIceValue\(/)
+	assert.match(code('terrain-bands-pars.glsl'), /vec2 getClimateGradient\(vec2 biomeXZ\)/)
 })
 
 test('bands follow the height, the waves, and the shader priority', () => {

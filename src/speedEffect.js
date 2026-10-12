@@ -1,10 +1,13 @@
 import { Effect, EffectAttribute, Pass } from 'postprocessing'
 import {
 	NoBlending,
+	RGBAFormat,
+	RGBFormat,
 	ShaderMaterial,
 	SRGBColorSpace,
 	Uniform,
 	UnsignedByteType,
+	UnsignedInt101111Type,
 	Vector2,
 	Vector4,
 	WebGLRenderTarget,
@@ -16,6 +19,28 @@ import fullscreenVertexShader from './shaders/fullscreen-vertex.glsl'
 
 // Caps the blur at about 2^4 = 16 pixels; stronger settings saturate there.
 const BLUR_LEVELS = 4
+
+// Share of a level, in log2 pixels, a corner may need beyond the coarsest
+// rendered level before one more level renders: the corner then saturates
+// at up to 2^0.15 (about 11%) less blur than asked, which saves a level at
+// the idle intensity.
+const LEVEL_TOLERANCE = 0.15
+
+// Pyramid levels a viewport `height` pixels tall needs: level k blurs by about
+// 2^k pixels (getBlurLod() in speed-effect-mask.glsl). `blurParams` is the
+// mask's (strength, start, end, curve) uniform (setMaskParams()); the mask
+// peaks in the viewport's corners. At least one level whenever any pixel
+// blurs, since the composite then reads the pyramid.
+export function getRequiredBlurLevels(blurParams, intensity, height, verticalScale) {
+	const { x: strength, y: start, z: end, w: curve } = blurParams
+	const cornerRadius = Math.hypot(0.5, 0.5 * verticalScale) * Math.SQRT2
+	const t = Math.min(Math.max((cornerRadius - start) / (end - start), 0), 1)
+	const mask = intensity * Math.pow(t * t * (3 - 2 * t), curve)
+	const maxBlurPixels = strength * mask * height
+	if (!(maxBlurPixels > 1)) return 0
+	const levels = Math.ceil(Math.log2(maxBlurPixels) - LEVEL_TOLERANCE)
+	return Math.min(Math.max(levels, 1), BLUR_LEVELS)
+}
 
 // Chain of successively half-resolution targets shared by the downsample and upsample passes.
 class LevelChainPass extends Pass {
@@ -39,9 +64,12 @@ class LevelChainPass extends Pass {
 		}
 	}
 
+	// The levels take the scene buffer's type, and its format: R11F_G11F_B10F
+	// is the only RGB one (PostProcessing's getSceneBufferFormat()).
 	initialize(renderer, alpha, frameBufferType) {
 		for (const target of this.levels) {
 			target.texture.type = frameBufferType
+			target.texture.format = frameBufferType === UnsignedInt101111Type ? RGBFormat : RGBAFormat
 			if (frameBufferType === UnsignedByteType && renderer.outputColorSpace === SRGBColorSpace) {
 				target.texture.colorSpace = SRGBColorSpace
 			}
@@ -75,6 +103,9 @@ class BlurPyramidPass extends LevelChainPass {
 			uniforms.inputBuffer.value = source.texture
 			uniforms.texelSize.value.set(1 / source.width, 1 / source.height)
 			renderer.setRenderTarget(target)
+			// Every texel is drawn; clearing first spares a tiled GPU loading the
+			// previous frame's level.
+			renderer.clear(true, false, false)
 			renderer.render(this.scene, this.camera)
 			source = target
 		}
@@ -108,6 +139,7 @@ class BlurUpsamplePass extends LevelChainPass {
 				level === count - 1 ? pyramid[level].texture : this.levels[level].texture
 			uniforms.level.value = level
 			renderer.setRenderTarget(this.levels[level - 1])
+			renderer.clear(true, false, false)
 			renderer.render(this.scene, this.camera)
 		}
 
@@ -163,9 +195,12 @@ export default class SpeedEffect extends Effect {
 
 	// Renders only the pyramid levels the current maximum blur can reach.
 	getRequiredLevels() {
-		const maxBlurPixels = this.uniforms.get('blurParams').value.x * this.intensity * this.height
-		const maxLod = Math.log2(Math.max(maxBlurPixels, 1))
-		return Math.min(Math.ceil(maxLod), BLUR_LEVELS)
+		return getRequiredBlurLevels(
+			this.uniforms.get('blurParams').value,
+			this.intensity,
+			this.height,
+			this.uniforms.get('verticalScale').value,
+		)
 	}
 
 	update(renderer, inputBuffer) {

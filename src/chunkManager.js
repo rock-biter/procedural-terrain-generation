@@ -100,6 +100,7 @@ export default class ChunkManager {
 		this.desired = getDesiredChunks(i, j, this.maxDistance, {
 			heading: getSectorDirection(this.headingSector),
 			lookAhead: this.streaming.lookAhead,
+			lodLookAhead: this.streaming.lodLookAhead,
 			rearDistance: this.streaming.rearDistance,
 		})
 

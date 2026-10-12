@@ -13,12 +13,14 @@
 
 // params.biomes, written by updateBiomeUniforms() (src/sharedUniforms.js).
 // x: 1 / size (scales every climate frequency), y: desert bias, z: upper
-// bound of the effective climate's gradient per world unit, w: unused.
+// bound of the effective climate's gradient per world unit, w: the longest
+// terrain triangle edge (BIOME_VERTEX_SKIP_EDGE in src/biome.js).
 uniform vec4 uBiomeClimate;
 // x: 1 / ice size, y: ice threshold, z: forest ring, w: upper bound of the ice
 // field's gradient per world unit.
 uniform vec4 uBiomeIce;
-// x: 1 / deep ocean size, y: deep ocean threshold, z and w: unused.
+// x: 1 / deep ocean size, y: deep ocean threshold, z: upper bound of the
+// effective deep ocean field's gradient per world unit, w: unused.
 uniform vec4 uBiomeOcean;
 // Noise space offset of the deep ocean field: uBiomeOffset.zw plus
 // OCEAN_NOISE_OFFSET, summed on the CPU (getOceanNoiseOffset()).

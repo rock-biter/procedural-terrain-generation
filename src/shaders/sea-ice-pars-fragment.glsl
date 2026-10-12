@@ -3,6 +3,8 @@
 // shelf is above 0; beyond it a band of Voronoi cells breaks into plates that
 // drift apart seaward. The ice meets the water without any dark line.
 #include ./sea-ice-pars.glsl
+// The floe band's wobble samples the baked noise.
+#include ./noise-texture-pars.glsl
 
 // Linear colors: the sheet, the floes, and the icy water between them.
 uniform vec3 uSeaIceColors[3];
@@ -84,7 +86,7 @@ float applySeaIce(inout vec3 color, float height, vec2 xz, float iceValue, float
 	float edge = height + uSeaIceShape.x * amount;
 	// Open sea beyond the farthest floe.
 	if (edge < -band - wobble) return 0.0;
-	edge += snoise(xz * uSeaIceEdge.w + 37.1) * wobble;
+	edge += sampleNoiseTile(xz * uSeaIceEdge.w + 37.1, groundPixel * uSeaIceEdge.w).y * wobble;
 
 	// Relative depth into the floe band: below 0 on the sheet, 1 at the band's
 	// outer limit.
