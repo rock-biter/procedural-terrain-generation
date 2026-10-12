@@ -64,6 +64,10 @@ export const SCENERY_SHADOW_DEFAULTS = Object.freeze({
 	enabled: true,
 	// Share of the direct light a fully shadowed pixel loses (ambient stays).
 	strength: 0.8,
+	// Share of the shadowing light's glare (its direct specular) a fully
+	// shadowed pixel loses: 1 removes it, whatever `strength` leaves of the
+	// diffuse light.
+	specular: 1,
 	softness: Object.freeze({ near: 0.6, far: 2.5 }),
 	// Constant depth bias in world units. The terrain casts only from faces
 	// turned away from the light, which never receive direct light, so the bias
@@ -92,6 +96,7 @@ export function createSceneryShadowSettings({ isMobile = false } = {}) {
 	return {
 		enabled: SCENERY_SHADOW_DEFAULTS.enabled,
 		strength: SCENERY_SHADOW_DEFAULTS.strength,
+		specular: SCENERY_SHADOW_DEFAULTS.specular,
 		softness: { ...SCENERY_SHADOW_DEFAULTS.softness },
 		bias: SCENERY_SHADOW_DEFAULTS.bias,
 		heightRange: { ...SCENERY_SHADOW_DEFAULTS.heightRange },
@@ -129,6 +134,16 @@ export function selectShadowLight(sunDirection, moonDirection, { elevationFade }
 export function getShadowStrength({ enabled, strength }, lightStrength) {
 	if (!enabled) return 0
 	return Math.min(Math.max(strength, 0), 1) * lightStrength
+}
+
+// Scale that turns a shadow lookup into the glare's: a lookup returns
+// 1 - (1 - v) * fade * strength * lightStrength, so 1 - (1 - lookup) * scale
+// is the same shadow with `specular` in place of `strength`, without a second
+// lookup. 0 when the shadows are off, so the glare is left as it is.
+export function getSpecularShadowScale({ enabled, strength, specular }) {
+	const cap = Math.min(Math.max(strength, 0), 1)
+	if (!enabled || cap <= 0) return 0
+	return Math.min(Math.max(specular, 0), 1) / cap
 }
 
 // Bounding sphere of the receivers a cascade covers: a disk of `radius`
@@ -265,6 +280,8 @@ export const CLOUD_SHADOW_DEFAULTS = Object.freeze({
 	enabled: true,
 	// Share of the direct light a fully covered pixel loses.
 	strength: 0.55,
+	// Share of the shadowing light's glare a fully covered pixel loses.
+	specular: 1,
 	// Penumbra (blur half-width) in world units.
 	softness: 6,
 	// Small, so shadows follow the clouds turning (about 16 units on desktop).
@@ -281,6 +298,7 @@ export function createCloudShadowSettings({ isMobile = false } = {}) {
 	return {
 		enabled: CLOUD_SHADOW_DEFAULTS.enabled,
 		strength: CLOUD_SHADOW_DEFAULTS.strength,
+		specular: CLOUD_SHADOW_DEFAULTS.specular,
 		softness: CLOUD_SHADOW_DEFAULTS.softness,
 		recenterShare: CLOUD_SHADOW_DEFAULTS.recenterShare,
 		heightRange: { ...CLOUD_SHADOW_DEFAULTS.heightRange },

@@ -11,6 +11,9 @@ uniform vec3 uCloudShadowWindow;
 // Share of the direct light a fully covered pixel loses, including the
 // light-elevation fade; 0 disables every lookup.
 uniform float uCloudShadowStrength;
+// Scale that turns a getCloudShadow() result into the glare's shadow:
+// 1 - (1 - shadow) * scale (getSpecularShadowScale() in src/shadowPolicy.js).
+uniform float uCloudShadowSpecular;
 
 // Visibility of the shadowing light in [0, 1]; fades to lit at the disk edge.
 float getCloudShadow(vec3 position) {

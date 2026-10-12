@@ -4,6 +4,7 @@ import { createAuroraSettings, parseAuroraChance } from './auroraPolicy'
 import { createTerrainSettings } from './chunkGeometry'
 import { createCloudSettings } from './cloudPlacement'
 import { createDayNightPalette, DAY_NIGHT_DEFAULTS, getStartTimeOfDay } from './dayNightPolicy'
+import { createLensFlareSettings } from './lensFlarePolicy'
 import {
 	createCloudMeshSettings,
 	createSceneryMeshSettings,
@@ -15,6 +16,7 @@ import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createSeaIceSettings } from './seaIcePolicy'
 import { createSeaSurfaceSettings } from './seaSurfacePolicy'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
+import { createSunOcclusionSettings } from './sunOcclusionPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
 import { createTerrainPaletteSettings } from './terrainPalettePolicy'
 
@@ -92,6 +94,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			verticalScale: 0.78,
 			blur: { strength: 0.075, start: 0.35, end: 1.5, curve: 1.2 },
 			aberration: { strength: 0.016, start: 0.28, end: 0.9, curve: 2.2 },
+			// The sun's lens flare, occluded by the scene's depth, applied live;
+			// see createLensFlareSettings().
+			lensFlare: createLensFlareSettings(),
 		},
 		// Placement settings sent to the chunk workers; see createScenerySettings().
 		scenery: createScenerySettings({ isMobile }),
@@ -129,6 +134,11 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// Soft shadows of scenery and the airplane on terrain and scenery, in two
 		// cascades that fade out with distance; see createSceneryShadowSettings().
 		shadows: createSceneryShadowSettings({ isMobile }),
+		// The relief hiding a low sun from the terrain, where the shadows above
+		// have faded out: a top-down height map and a march toward the sun (src/sunOcclusion.js);
+		// see createSunOcclusionSettings(). Its map size, segments, and steps
+		// are read at startup.
+		sunOcclusion: createSunOcclusionSettings({ isMobile }),
 		// The coast's ripples around the sea rocks, from a top-down map of the
 		// distance to the nearest rock; see createSeaFoamSettings().
 		seaFoam: createSeaFoamSettings({ isMobile }),
@@ -156,8 +166,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// detail baked into the cloud atlas (changing it re-bakes), the ambient
 		// light multiplier that keeps the undersides bright, the brightness
 		// variation per type, the palette that colors them, applied live (see
-		// createCloudPaletteSettings()), and the cloud shadows on terrain and
-		// scenery (see createCloudShadowSettings()).
+		// createCloudPaletteSettings()), the light they carry through toward the
+		// eye, and the cloud shadows on terrain and scenery (see
+		// createCloudShadowSettings()).
 		clouds: {
 			placement: createCloudSettings({ isMobile }),
 			meshes: createCloudMeshSettings({ isMobile }),
@@ -169,6 +180,12 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 				amount: { bank: 0.99, heap: 1.26, puff: 0.99, tower: 1.1 },
 			},
 			palette: createCloudPaletteSettings(),
+			// Light carried through the clouds, applied live: `strength` (1 = a
+			// face lit head-on), `focus` (power of the lobe around the light
+			// behind the cloud), `body` (glow away from the rims, as a share of
+			// theirs), `rim` (power; higher keeps it to the thinnest edges), the
+			// moon's share of the sun's, and the tint (sRGB).
+			translucency: { strength: 1.2, focus: 4, body: 0.35, rim: 2, moon: 0.5, color: '#ffe6c8' },
 			shadows: createCloudShadowSettings({ isMobile }),
 		},
 		// The aurora over the ice biome (src/aurora.js): its chance (?aurora=

@@ -72,13 +72,16 @@ export default class Chunk extends Mesh {
 	onBeforeCompile() {
 		// Every chunk shares the material and the same tap counts. The terrain
 		// casts only from faces turned away from the light (src/sceneryShadows.js),
-		// which get no direct light, so it needs no self-shadow bias.
+		// which get no direct light, so it needs no self-shadow bias. While the
+		// sun is low, the relief hides it too (src/sunOcclusion.js).
+		const { sunOcclusion } = this.params
 		const lighting = createSceneryLighting({
 			shadows: {
 				taps: this.params.shadows.taps.terrain,
 				position: 'vShadowPosition',
 				selfBias: '0.0',
 			},
+			sunOcclusion: sunOcclusion ? { steps: sunOcclusion.steps } : null,
 		})
 		// The band and biome constants shared with the CPU (src/terrainBands.js).
 		this.material.defines = { ...lighting.defines, ...TERRAIN_SHADER_DEFINES }

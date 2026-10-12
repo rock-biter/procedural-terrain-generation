@@ -14,6 +14,7 @@ import SceneryImpostors from './sceneryImpostors'
 import SceneryShadows from './sceneryShadows'
 import SeaFoam from './seaFoam'
 import { updateBiomeOffsetUniforms, updateSeaIceNight } from './sharedUniforms'
+import SunOcclusion from './sunOcclusion'
 import TerrainSampleDebug from './terrainSampleDebug'
 import { CHUNK_SIZE } from './worldConstants'
 
@@ -25,7 +26,8 @@ const SPAWN_CLEARANCE = 60
 // so the loading screen already has its colors), then, once the startup
 // assets have loaded (init()), the airplane, scenery impostors (with the boat
 // model's sources) and shadows, the sea foam around the sea rocks, clouds,
-// terrain chunks, the aurora over the ice, and the debug helpers. It owns the
+// the low-sun terrain occlusion, terrain chunks, the aurora over the ice, and
+// the debug helpers. It owns the
 // frame loop and its update order, the world seed, and the runtime terrain
 // and aurora actions the ?gui=1 panel calls.
 //
@@ -42,6 +44,7 @@ export default class World {
 	seaFoam = null
 	clouds = null
 	cloudShadows = null
+	sunOcclusion = null
 	aurora = null
 	terrainSampleDebug = null
 	flightPause = null
@@ -149,6 +152,8 @@ export default class World {
 				clouds: this.clouds,
 			})
 		}
+		// The relief hiding a low sun from the terrain, where the shadows fade out.
+		this.sunOcclusion = new SunOcclusion({ renderer, uniforms, settings: params.sunOcclusion })
 
 		// Terrain. Every chunk draws its scenery instances with the impostor
 		// materials.
@@ -281,7 +286,9 @@ export default class World {
 
 	// Compiles the programs that would otherwise compile on first use in flight:
 	// near scenery and cloud meshes stay hidden until something enters their
-	// band, and cloud shadows render only while a light is up. Program variants
+	// band, cloud shadows render only while a light is up, the low-sun height
+	// map only while the sun is low, and the lens flare's occlusion only while
+	// the sun is in view. Program variants
 	// depend on the bound render target, so the scene compiles against the
 	// offscreen buffer PostProcessing renders it into. With
 	// KHR_parallel_shader_compile the driver links them in the background.
@@ -292,6 +299,8 @@ export default class World {
 		const compiles = [renderer.compileAsync(scene, this.camera)]
 		if (this.cloudShadows) compiles.push(this.cloudShadows.compileAsync())
 		if (this.seaFoam) compiles.push(this.seaFoam.compileAsync())
+		if (this.sunOcclusion) compiles.push(this.sunOcclusion.compileAsync())
+		compiles.push(postProcessing.compileAsync())
 		renderer.setRenderTarget(target)
 		return Promise.all(compiles)
 	}
@@ -340,6 +349,9 @@ export default class World {
 		this.sceneryShadows.update(this.chunkManager.chunks, CHUNK_SIZE, plane, dayNightState)
 		// After SceneryShadows picked the shadowing light.
 		this.cloudShadows?.update(this.sceneryShadows.light, plane)
+		// The terrain heights around the airplane while the sun is low, after
+		// this frame's chunk commits.
+		this.sunOcclusion.update(this.chunkManager.chunks, CHUNK_SIZE, plane, dayNightState)
 		frameStats.mark('shadows')
 
 		// The GUI speedEffect slider holds post-processing at least at that level,
@@ -347,6 +359,8 @@ export default class World {
 		postProcessing.setSpeedEffect(
 			Math.max(isFlightPaused ? 0 : plane.uniforms.uAcceleration.value, this.params.speedEffect),
 		)
+		// The lens flare projects it with the camera of this frame's render.
+		postProcessing.setSun(dayNightState)
 		postProcessing.render(deltaTime)
 		frameStats.mark('render')
 		frameStats.endFrame()
@@ -367,6 +381,7 @@ export default class World {
 			getShadowStats: () => this.sceneryShadows?.getStats() ?? null,
 			getCloudStats: () => this.clouds?.getStats() ?? null,
 			getCloudShadowStats: () => this.cloudShadows?.getStats() ?? null,
+			getSunOcclusionStats: () => this.sunOcclusion?.getStats() ?? null,
 			getAuroraStats: () => this.aurora?.getStats() ?? null,
 			getSeaFoamStats: () => this.seaFoam?.getStats() ?? null,
 			getRenderStats: () => this.setup.getStats(),

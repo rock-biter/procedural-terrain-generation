@@ -18,6 +18,7 @@ import {
 	getSceneryShadowTapDefines,
 	getShadowEdgeFactor,
 	getShadowStrength,
+	getSpecularShadowScale,
 	getTerrainCasterReach,
 	getTerrainShadowSegments,
 	hasLightDirectionChanged,
@@ -312,4 +313,27 @@ test('the cloud shadow blur follows the softness and stays bounded', () => {
 	assert.equal(getCloudShadowBlurTexels(0, 2), 0)
 	assert.equal(getCloudShadowBlurTexels(100, 1), CLOUD_SHADOW_DEFAULTS.maxBlurTexels)
 	assert.equal(getCloudShadowBlurTexels(6, 0), 0)
+})
+
+test('the specular share turns a capped lookup into the shadow of the glare', () => {
+	assert.equal(createSceneryShadowSettings().specular, 1)
+	assert.equal(createCloudShadowSettings().specular, 1)
+	assert.equal(getSpecularShadowScale({ enabled: false, strength: 0.8, specular: 1 }), 0)
+	assert.equal(getSpecularShadowScale({ enabled: true, strength: 0, specular: 1 }), 0)
+	assert.equal(getSpecularShadowScale({ enabled: true, strength: 0.8, specular: 0 }), 0)
+	// A lookup returns 1 - (1 - v) * fade * strength * lightStrength; the
+	// scale swaps the strength for the specular share.
+	const settings = { enabled: true, strength: 0.8, specular: 1 }
+	const scale = getSpecularShadowScale(settings)
+	for (const [visibility, fade, light] of [
+		[0, 1, 1],
+		[0.25, 0.5, 1],
+		[0, 1, 0.4],
+	]) {
+		const lookup = 1 - (1 - visibility) * fade * settings.strength * light
+		const glare = 1 - (1 - visibility) * fade * settings.specular * light
+		assert.ok(Math.abs(1 - (1 - lookup) * scale - glare) < 1e-12)
+	}
+	// Full shadow keeps a fifth of the diffuse light but none of the glare.
+	assert.ok(Math.abs(1 - (1 - (1 - settings.strength)) * scale) < 1e-12)
 })

@@ -1,4 +1,4 @@
-import { Group, Vector2, Vector3 } from 'three'
+import { Color, Group, Vector2, Vector3, Vector4 } from 'three'
 import { bakeImpostorAtlas } from './impostors/impostorBaker'
 import { CLOUD_IMPOSTORS } from './impostors/impostorCatalogs'
 import {
@@ -35,13 +35,17 @@ import {
 // (frontal-band atlas, a single draw call) handed over near the eye to the
 // real meshes in two levels of detail (SceneryMeshes with CLOUD_IMPOSTORS).
 // Clouds receive no shadows; src/cloudShadows.js makes them cast theirs.
+// Both levels carry the light shining through them toward the eye
+// (cloud-translucency-pars-fragment.glsl), so a cloud in front of the sun
+// lights up along its rims.
 //
 // Ownership: this object owns the cloud atlas, impostor material and mesh,
 // near meshes, and its own uniforms. `uniforms` is the shared object (src/sharedUniforms.js)
 // (uCamera, uCurvature, uAtmosphere, uTime, uBiomeOffset, and the shadow
 // uniforms the shared shader chunks declare); a copy carries the clouds' own
-// uSceneryMeshRange. `settings` is params.clouds ({ placement, meshes, detail,
-// ambient, variation, palette }), `wireframe` the shared scenery wireframe
+// uSceneryMeshRange and translucency. `settings` is params.clouds ({
+// placement, meshes, detail, ambient, variation, palette, translucency }),
+// `wireframe` the shared scenery wireframe
 // settings, and `woodTexture` the shared wood color map.
 export default class Clouds extends Group {
 	constructor({ renderer, uniforms, settings, wireframe, woodTexture, seed, isMobile = false }) {
@@ -77,10 +81,14 @@ export default class Clouds extends Group {
 			uSceneryDetail: { value: Array.from({ length: CLOUD_TYPE_COUNT }, () => new Vector3()) },
 		}
 		this.applyDetail()
-		// The near meshes write this range; the impostor reads it.
+		// The near meshes write this range; the impostor reads it. Both read the
+		// translucency, written by applyAppearance().
 		this.uniforms = {
 			...uniforms,
 			uSceneryMeshRange: { value: new Vector2(...SCENERY_MESH_DISABLED_RANGE) },
+			uCloudTranslucency: { value: new Vector4() },
+			uCloudTranslucencyColor: { value: new Color() },
+			uCloudTranslucencyMoon: { value: 0 },
 		}
 		this.applyAppearance()
 
@@ -91,6 +99,7 @@ export default class Clouds extends Group {
 			receiveShadows: false,
 			farFade: this.farFade,
 			ambientScale: this.ambient,
+			translucent: true,
 		})
 		this.wireframeMaterial = createImpostorWireframeMaterial(this.material, wireframe.impostorColor)
 		this.meshes = new SceneryMeshes({
@@ -103,6 +112,7 @@ export default class Clouds extends Group {
 			catalog: CLOUD_IMPOSTORS,
 			receiveShadows: false,
 			ambientScale: this.ambient,
+			translucent: true,
 		})
 		this.add(this.meshes)
 		this.applyWireframe()
@@ -156,7 +166,8 @@ export default class Clouds extends Group {
 		)
 	}
 
-	// Re-reads the ambient boost and the brightness variation.
+	// Re-reads the ambient boost, the brightness variation, and the
+	// translucency (the tint from sRGB to linear).
 	applyAppearance() {
 		this.ambient.value = this.settings.ambient
 		const { amount, frequency } = this.settings.variation
@@ -164,6 +175,16 @@ export default class Clouds extends Group {
 			this.variation.amount.value[type] = amount[key]
 		}
 		this.variation.frequency.value = frequency
+		const { strength, focus, body, rim, moon, color } = this.settings.translucency
+		const { uCloudTranslucency, uCloudTranslucencyColor, uCloudTranslucencyMoon } = this.uniforms
+		uCloudTranslucency.value.set(
+			Math.max(strength, 0),
+			Math.max(focus, 0.01),
+			Math.min(Math.max(body, 0), 1),
+			Math.max(rim, 0.01),
+		)
+		uCloudTranslucencyColor.value.set(color)
+		uCloudTranslucencyMoon.value = Math.min(Math.max(moon, 0), 1)
 	}
 
 	// Shows or recolors the debug wireframe on the near meshes and impostors.

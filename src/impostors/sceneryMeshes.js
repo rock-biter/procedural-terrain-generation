@@ -67,8 +67,10 @@ const CULL_RADIUS_OFFSET = 0.5
 // SCENERY_PALETTE catalog; neutral ones without it) are uniform objects owned
 // by the caller and shared with the impostor material and bake settings.
 // `shadowTaps` is the PCF sample count of the scenery
-// shadow lookup. Without `receiveShadows`, lighting has no shadow and
-// `ambientScale` (a float uniform) scales the ambient light. `wireframe`
+// shadow lookup. Without `receiveShadows`, lighting has no shadow,
+// `ambientScale` (a float uniform) scales the ambient light, and `translucent`
+// adds the clouds' carried light, whose uniforms `uniforms` must hold
+// (cloud-translucency-pars-fragment.glsl). `wireframe`
 // (createSceneryWireframeSettings()) drives the debug overlay, one wireframe
 // twin per mesh in its level's color (sceneryWireframe.js).
 export default class SceneryMeshes extends Group {
@@ -83,6 +85,7 @@ export default class SceneryMeshes extends Group {
 		catalog = SCENERY_IMPOSTORS,
 		receiveShadows = true,
 		ambientScale = null,
+		translucent = false,
 	}) {
 		super()
 		this.name = `${catalog.name}-meshes`
@@ -94,6 +97,7 @@ export default class SceneryMeshes extends Group {
 		this.typeCount = catalog.typeCount
 		this.receiveShadows = receiveShadows
 		this.ambientScale = ambientScale
+		this.translucent = translucent
 		this.palette = palette ?? createSceneryPaletteUniforms(this.typeCount)
 		this.lodRange = { value: new Vector2() }
 		// Filled below from each type's LOD 0 bounds.
@@ -201,7 +205,7 @@ export default class SceneryMeshes extends Group {
 							selfBias: 'vShadowSelfBias',
 						},
 					}
-				: { ambientScale: this.ambientScale },
+				: { ambientScale: this.ambientScale, translucent: this.translucent },
 		)
 		Object.assign(material.defines, lighting.defines)
 		material.onBeforeCompile = (shader) => {

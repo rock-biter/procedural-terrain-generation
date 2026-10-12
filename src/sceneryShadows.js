@@ -31,6 +31,7 @@ import {
 	getCascadeSphere,
 	getShadowEdgeFactor,
 	getShadowStrength,
+	getSpecularShadowScale,
 	getTerrainCasterReach,
 	getTerrainShadowSegments,
 	hasLightDirectionChanged,
@@ -53,6 +54,8 @@ export function createSceneryShadowUniforms(settings) {
 		},
 		uSceneryShadowDepthScale: { value: new Array(SCENERY_SHADOW_CASCADE_COUNT).fill(0) },
 		uSceneryShadowStrength: { value: 0 },
+		// Turns a lookup into the glare's shadow (getSpecularShadowScale()).
+		uSceneryShadowSpecular: { value: 0 },
 		uSceneryShadowLight: { value: new Vector3(0, 1, 0) },
 		uSceneryShadowFade: { value: new Vector2(settings.fade.start, settings.fade.end) },
 		uSceneryShadowSoftness: {
@@ -209,6 +212,7 @@ export default class SceneryShadows {
 		uniforms.uSceneryShadowLight.value.fromArray(light.direction).normalize()
 		const strength = getShadowStrength(settings, light.strength)
 		uniforms.uSceneryShadowStrength.value = strength
+		uniforms.uSceneryShadowSpecular.value = getSpecularShadowScale(settings)
 		if (strength <= 0) {
 			this.lastDrawCalls = 0
 			this.lastRenderMs = performance.now() - startTime
@@ -454,6 +458,7 @@ export default class SceneryShadows {
 			light: this.light?.light ?? null,
 			lightElevation: this.light?.elevation ?? null,
 			strength: this.uniforms.uSceneryShadowStrength.value,
+			specularScale: this.uniforms.uSceneryShadowSpecular.value,
 			casters: this.proxyCount,
 			airplane: Boolean(this.airplane),
 			airplaneTriangles: this.airplane ? getTriangleCount(this.airplane.geometry) : 0,

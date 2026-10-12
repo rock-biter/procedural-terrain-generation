@@ -8,6 +8,7 @@ import {
 import { createCloudShadowUniforms } from './cloudShadows'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
+import { createSunOcclusionUniforms } from './sunOcclusion'
 import {
 	getSeaBreakingLags,
 	getSeaRegionDrift,
@@ -43,6 +44,9 @@ export function createSharedUniforms(params, seed) {
 		uCurvature: { value: CURVATURE },
 		// Written by DayNight before the first render.
 		uAtmosphere: { value: new Color() },
+		// World direction toward the sun (the lighting's pars, src/curvedLights.js);
+		// DayNight writes it every frame and the sky dome reads the same wrapper.
+		uSunDirection: { value: new Vector3(0, 1, 0) },
 		// Seeded biome offsets; written by updateBiomeOffsetUniforms().
 		uBiomeOffset: { value: new Vector4() },
 		uBiomeOceanOffset: { value: new Vector2() },
@@ -77,6 +81,8 @@ export function createSharedUniforms(params, seed) {
 		...createCloudShadowUniforms(),
 		// Sea rock distance map and ripple shape; written by SeaFoam.
 		...createSeaFoamUniforms(),
+		// Low-sun terrain height map, window, and march; written by SunOcclusion.
+		...createSunOcclusionUniforms(),
 		// The moving sea (sea-surface-pars.glsl, sea-ripple-pars-fragment.glsl),
 		// one entry per sea type or per wave component; written by
 		// updateSeaSurfaceUniforms().

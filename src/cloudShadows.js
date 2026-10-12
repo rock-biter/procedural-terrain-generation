@@ -31,6 +31,7 @@ import {
 	getCloudShadowBlurTexels,
 	getCloudShadowSphere,
 	getShadowStrength,
+	getSpecularShadowScale,
 	hasLightDirectionChanged,
 	shouldRenderCloudShadow,
 } from './shadowPolicy'
@@ -49,6 +50,8 @@ export function createCloudShadowUniforms() {
 		uCloudShadowMatrix: { value: new Matrix4() },
 		uCloudShadowWindow: { value: new Vector3() },
 		uCloudShadowStrength: { value: 0 },
+		// Turns a lookup into the glare's shadow (getSpecularShadowScale()).
+		uCloudShadowSpecular: { value: 0 },
 	}
 }
 
@@ -201,6 +204,7 @@ export default class CloudShadows {
 			light && this.clouds.impostors ? getShadowStrength(settings, light.strength) : 0
 		// Nothing is sampled before the first render.
 		uniforms.uCloudShadowStrength.value = this.center ? strength : 0
+		uniforms.uCloudShadowSpecular.value = getSpecularShadowScale(settings)
 		if (strength <= 0) return
 
 		const lightChanged = hasLightDirectionChanged(
@@ -281,6 +285,7 @@ export default class CloudShadows {
 		return {
 			enabled: this.settings.enabled,
 			strength: this.uniforms.uCloudShadowStrength.value,
+			specularScale: this.uniforms.uCloudShadowSpecular.value,
 			radius: this.settings.radius,
 			mapSize: this.mapSize,
 			center: this.center,

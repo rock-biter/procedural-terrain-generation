@@ -415,6 +415,60 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	const grainFolder = gui.addFolder('Film grain')
 	grainFolder.add(params.postProcessing.grain, 'intensity', 0, 0.3, 0.005).name('Intensity')
 
+	// Live: the effect reads its settings every frame. The readouts ask the
+	// current effect, so they survive the composer rebuild of a tone mapping
+	// change.
+	const flare = params.postProcessing.lensFlare
+	const lensFlareFolder = gui.addFolder('Lens flare')
+	lensFlareFolder.add(flare, 'enabled').name('Enabled')
+	lensFlareFolder.add(flare, 'intensity', 0, 4, 0.01).name('Intensity')
+	lensFlareFolder.add(flare, 'smoothing', 0, 0.5, 0.005).name('Smoothing (s)')
+	lensFlareFolder.add(flare, 'occlusionRadius', 0.2, 4, 0.05).name('Occlusion radius (°)')
+	lensFlareFolder.add(flare, 'edgeMargin', 0, 0.3, 0.005).name('Edge margin (UV)')
+	const flareGlowFolder = lensFlareFolder.addFolder('Glow')
+	flareGlowFolder.add(flare.glow, 'intensity', 0, 2, 0.005).name('Intensity')
+	flareGlowFolder.add(flare.glow, 'size', 0.005, 0.5, 0.005).name('Size (screen heights)')
+	flareGlowFolder.add(flare.glow, 'falloff', 0.5, 6, 0.05).name('Falloff power')
+	const flareStarburstFolder = lensFlareFolder.addFolder('Starburst')
+	flareStarburstFolder.add(flare.starburst, 'intensity', 0, 1, 0.005).name('Intensity')
+	flareStarburstFolder
+		.add(flare.starburst, 'size', 0.01, 0.8, 0.005)
+		.name('Length (screen heights)')
+	flareStarburstFolder.add(flare.starburst, 'rays', 2, 32, 2).name('Rays')
+	flareStarburstFolder.add(flare.starburst, 'sharpness', 1, 200, 1).name('Sharpness')
+	flareStarburstFolder.add(flare.starburst, 'rotation', 0, Math.PI, 0.01).name('Rotation (rad)')
+	const flareGhostsFolder = lensFlareFolder.addFolder('Ghosts')
+	flareGhostsFolder.add(flare.ghosts, 'intensity', 0, 0.5, 0.005).name('Intensity')
+	flareGhostsFolder.add(flare.ghosts, 'size', 0.005, 0.2, 0.005).name('Size (screen heights)')
+	flareGhostsFolder.add(flare.ghosts, 'spacing', 0, 2, 0.01).name('Spacing')
+	const flareHaloFolder = lensFlareFolder.addFolder('Halo')
+	flareHaloFolder.add(flare.halo, 'intensity', 0, 0.5, 0.005).name('Intensity')
+	flareHaloFolder.add(flare.halo, 'radius', 0.05, 1, 0.005).name('Radius (screen heights)')
+	flareHaloFolder.add(flare.halo, 'width', 0.002, 0.2, 0.001).name('Width (screen heights)')
+	const flareDebugFolder = lensFlareFolder.addFolder('Debug')
+	flareDebugFolder.add(flare.debug, 'showTaps').name('Show occlusion taps')
+	const readFlareStats = () => setup.postProcessing.lensFlareEffect.getStats()
+	const flareStatus = {
+		get gate() {
+			return readFlareStats().gate.toFixed(3)
+		},
+		get visibility() {
+			return readFlareStats().visibility.toFixed(3)
+		},
+		get screen() {
+			const { screen, inFront } = readFlareStats()
+			return inFront ? `${screen[0].toFixed(3)}, ${screen[1].toFixed(3)}` : 'behind'
+		},
+	}
+	const flareStatusLabels = {
+		gate: 'Gate (disc × edge)',
+		visibility: 'Visible share',
+		screen: 'Sun on screen (UV)',
+	}
+	for (const [key, label] of Object.entries(flareStatusLabels)) {
+		flareDebugFolder.add(flareStatus, key).name(label).listen().disable()
+	}
+
 	const updatePost = () => setup.postProcessing.speedEffect.setParams(params.postProcessing)
 	const speedFolder = gui.addFolder('Speed effect')
 	// Read by tic(): holds the edge effect at least at this speed effect.
@@ -1025,11 +1079,36 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.add(cloudSettings.meshes, 'end', 1, 1500, 1)
 		.name('Impostor from (units)')
 		.onChange(updateCloudMeshes)
+	// Live: the light the clouds carry through toward the eye.
+	const translucencyFolder = cloudsFolder.addFolder('Translucency')
+	const translucency = cloudSettings.translucency
+	translucencyFolder
+		.add(translucency, 'strength', 0, 3, 0.01)
+		.name('Strength')
+		.onChange(updateCloudAppearance)
+	translucencyFolder
+		.add(translucency, 'focus', 0.5, 32, 0.1)
+		.name('Focus around the light')
+		.onChange(updateCloudAppearance)
+	translucencyFolder
+		.add(translucency, 'body', 0, 1, 0.01)
+		.name('Body glow (share)')
+		.onChange(updateCloudAppearance)
+	translucencyFolder
+		.add(translucency, 'rim', 0.1, 8, 0.05)
+		.name('Rim power')
+		.onChange(updateCloudAppearance)
+	translucencyFolder
+		.add(translucency, 'moon', 0, 1, 0.01)
+		.name('Moon share')
+		.onChange(updateCloudAppearance)
+	translucencyFolder.addColor(translucency, 'color').name('Tint').onChange(updateCloudAppearance)
 	// Strength applies live; the rest renders the map again.
 	const updateCloudShadows = () => world.cloudShadows?.applySettings()
 	const cloudShadowsFolder = cloudsFolder.addFolder('Shadows')
 	cloudShadowsFolder.add(cloudSettings.shadows, 'enabled').name('Enabled')
 	cloudShadowsFolder.add(cloudSettings.shadows, 'strength', 0, 1, 0.01).name('Strength')
+	cloudShadowsFolder.add(cloudSettings.shadows, 'specular', 0, 1, 0.01).name('Glare removed')
 	cloudShadowsFolder
 		.add(cloudSettings.shadows, 'softness', 0, 20, 0.1)
 		.name('Softness (units)')
@@ -1044,6 +1123,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	const shadowsFolder = gui.addFolder('Shadows')
 	shadowsFolder.add(params.shadows, 'enabled').name('Enabled')
 	shadowsFolder.add(params.shadows, 'strength', 0, 1, 0.01).name('Strength')
+	shadowsFolder.add(params.shadows, 'specular', 0, 1, 0.01).name('Glare removed')
 	shadowsFolder
 		.add(params.shadows.softness, 'near', 0, 4, 0.05)
 		.name('Softness near (units)')
@@ -1084,6 +1164,41 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		.add(params.shadows.terrainCasters, 'maxReach', 0, 1500, 10)
 		.name('Max reach (units)')
 		.onChange(updateShadows)
+	// Live: the march reads these every frame; the window's radius and shift
+	// render the map again. Map size, grid segments, and steps are fixed at
+	// startup.
+	const sunOcclusion = params.sunOcclusion
+	const updateSunOcclusion = () => world.sunOcclusion?.applySettings()
+	const lowSunFolder = shadowsFolder.addFolder('Low sun (terrain)')
+	lowSunFolder.add(sunOcclusion, 'enabled').name('Enabled')
+	lowSunFolder.add(sunOcclusion, 'specular', 0, 1, 0.01).name('Glare removed')
+	lowSunFolder.add(sunOcclusion, 'diffuse', 0, 1, 0.01).name('Long shadows')
+	lowSunFolder.add(sunOcclusion.elevation, 'full', 0, 0.5, 0.005).name('Full below (rad)')
+	lowSunFolder.add(sunOcclusion.elevation, 'end', 0, 0.8, 0.005).name('Gone above (rad)')
+	lowSunFolder.add(sunOcclusion, 'penumbra', 0.001, 0.1, 0.001).name('Penumbra (slope)')
+	lowSunFolder.add(sunOcclusion, 'firstStep', 0.5, 50, 0.5).name('First step (units)')
+	lowSunFolder.add(sunOcclusion, 'reach', 100, 4000, 10).name('Reach (units)')
+	lowSunFolder.add(sunOcclusion, 'cone', -1, 1, 0.01).name('Glare cone (cosine)')
+	lowSunFolder
+		.add(sunOcclusion, 'radius', 512, 4096, 64)
+		.name('Map radius (units)')
+		.onFinishChange(updateSunOcclusion)
+	lowSunFolder
+		.add(sunOcclusion, 'sunShift', 0, 0.8, 0.01)
+		.name('Shift toward sun')
+		.onFinishChange(updateSunOcclusion)
+	const lowSunStatus = {
+		get strength() {
+			const stats = world.sunOcclusion?.getStats()
+			return stats ? `${stats.specular.toFixed(2)} glare, ${stats.diffuse.toFixed(2)} diffuse` : '-'
+		},
+		get map() {
+			const stats = world.sunOcclusion?.getStats()
+			return stats ? `${stats.casterChunks} chunks, ${stats.renders} renders` : '-'
+		},
+	}
+	lowSunFolder.add(lowSunStatus, 'strength').name('Strength').listen().disable()
+	lowSunFolder.add(lowSunStatus, 'map').name('Map').listen().disable()
 
 	// Live: the adaptive ratio reads these every frame.
 	const performanceFolder = gui.addFolder('Performance')

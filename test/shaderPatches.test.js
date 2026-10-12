@@ -20,6 +20,10 @@ import {
 import Aurora from '../src/aurora.js'
 import { createAuroraSettings } from '../src/auroraPolicy.js'
 import Chunk from '../src/chunk.js'
+import LensFlareEffect from '../src/lensFlareEffect.js'
+import { createLensFlareSettings } from '../src/lensFlarePolicy.js'
+import SunOcclusion, { createSunOcclusionUniforms } from '../src/sunOcclusion.js'
+import { createSunOcclusionSettings } from '../src/sunOcclusionPolicy.js'
 import Plane from '../src/plane.js'
 import TerrainSampleDebug from '../src/terrainSampleDebug.js'
 import { AIRPLANE_MODELS } from '../src/airplaneModels.js'
@@ -110,6 +114,20 @@ test('the terrain patches fit the standard material', () => {
 	assert.match(terrain.vertexShader, /vIceValue = getIceValue\(/)
 	assert.match(terrain.vertexShader, /getSeaIceStill\(height, vIceValue\)/)
 	assert.match(terrain.fragmentShader, /float iceValue = vIceValue;/)
+	// Without the low-sun settings the march is never compiled.
+	assert.ok(!('SUN_OCCLUSION_STEPS' in chunk.material.defines))
+})
+
+test('the terrain marches toward a low sun with the preset step count', () => {
+	const params = {
+		shadows: createSceneryShadowSettings(),
+		sunOcclusion: createSunOcclusionSettings(),
+	}
+	const chunk = new Chunk(256, params, 0, new Vector3(), uniforms, {}, new BufferGeometry())
+	const terrain = patch(chunk.material, 'physical')
+	assert.equal(chunk.material.defines.SUN_OCCLUSION_STEPS, params.sunOcclusion.steps)
+	assert.match(terrain.fragmentShader, /getSunOcclusion\(vShadowPosition, distanceFromCamera,/)
+	assert.match(terrain.fragmentShader, /uniform sampler2D uSunOcclusionMap;/)
 })
 
 test('the terrain shadow caster draws back faces only and flattens onto the near plane', () => {
@@ -159,6 +177,7 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		{
 			receiveShadows: false,
 			ambientScale: { value: 1 },
+			translucent: true,
 		},
 	)
 	// Unshadowed: the lighting never calls the shadow lookup.
@@ -172,6 +191,12 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		assert.ok(name in cloudShader.uniforms, name)
 	}
 	assert.ok(!('SCENERY_SEA_WAVES' in clouds.defines))
+	// The clouds carry the light shining through them, and so does their
+	// wireframe twin.
+	assert.ok('CLOUD_TRANSLUCENCY' in clouds.defines)
+	assert.match(cloudShader.fragmentShader, /getCloudTranslucency\(directLight\.color/)
+	assert.ok('CLOUD_TRANSLUCENCY' in createImpostorWireframeMaterial(clouds, 0xffffff).defines)
+	assert.ok(!('CLOUD_TRANSLUCENCY' in scenery.defines))
 })
 
 test('the near scenery and cloud mesh patches fit the standard material', () => {
@@ -188,7 +213,10 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 		catalog: CLOUD_IMPOSTORS,
 		receiveShadows: false,
 		ambientScale: { value: 1 },
+		translucent: true,
 	})
+	assert.ok('CLOUD_TRANSLUCENCY' in clouds.levels[0].material.defines)
+	assert.ok(!('CLOUD_TRANSLUCENCY' in scenery.levels[0].material.defines))
 	for (const meshes of [scenery, clouds]) {
 		for (const level of meshes.levels) {
 			const shader = patch(level.material, 'physical')
@@ -276,4 +304,44 @@ test('the bake and resolve passes write the crown mask as a third target', () =>
 		const source = readFileSync(new URL(`../src/shaders/${file}`, import.meta.url), 'utf8')
 		assert.match(source, /layout\(location = 2\) out vec4 gPaint;/, file)
 	}
+})
+
+// Every uniform a standalone shader declares must reach its material.
+function assertDeclaredUniforms(sources, supplied) {
+	for (const source of sources) {
+		for (const [, name] of source.matchAll(/^\s*uniform\s+\w+\s+(\w+)/gm)) {
+			assert.ok(supplied.has(name), name)
+		}
+	}
+}
+
+test('the lens flare composite and its occlusion pass supply every uniform they declare', () => {
+	const sun = { direction: new Vector3(0, 1, 0), color: new Color(), discVisibility: 0 }
+	const effect = new LensFlareEffect(new PerspectiveCamera(), createLensFlareSettings(), sun)
+	assertDeclaredUniforms([effect.getFragmentShader()], effect.uniforms)
+	assert.equal(effect.defines.get('LENS_FLARE_TAPS'), '32')
+	const { fullscreenMaterial } = effect.visibilityPass
+	assertDeclaredUniforms(
+		[fullscreenMaterial.vertexShader, fullscreenMaterial.fragmentShader],
+		new Map(Object.entries(fullscreenMaterial.uniforms)),
+	)
+	// The occlusion pass and the composite share the sun's screen position.
+	assert.equal(fullscreenMaterial.uniforms.sunScreen, effect.uniforms.get('sunScreen'))
+	effect.dispose()
+})
+
+test('the low-sun height map caster supplies every uniform it declares', () => {
+	const occlusion = new SunOcclusion({
+		renderer: null,
+		uniforms: createSunOcclusionUniforms(),
+		settings: createSunOcclusionSettings(),
+	})
+	const { material } = occlusion
+	assertDeclaredUniforms(
+		[material.vertexShader, material.fragmentShader],
+		new Map(Object.entries(material.uniforms)),
+	)
+	assert.match(material.defines.SUN_OCCLUSION_HEIGHT_BASE, /^\(-?\d+\.\d\)$/)
+	assert.equal(occlusion.uniforms.uSunOcclusionMap.value, occlusion.target.texture)
+	occlusion.dispose()
 })

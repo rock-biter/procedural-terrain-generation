@@ -55,7 +55,8 @@ export default class DayNight {
 			uZenith: { value: new Color() },
 			uHorizon: { value: new Color() },
 			uSunColor: { value: new Color() },
-			uSunDirection: { value: new Vector3() },
+			// The shared wrapper: the terrain and the clouds read the sun too.
+			uSunDirection: uniforms.uSunDirection,
 			uMoonDirection: { value: new Vector3() },
 			uStarVisibility: { value: 0 },
 			uHorizonDip: { value: 0 },
@@ -128,7 +129,7 @@ export default class DayNight {
 		setSRGB(this.skyUniforms.uZenith.value, state.zenith)
 		setSRGB(this.skyUniforms.uHorizon.value, state.horizon)
 		setSRGB(this.skyUniforms.uSunColor.value, state.sunColor)
-		this.skyUniforms.uSunDirection.value.fromArray(state.sunDirection)
+		this.uniforms.uSunDirection.value.fromArray(state.sunDirection)
 		this.skyUniforms.uMoonDirection.value.fromArray(state.moonDirection)
 		this.skyUniforms.uStarVisibility.value = state.stars
 		this.skyUniforms.uHorizonDip.value = Math.sin(dip)

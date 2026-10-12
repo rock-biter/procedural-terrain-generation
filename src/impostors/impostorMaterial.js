@@ -86,8 +86,9 @@ export function setSceneryPaletteUniforms(palette, layout) {
 // With `receiveShadows` (scenery), `uniforms` must also hold the scenery and
 // cloud shadow uniforms (src/sceneryShadows.js, src/cloudShadows.js);
 // `shadowTaps` is the PCF sample count of the scenery shadow lookup. Without
-// it (clouds), lighting has no shadow and `ambientScale` (a float uniform)
-// scales the ambient light.
+// it (clouds), lighting has no shadow, `ambientScale` (a float uniform)
+// scales the ambient light, and `translucent` adds the clouds' carried light,
+// whose uniforms `uniforms` must hold (cloud-translucency-pars-fragment.glsl).
 export function createImpostorMaterial(
 	atlas,
 	uniforms,
@@ -99,6 +100,7 @@ export function createImpostorMaterial(
 		farFade = null,
 		ambientScale = null,
 		palette = null,
+		translucent = false,
 	} = {},
 ) {
 	const impostorUniforms = {
@@ -120,6 +122,7 @@ export function createImpostorMaterial(
 		singleFrame,
 		shadowTaps,
 		receiveShadows,
+		translucent,
 	})
 	return material
 }
@@ -144,7 +147,7 @@ function buildImpostorMaterial(
 	atlas,
 	uniforms,
 	impostorUniforms,
-	{ singleFrame, shadowTaps, receiveShadows },
+	{ singleFrame, shadowTaps, receiveShadows, translucent = false },
 ) {
 	const material = new MeshStandardMaterial({
 		roughness: 0.9,
@@ -169,7 +172,7 @@ function buildImpostorMaterial(
 						selfBias: 'vShadowSelfBias',
 					},
 				}
-			: { ambientScale: impostorUniforms.uSceneryAmbientScale },
+			: { ambientScale: impostorUniforms.uSceneryAmbientScale, translucent },
 	)
 	Object.assign(material.defines, lighting.defines)
 
@@ -181,6 +184,7 @@ function buildImpostorMaterial(
 		singleFrame,
 		shadowTaps,
 		receiveShadows,
+		translucent,
 	}
 
 	material.onBeforeCompile = (shader) => {

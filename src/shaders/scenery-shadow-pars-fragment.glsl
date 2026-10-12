@@ -10,6 +10,9 @@ uniform vec4 uSceneryShadowCascades[2];
 uniform float uSceneryShadowDepthScale[2];
 // 0 disables every lookup; includes the light-elevation fade.
 uniform float uSceneryShadowStrength;
+// Scale that turns a getSceneryShadow() result into the glare's shadow:
+// 1 - (1 - shadow) * scale (getSpecularShadowScale() in src/shadowPolicy.js).
+uniform float uSceneryShadowSpecular;
 // World direction toward the shadowing light (sun or moon).
 uniform vec3 uSceneryShadowLight;
 // Distance from the plane where shadows start to weaken (x) and vanish (y).
