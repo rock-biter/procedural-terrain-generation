@@ -11,7 +11,7 @@ import {
 	getSectorDirection,
 	needsSceneryPlacement,
 } from './chunkPolicy'
-import { createChunkGeometry } from './chunkTopology'
+import { createChunkGeometry, getChunkShadowIndex } from './chunkTopology'
 import ChunkWorkerPool from './chunkWorkerPool'
 import { getSeaWaveBound } from './seaSurfacePolicy'
 import { updateBiomeOffsetUniforms } from './sharedUniforms'
@@ -69,6 +69,8 @@ export default class ChunkManager {
 		this.streaming = isMobile ? CHUNK_STREAMING.mobile : CHUNK_STREAMING.desktop
 		this.maxDistance = this.streaming.maxDistance
 		this.density = isMobile ? 4 : 2
+		// Scratch edge factors of stitchChunk(), in CHUNK_EDGES order.
+		this.edgeFactors = [1, 1, 1, 1]
 		this.params = params
 		this.camera = camera
 		this.chunkSize = chunkSize
@@ -327,6 +329,7 @@ export default class ChunkManager {
 		const geometry = createChunkGeometry(response.geometry)
 		if (job.type === 'create') chunk = this.createChunk(job, geometry)
 		else chunk.replaceGeometry(geometry, job.LOD)
+		this.stitchAround(...job.coords)
 
 		if (response.scenery) chunk.setScenery(response.scenery)
 		else if (!job.scenery) chunk.clearScenery()
@@ -397,6 +400,41 @@ export default class ChunkManager {
 		chunk.dispose()
 		this.chunks.delete(key)
 		this.disposed++
+		if (chunk.coords) this.stitchAround(...chunk.coords)
+	}
+
+	// Re-stitches the chunk at (i, j) and its four neighbors after its geometry
+	// changed or it left.
+	stitchAround(i, j) {
+		this.stitchChunk(i, j)
+		this.stitchChunk(i, j - 1)
+		this.stitchChunk(i, j + 1)
+		this.stitchChunk(i - 1, j)
+		this.stitchChunk(i + 1, j)
+	}
+
+	// Draws the chunk at (i, j) with its edges snapped to coarser neighbors
+	// (createChunkShadowIndex() over its own grid, shared per segment count and
+	// edge factors): neighbors at different LODs then share every edge vertex,
+	// so the terrain has no T-junction cracks, even where the sea's vertices
+	// follow its waves on both sides.
+	stitchChunk(i, j) {
+		const geometry = this.chunks.get(getChunkKey(i, j))?.geometry
+		const segments = geometry?.userData.segments
+		if (!segments) return
+		const factors = this.edgeFactors
+		factors[0] = this.getEdgeFactor(segments, i, j - 1)
+		factors[1] = this.getEdgeFactor(segments, i, j + 1)
+		factors[2] = this.getEdgeFactor(segments, i - 1, j)
+		factors[3] = this.getEdgeFactor(segments, i + 1, j)
+		const index = getChunkShadowIndex(segments, segments, factors)
+		if (geometry.index !== index) geometry.setIndex(index)
+	}
+
+	// How much coarser the neighbor at (i, j) is than `segments`, or 1.
+	getEdgeFactor(segments, i, j) {
+		const neighbor = this.chunks.get(getChunkKey(i, j))?.geometry?.userData.segments
+		return neighbor && neighbor < segments ? segments / neighbor : 1
 	}
 
 	// Replaces the world seed: terrain noise, biome offset (CPU and the shared

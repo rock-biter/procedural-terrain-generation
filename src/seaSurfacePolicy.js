@@ -22,10 +22,10 @@
 // - The waves fade toward the coast, from nothing at `coast.start` units of
 //   depth to full at `coast.full`, and under the frozen sea.
 // - Vertices move only within `vertex.fadeStart` to `vertex.fadeEnd` world
-//   units (horizontal) of the airplane, inside the LOD 0 block (at least one
-//   chunk, 256 units, around the airplane's chunk), so moved vertices never
-//   meet a coarser neighbour's T-junctions. Beyond, the waves live in the
-//   normals alone.
+//   units (horizontal) of the airplane; beyond, the waves live in the normals
+//   alone. They reach past the LOD 0 block: the chunks' edges are stitched to
+//   coarser neighbours (ChunkManager.stitchChunk()), so moved vertices never
+//   open a T-junction crack.
 // - Ripples: the sea's ribbed normal map snakes across its ribs, by
 //   `amplitude` world units, with crests `wavelength` units apart along the
 //   ribs, travelling at `speed` units per second, its phase broken by a noise
@@ -94,7 +94,7 @@ export const SEA_SURFACE_DEBUG_VIEWS = Object.freeze({
 
 export const SEA_SURFACE_DEFAULTS = Object.freeze({
 	regions: Object.freeze({ scale: 2500, contrast: 1.6, drift: 4, direction: 35 }),
-	vertex: Object.freeze({ fadeStart: 183, fadeEnd: 240 }),
+	vertex: Object.freeze({ fadeStart: 180, fadeEnd: 360 }),
 	oceanBlend: 0.05,
 	foamColor: '#ffffff',
 	crestFoam: SEA_CREST_FOAM_STYLES.lines,

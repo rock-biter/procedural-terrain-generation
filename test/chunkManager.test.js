@@ -7,7 +7,7 @@ import ChunkManager from '../src/chunkManager.js'
 import { CURVATURE } from '../src/worldConstants.js'
 import { createTerrainSettings, createTerrainSnapshot } from '../src/chunkGeometry.js'
 import { getChunkKey, getCurvatureDrop } from '../src/chunkPolicy.js'
-import { getChunkShadowView } from '../src/chunkTopology.js'
+import { getChunkShadowView, getChunkTopology } from '../src/chunkTopology.js'
 import { runChunkJob } from '../src/chunkWorkerJob.js'
 import { createScenerySettings } from '../src/sceneryPlacement.js'
 import { createSceneryShadowSettings } from '../src/shadowPolicy.js'
@@ -104,6 +104,45 @@ test('crossing chunk borders disposes what left and streams what entered', async
 	plane.updateMatrixWorld()
 	await settle(manager)
 	assertConsistent(manager, scene)
+})
+
+// Every live chunk's edges match its neighbors: an edge next to a coarser
+// chunk is stitched (fewer triangles than the plain grid), and a chunk whose
+// neighbors are no coarser draws the shared plain index.
+function assertStitched(manager) {
+	let stitched = 0
+	for (const chunk of manager.chunks.values()) {
+		const [i, j] = chunk.coords
+		const segments = chunk.geometry.userData.segments
+		const coarser = [
+			[i, j - 1],
+			[i, j + 1],
+			[i - 1, j],
+			[i + 1, j],
+		].some(([ni, nj]) => {
+			const neighbor = manager.chunks.get(getChunkKey(ni, nj))
+			return neighbor && neighbor.geometry.userData.segments < segments
+		})
+		const plain = getChunkTopology(segments).index
+		if (coarser) {
+			assert.notEqual(chunk.geometry.index, plain)
+			assert.ok(chunk.geometry.index.count < plain.count)
+			stitched++
+		} else {
+			assert.equal(chunk.geometry.index, plain)
+		}
+	}
+	return stitched
+}
+
+test('chunk edges next to coarser neighbors are stitched, and follow their changes', async () => {
+	const { manager, plane } = createManager()
+	await settle(manager)
+	assert.ok(assertStitched(manager) > 0)
+	// LOD changes and disposals re-stitch the neighbors.
+	plane.position.z += CHUNK_SIZE * 3
+	await settle(manager)
+	assertStitched(manager)
 })
 
 test('terrain shadow views are disposed with their chunk geometry', async () => {

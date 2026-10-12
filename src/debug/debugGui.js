@@ -1259,15 +1259,15 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		]) {
 			regionsFolder.add(settings.regions, key, min, max, step).name(label).onChange(apply)
 		}
-		// Capped inside the LOD 0 block (256 units around the airplane's chunk),
-		// so moved vertices never meet a coarser neighbour.
+		// Any distance: the chunks' edges are stitched to coarser neighbours, so
+		// moved vertices open no crack between LODs.
 		const vertexFolder = folder.addFolder('Moving vertices')
 		vertexFolder
-			.add(settings.vertex, 'fadeStart', 0, 240, 1)
+			.add(settings.vertex, 'fadeStart', 0, 1000, 1)
 			.name('Fade from (units)')
 			.onChange(apply)
 		vertexFolder
-			.add(settings.vertex, 'fadeEnd', 1, 240, 1)
+			.add(settings.vertex, 'fadeEnd', 1, 1000, 1)
 			.name('Still beyond (units)')
 			.onChange(apply)
 

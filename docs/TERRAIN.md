@@ -141,9 +141,11 @@ A heading change can change the LOD of many chunks at once: in a continuous desk
 
 The density divisor is `2` on desktop and `4` on mobile. An LOD job generates a complete replacement buffer set in a worker. `Chunk.replaceGeometry()` then disposes the previous geometry and installs the result on the main thread.
 
-The manager does not enqueue an LOD job when the target matches the live chunk. Any new LOD rule must preserve this guard and keep neighboring chunk edges compatible enough to avoid obvious cracks.
+The manager does not enqueue an LOD job when the target matches the live chunk. Any new LOD rule must preserve this guard.
 
-The sea's vertices move with its waves only within `params.seaSurface.vertex.fadeEnd` (`240` units, where the GUI stops) of the airplane, horizontally. LOD `0` always covers the airplane's chunk and its eight neighbours, so at least `256` units in every direction: moved vertices never meet a coarser neighbour's T-junctions, where they would open cracks. Any LOD rule that shrinks that block must lower the fade too.
+**Stitched edges:** neighbouring chunks at different LODs share every other vertex of their common edge, so the finer chunk's extra edge vertices would form T-junctions, where the curvature drop and the sea's moving vertices open cracks. `ChunkManager.stitchChunk()` draws each chunk with `getChunkShadowIndex(segments, segments, edgeFactors)` ([`src/chunkTopology.js`](../src/chunkTopology.js)): `createChunkShadowIndex()` over the chunk's own grid, with every edge next to a coarser neighbour (`edgeFactors` in `CHUNK_EDGES` order, the neighbour's coarseness) snapped to that neighbour's vertices, the same tested stitching as the terrain shadow casters. The indices are shared per segment count and edge factors and never disposed; a chunk with no coarser neighbour keeps the plain shared index. Every commit of a chunk's geometry (create or LOD change) and every disposal re-stitches that chunk and its four neighbours (`stitchAround()`), so the edges follow the streaming. Since 2026-10-12.
+
+The sea's vertices move with its waves within `params.seaSurface.vertex.fadeEnd` (`360` units) of the airplane, horizontally, beyond the LOD `0` block: the stitched edges keep the moved vertices from opening cracks between LODs (without them, the worst gap at a `4`-unit LOD `1` edge was estimated at `0.3` units on the sea and `0.6` on the deep ocean, one or two pixels at those distances). Until 2026-10-12 the fade ended at `240` units, inside the LOD `0` block, where the change from moving to still water showed close to the airplane.
 
 ## Terrain Bands
 
@@ -311,7 +313,7 @@ Record and test ownership before changing disposal; shared resources must not be
 - Keep the forest ring (`params.biomes.iceRing`) wider than the ice and desert blends together, or the two topographies overlap.
 - Keep the ice's `peakHeight` at most the flight ceiling minus the terrain clearance (`95 - 10`), and its mountains on land: the frozen sea and the coast assume the ice raises nothing below the waterline.
 - Keep the deep ocean's slope outside the biome (its weight `1` from the border in), so no land reaches the border the shader draws no line along, and its `blend` below `OCEAN_FIELD_REACH`, where the field's detail layer starts to be skipped. Keep the islets under `ISLET_HEIGHT_CAP` and their archipelagos inside one grid cell: the deep ocean has sand, grass, and land, never rocks or snow, and each point reads one cell.
-- Keep `params.seaSurface.vertex.fadeEnd` inside the LOD `0` block (below `256` units), so the moving sea vertices never meet a coarser chunk edge (see [Level Of Detail](#level-of-detail)).
+- Keep every chunk stitched to its neighbours (`ChunkManager.stitchChunk()`) whenever a geometry or LOD rule changes: the moving sea vertices reach past the LOD `0` block and rely on it (see [Level Of Detail](#level-of-detail)).
 - Height parameters reach the workers only through `createTerrainSnapshot()`: add a new one to it and to `TERRAIN_DEFAULTS`.
 - Treat changes to `params.octaves` as changes to both the height loop and the number of available noise functions; `createTerrainNoises()` keeps at least the two the landmass needs.
 
@@ -321,7 +323,6 @@ Record and test ownership before changing disposal; shared resources must not be
 - What frame-time budget should govern queue throughput and chunk radius?
 - Should chunk resources be pooled rather than recreated after disposal?
 - What scenery density and instance scale best match the style references in [`docs/style-references/`](style-references/)?
-- How should visible geometric seams (T-junctions between LODs) be measured?
 - Should boats sail the open water of the ice biome, beyond its floes? Placement keeps them out of the whole biome for now, as out of the deep ocean.
 - What should the deep ocean hold besides its archipelagos (ruins, sea creatures)? An atlas block is free for one more scenery type.
 - The highest temperate peaks over 240 km squares of several seeds measured about `96` with the former two-biome layout and `99` with the current one, above the `95` flight ceiling. The ice's mountains stop at `peakHeight` (`80`), but how flight should handle the forest's peaks is open.
