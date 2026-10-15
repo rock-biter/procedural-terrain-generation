@@ -44,6 +44,7 @@ export default class ChunkManager {
 	ready = []
 	lastChunkVisited = null
 	headingSector = null
+	bothWays = false
 	forward = new Vector3()
 	revision = 0
 	created = 0
@@ -104,6 +105,7 @@ export default class ChunkManager {
 			lookAhead: this.streaming.lookAhead,
 			lodLookAhead: this.streaming.lodLookAhead,
 			rearDistance: this.streaming.rearDistance,
+			bothWays: this.bothWays,
 		})
 
 		for (const key of this.chunks.keys()) {
@@ -372,10 +374,17 @@ export default class ChunkManager {
 		const [i, j] = this.getCoordsByCamera()
 		const currentChunkKey = getChunkKey(i, j)
 		const headingSector = this.getHeadingSector()
+		// While the Plane turns around (an Immelmann), stream both ways.
+		const bothWays = Boolean(this.camera.isTurningAround)
 
-		if (currentChunkKey !== this.lastChunkVisited || headingSector !== this.headingSector) {
+		if (
+			currentChunkKey !== this.lastChunkVisited ||
+			headingSector !== this.headingSector ||
+			bothWays !== this.bothWays
+		) {
 			this.lastChunkVisited = currentChunkKey
 			this.headingSector = headingSector
+			this.bothWays = bothWays
 			this.reconcileChunks(i, j)
 		}
 

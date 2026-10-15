@@ -1,12 +1,9 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { createAppParams } from '../src/appParams.js'
 import {
 	constrainDescentToMinimum,
 	FLIGHT_LIMITS,
 	createFlightCorridor,
-	getBarrelRollAngle,
-	getBarrelRollTurnAngle,
 	getFlightCorridor,
 	getSafetyClimbSpeed,
 	getSceneryClearance,
@@ -17,7 +14,6 @@ import {
 	getTerrainSlowdown,
 	getVerticalInput,
 	smoothMinimumAltitude,
-	wrapAngle,
 } from '../src/flightPolicy.js'
 
 test('maps boost and braking to asymmetric speed changes', () => {
@@ -398,104 +394,4 @@ test('the wheel eases the speed effect toward its request, then it decays', () =
 	assert.equal(effect, held * (1 - dt * FLIGHT_LIMITS.speedEffectDecay))
 	for (let frame = 0; frame < 12; frame++) effect = getNextSpeedEffect(effect, -1, dt)
 	assert.ok(effect < -0.85)
-})
-
-const degrees = (value) => (value * Math.PI) / 180
-const close = (actual, expected, message) =>
-	assert.ok(Math.abs(actual - expected) < 1e-9, `${message ?? ''} ${actual} != ${expected}`)
-
-test('wrapAngle keeps an angle within one turn, in [-PI, PI)', () => {
-	close(wrapAngle(degrees(375)), degrees(15))
-	close(wrapAngle(degrees(720)), 0)
-	close(wrapAngle(degrees(-10)), degrees(-10))
-	close(wrapAngle(degrees(190)), degrees(-170))
-	close(wrapAngle(degrees(-725)), degrees(-5))
-	assert.equal(wrapAngle(0), 0)
-	for (let angle = -50; angle <= 50; angle += 0.37) {
-		const wrapped = wrapAngle(angle)
-		assert.ok(wrapped >= -Math.PI && wrapped < Math.PI, `${angle} -> ${wrapped}`)
-		// The same orientation: a whole number of turns apart.
-		const turns = (angle - wrapped) / (Math.PI * 2)
-		close(turns, Math.round(turns), `${angle}`)
-	}
-})
-
-const ROLL = { duration: 0.75, power: 2, overshoot: 20, settle: 0.3, wobbles: 1 }
-const TURNS = Math.PI * 4
-
-test('the barrel roll eases to an overshoot, swings back, and ends on two turns', () => {
-	assert.equal(FLIGHT_LIMITS.barrelRollTurns, 2)
-	assert.equal(getBarrelRollTurnAngle(0, ROLL), 0)
-	close(getBarrelRollTurnAngle(0.7, ROLL), TURNS + degrees(20), 'overshoot')
-	close(getBarrelRollTurnAngle(1, ROLL), TURNS, 'end')
-	close(getBarrelRollTurnAngle(2, ROLL), TURNS, 'past the end')
-	// Halfway through the ease, halfway to the overshoot.
-	close(getBarrelRollTurnAngle(0.35, ROLL), (TURNS + degrees(20)) / 2, 'halfway')
-
-	// Rises without stopping to the overshoot, then one wobble swings below
-	// the end before settling.
-	let previous = 0
-	let lowest = Infinity
-	for (let step = 1; step <= 1000; step++) {
-		const progress = step / 1000
-		const angle = getBarrelRollTurnAngle(progress, ROLL)
-		if (progress <= 0.7) assert.ok(angle > previous, `rising at ${progress}`)
-		else lowest = Math.min(lowest, angle)
-		previous = angle
-	}
-	assert.ok(lowest < TURNS - degrees(1) && lowest > TURNS - degrees(20), `${lowest}`)
-
-	// No speed at the start, at the overshoot, and at the end.
-	const speed = (progress) =>
-		(getBarrelRollTurnAngle(progress + 1e-6, ROLL) -
-			getBarrelRollTurnAngle(progress - 1e-6, ROLL)) /
-		2e-6
-	for (const progress of [1e-6, 0.7, 1 - 1e-6]) {
-		assert.ok(Math.abs(speed(progress)) < 1e-3, `${progress}: ${speed(progress)}`)
-	}
-})
-
-test('the barrel roll ease follows its settings', () => {
-	// Without wobbles the return never crosses the end angle.
-	const smooth = { ...ROLL, wobbles: 0 }
-	for (let step = 700; step <= 1000; step++) {
-		assert.ok(getBarrelRollTurnAngle(step / 1000, smooth) >= TURNS - 1e-12)
-	}
-	// Without a settle share there is no overshoot: a plain ease in and out.
-	const plain = { ...ROLL, settle: 0 }
-	close(getBarrelRollTurnAngle(0.5, plain), TURNS / 2)
-	close(getBarrelRollTurnAngle(1, plain), TURNS)
-	for (let step = 0; step <= 100; step++) {
-		assert.ok(getBarrelRollTurnAngle(step / 100, plain) <= TURNS + 1e-12)
-	}
-	// A higher power starts slower.
-	assert.ok(getBarrelRollTurnAngle(0.1, { ...ROLL, power: 4 }) < getBarrelRollTurnAngle(0.1, ROLL))
-	// The settle share is capped, so the turns always keep some time.
-	close(getBarrelRollTurnAngle(0, { ...ROLL, settle: 1 }), 0)
-})
-
-test('the barrel roll angle stays wrapped and ends level in either direction', () => {
-	const { duration } = ROLL
-	assert.equal(getBarrelRollAngle(0, ROLL, 1), 0)
-	close(getBarrelRollAngle(duration, ROLL, 1), 0, 'end')
-	close(getBarrelRollAngle(duration, ROLL, -1), 0, 'end, mirrored')
-	close(getBarrelRollAngle(duration * 3, ROLL, 1), 0, 'past the end')
-	close(getBarrelRollAngle(duration * 0.7, ROLL, 1), degrees(20), 'overshoot')
-	close(getBarrelRollAngle(duration * 0.7, ROLL, -1), degrees(-20), 'overshoot, mirrored')
-	close(getBarrelRollAngle(1, { ...ROLL, duration: 0 }, 1), 0, 'no duration')
-
-	// The defaults sum up to the eased turns, never more than a third of a
-	// turn per 16 ms frame, so the wing trails stay continuous.
-	const defaults = createAppParams({ urlParams: new URLSearchParams(), isMobile: false }).barrelRoll
-	let total = 0
-	let previous = 0
-	for (let elapsed = 0.016; elapsed < defaults.duration + 0.016; elapsed += 0.016) {
-		const angle = getBarrelRollAngle(Math.min(elapsed, defaults.duration), defaults, 1)
-		assert.ok(angle >= -Math.PI && angle < Math.PI)
-		const delta = wrapAngle(angle - previous)
-		assert.ok(Math.abs(delta) < (Math.PI * 2) / 3, `${elapsed}: ${delta}`)
-		total += delta
-		previous = angle
-	}
-	close(total, TURNS, 'two turns')
 })

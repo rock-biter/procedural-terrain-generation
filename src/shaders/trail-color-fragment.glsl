@@ -4,7 +4,12 @@
 #include <color_fragment>
 float side = step(0.5, vUV.x);
 float widthFactor = side > 0.5 ? vTrailWidths.y : vTrailWidths.x;
-float taper = max(0.0, sin(3.14159265 * vUV.y));
+// Distance behind the airplane. The stripe grows over the first taper length
+// and fades over the last one before the ribbon's end; for a ribbon twice
+// the taper length (the usual trail) that is sin(PI * (1 - behind / length)).
+float behind = (1.0 - vUV.y) * uTrailMaxLength;
+float taper = sin(1.57079633 * clamp(behind / uTrailTaperLength, 0.0, 1.0))
+	* sin(1.57079633 * clamp((uTrailLength - behind) / uTrailTaperLength, 0.0, 1.0));
 float noiseFade = taper * taper;
 float halfWidth = 0.5 * uTrailLineWidth / uTrailRibbonWidth * taper * widthFactor;
 // Before any discard, so the derivative stays in uniform control flow.
@@ -14,7 +19,7 @@ float outlineWidth = uTrailBorderWidth / uTrailRibbonWidth * taper * widthFactor
 float stripeCenter = max(0.07,
 	(uTrailLineWidth * 0.5 + uTrailOuterAmplitude + uTrailBorderWidth)
 	/ uTrailRibbonWidth + 0.005);
-float oscillationRamp = smoothstep(0.0, 0.35, 1.0 - vUV.y);
+float oscillationRamp = smoothstep(0.0, 0.7 * uTrailTaperLength, behind);
 float oscillationScale = uTrailOscillationAmplitude / uTrailRibbonWidth
 	* oscillationRamp * vTrailBank;
 float outerReach = uTrailOuterAmplitude / uTrailRibbonWidth * noiseFade * widthFactor;

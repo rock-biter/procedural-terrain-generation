@@ -70,7 +70,8 @@ export default class FlightPauseDebug {
 		// OrbitControls expects a world-space camera, so detach it from the plane.
 		this.scene.attach(this.camera)
 		const controls = this.#getControls()
-		this.plane.getWorldPosition(controls.target)
+		// The airplane, which a loop or an Immelmann moves away from the rig.
+		this.plane.model.getWorldPosition(controls.target)
 		controls.enabled = true
 		controls.update()
 	}

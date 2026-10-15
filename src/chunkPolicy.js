@@ -109,35 +109,59 @@ function isInStreamingShape({ lodDistance, along, lateral }, maxDistance, rearDi
 	return Math.hypot(along / rearDistance, lateral / maxDistance) <= 1
 }
 
+// The chunk at (di, dj) from the center in the streaming shape along
+// `heading`, or null: its distances and its LOD distance.
+function getShapeDistances(di, dj, heading, lookAhead, lodLookAhead, maxDistance, rearDistance) {
+	const distances = getStreamingDistances(di, dj, heading, lookAhead)
+	if (!isInStreamingShape(distances, maxDistance, rearDistance)) return null
+	const lodDistance =
+		lodLookAhead === lookAhead
+			? distances.lodDistance
+			: getStreamingDistances(di, dj, heading, lodLookAhead).lodDistance
+	return { distance: distances.distance, priority: distances.lodDistance, lodDistance }
+}
+
 // Without `options.heading` the set is the symmetric disc of `maxDistance`.
 // `heading` is a unit [i, j] direction, as from `getSectorDirection()`. The
 // LOD rings follow `lodLookAhead` (`lookAhead` when omitted), and no chunk is
 // coarser than the LOD at `maxDistance`, the coarsest a radial set reaches.
+// With `options.bothWays` (an Immelmann turning around) the set also holds
+// the shape along the opposite heading, each chunk at the finer of the two,
+// so the turn neither drops the terrain ahead nor waits for the new one.
 export function getDesiredChunks(centerI, centerJ, maxDistance, options = {}) {
-	const { heading = null, lookAhead = 0, rearDistance = maxDistance } = options
+	const { heading = null, lookAhead = 0, rearDistance = maxDistance, bothWays = false } = options
 	const lodLookAhead = options.lodLookAhead ?? lookAhead
+	const directions = heading && bothWays ? [heading, [-heading[0], -heading[1]]] : [heading]
 	const reach = heading ? maxDistance + Math.max(lookAhead, 0) : maxDistance
 	const maxLOD = getChunkLOD(maxDistance)
 	const desired = new Map()
 
 	for (let i = centerI - reach; i <= centerI + reach; i++) {
 		for (let j = centerJ - reach; j <= centerJ + reach; j++) {
-			const distances = getStreamingDistances(i - centerI, j - centerJ, heading, lookAhead)
-			if (!isInStreamingShape(distances, maxDistance, rearDistance)) continue
-			const lodDistance =
-				lodLookAhead === lookAhead
-					? distances.lodDistance
-					: getStreamingDistances(i - centerI, j - centerJ, heading, lodLookAhead).lodDistance
+			let best = null
+			for (const direction of directions) {
+				const distances = getShapeDistances(
+					i - centerI,
+					j - centerJ,
+					direction,
+					lookAhead,
+					lodLookAhead,
+					maxDistance,
+					rearDistance,
+				)
+				if (distances && (!best || distances.lodDistance < best.lodDistance)) best = distances
+			}
+			if (!best) continue
 
 			const key = getChunkKey(i, j)
 			desired.set(key, {
 				key,
 				coords: [i, j],
-				distance: distances.distance,
+				distance: best.distance,
 				// Jobs run in this order, so chunks ahead are generated first.
-				priority: distances.lodDistance,
-				LOD: Math.min(getChunkLOD(lodDistance), maxLOD),
-				scenery: hasSceneryAtDistance(distances.distance),
+				priority: best.priority,
+				LOD: Math.min(getChunkLOD(best.lodDistance), maxLOD),
+				scenery: hasSceneryAtDistance(best.distance),
 			})
 		}
 	}

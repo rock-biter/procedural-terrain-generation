@@ -50,59 +50,10 @@ export const FLIGHT_LIMITS = Object.freeze({
 	wheelHold: 0.2,
 	wheelResponse: 15,
 	speedEffectDecay: 0.6,
-	// The barrel roll (a click on the canvas): full turns of the airplane
-	// model about its nose, timed and eased by params.barrelRoll.
-	barrelRollTurns: 2,
-	// The longest share of the roll its elastic return may take, so the turns
-	// always keep some time.
-	maximumBarrelRollSettle: 0.9,
+	// The smallest wheel delta back that starts a turnaround
+	// (src/maneuverPolicy.js), so a faint trackpad nudge only brakes.
+	turnaroundWheelDelta: 4,
 })
-
-const FULL_TURN = Math.PI * 2
-const DEGREES = Math.PI / 180
-
-// `angle` (radians) brought into [-PI, PI), so a rotation never accumulates:
-// 375 degrees becomes 15, 720 becomes 0, and -10 stays -10.
-export function wrapAngle(angle) {
-	return angle - FULL_TURN * Math.floor((angle + Math.PI) / FULL_TURN)
-}
-
-// Power ease in and out of `t` (0 to 1), with no speed at either end for a
-// `power` above 1.
-function easeInOut(t, power) {
-	return t < 0.5 ? 0.5 * (2 * t) ** power : 1 - 0.5 * (2 - 2 * t) ** power
-}
-
-// The barrel roll's unwrapped angle (radians, rolling toward +rotation.z) at
-// `progress` (0 to 1) of the roll, eased by `settings` (params.barrelRoll):
-// over the first `1 - settle` of the time it eases in and out with `power`
-// to `overshoot` degrees past the `barrelRollTurns` turns, then swings back
-// in a damped elastic return with `wobbles` half-swings across the end
-// angle. The speed is zero at the start, at the overshoot, and at the end,
-// where the angle is exactly the turns. Without a settle share there is no
-// overshoot.
-export function getBarrelRollTurnAngle(progress, settings, limits = FLIGHT_LIMITS) {
-	const turns = limits.barrelRollTurns * FULL_TURN
-	const settle = Math.min(Math.max(settings.settle, 0), limits.maximumBarrelRollSettle)
-	const overshoot = settle > 0 ? settings.overshoot * DEGREES : 0
-	const swingStart = 1 - settle
-	const t = clamp01(progress)
-	if (settle === 0 || t < swingStart) {
-		return easeInOut(t / swingStart, settings.power) * (turns + overshoot)
-	}
-	const swing = (t - swingStart) / settle
-	const envelope = 1 - smoothstep(0, 1, swing)
-	return turns + overshoot * envelope * Math.cos(settings.wobbles * Math.PI * swing)
-}
-
-// The roll angle (radians, wrapped by wrapAngle()) `elapsed` seconds into a
-// barrel roll with `settings` (params.barrelRoll), toward `direction` (1 or
-// -1, the sign of the model's rotation.z). It is 0 at the start and again
-// from `settings.duration` on.
-export function getBarrelRollAngle(elapsed, settings, direction, limits = FLIGHT_LIMITS) {
-	const progress = settings.duration > 0 ? elapsed / settings.duration : 1
-	return wrapAngle(direction * getBarrelRollTurnAngle(progress, settings, limits))
-}
 
 // The speed effect (-1 brake to 1 boost) after `dt` seconds, with `request`
 // the held wheel request (1, -1, or 0 for none). Its only writer, so wheel

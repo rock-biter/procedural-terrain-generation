@@ -2,18 +2,27 @@ import { Vector2 } from 'three'
 import { FLIGHT_LIMITS } from './flightPolicy'
 
 // Pointer, touch, wheel, and click input of the flight. The mouse and touch
-// set the turn input (`cursor.x`, -1 to 1) and the pointer's vertical ratio;
-// the wheel holds a boost (+1) or brake (-1) request that Plane eases the
-// speed effect toward (getNextSpeedEffect()); a click or tap on `clickTarget`
-// (the canvas, so page controls never trigger it) requests a barrel roll that
-// Plane takes with takeRollRequest(). dispose() removes the listeners.
+// (on `target`, the window) set the turn input (`cursor.x`, -1 to 1) and the
+// pointer's vertical ratio. The wheel and clicks count on `clickTarget` (the
+// canvas, so page controls such as the lil-gui panel never trigger them): the
+// wheel holds a boost (+1) or brake (-1) request that Plane eases the speed
+// effect toward (getNextSpeedEffect()), and the first event of a deliberate
+// wheel gesture back also requests a turnaround, which Plane takes with
+// takeTurnRequest() (an Immelmann at cruise speed); a click or tap requests a
+// maneuver at its height on the screen, which Plane takes with
+// takeClickRequest(). dispose() removes the listeners.
 export default class FlightInput {
 	cursor = new Vector2()
 	pointerYRatio = (FLIGHT_LIMITS.verticalHoldTop + FLIGHT_LIMITS.verticalHoldBottom) / 2
 	enabled = true
 	request = 0
 	requestTime = 0
-	rollRequest = false
+	// The click's height as a ratio from the top of the screen, or null.
+	clickRequest = null
+	turnRequest = false
+	// Set by consumeWheelGesture(): the rest of the gesture neither boosts nor
+	// brakes.
+	gestureConsumed = false
 
 	constructor(target = window, clickTarget = target) {
 		this.target = target
@@ -26,16 +35,27 @@ export default class FlightInput {
 		}
 		this.onWheel = (event) => {
 			if (!this.enabled || event.deltaY === 0) return
-			this.request = event.deltaY > 0 ? 1 : -1
+			const request = event.deltaY > 0 ? 1 : -1
+			// A gesture is a run of events in one direction, each within
+			// `wheelHold` of the last (a trackpad's momentum included).
+			if (this.requestTime <= 0 || request !== this.request) {
+				this.gestureConsumed = false
+				// Not a sideways swipe, nor the faint tail of a trackpad's momentum.
+				this.turnRequest =
+					request < 0 &&
+					Math.abs(event.deltaY) >= Math.abs(event.deltaX ?? 0) &&
+					Math.abs(event.deltaY) >= FLIGHT_LIMITS.turnaroundWheelDelta
+			}
+			this.request = request
 			this.requestTime = FLIGHT_LIMITS.wheelHold
 		}
-		// A steering drag ends without a click, so only a click or tap rolls.
-		this.onClick = () => {
-			if (this.enabled) this.rollRequest = true
+		// A steering drag ends without a click, so only a click or tap counts.
+		this.onClick = (event) => {
+			if (this.enabled) this.clickRequest = event.clientY / innerHeight
 		}
 		target.addEventListener('mousemove', this.onMouseMove)
-		target.addEventListener('wheel', this.onWheel)
 		target.addEventListener('touchmove', this.onTouchMove)
+		clickTarget.addEventListener('wheel', this.onWheel)
 		clickTarget.addEventListener('click', this.onClick)
 	}
 
@@ -53,25 +73,48 @@ export default class FlightInput {
 		this.pointerYRatio = (FLIGHT_LIMITS.verticalHoldTop + FLIGHT_LIMITS.verticalHoldBottom) / 2
 	}
 
-	// The wheel request still held after `dt` more seconds, or 0.
+	// The wheel request still held after `dt` more seconds, or 0 (also for the
+	// rest of a consumed gesture).
 	takeRequest(dt) {
 		if (this.requestTime <= 0) return 0
 		this.requestTime -= dt
-		return this.request
+		return this.gestureConsumed ? 0 : this.request
 	}
 
-	// Whether a roll was requested since the last call; the request is spent
-	// either way, so a click during a roll is dropped rather than queued.
-	takeRollRequest() {
-		const requested = this.rollRequest
-		this.rollRequest = false
+	// Whether a wheel gesture back started since the last call; spent either
+	// way, so the gesture asks once.
+	takeTurnRequest() {
+		const requested = this.turnRequest
+		this.turnRequest = false
 		return requested
+	}
+
+	// The current wheel gesture started a maneuver: the rest of it neither
+	// brakes nor asks again, until a pause longer than `wheelHold`.
+	consumeWheelGesture() {
+		this.gestureConsumed = true
+	}
+
+	// The height of a click since the last call (a ratio from the top of the
+	// screen), or null; spent either way, so a click during a maneuver is
+	// dropped rather than queued.
+	takeClickRequest() {
+		const ratio = this.clickRequest
+		this.clickRequest = null
+		return ratio
+	}
+
+	// Drops every held request, so none applies once input is back.
+	clearRequests() {
+		this.requestTime = 0
+		this.clickRequest = null
+		this.turnRequest = false
 	}
 
 	dispose() {
 		this.target.removeEventListener('mousemove', this.onMouseMove)
-		this.target.removeEventListener('wheel', this.onWheel)
 		this.target.removeEventListener('touchmove', this.onTouchMove)
+		this.clickTarget.removeEventListener('wheel', this.onWheel)
 		this.clickTarget.removeEventListener('click', this.onClick)
 	}
 }

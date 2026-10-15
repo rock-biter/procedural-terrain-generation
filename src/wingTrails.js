@@ -18,18 +18,30 @@ import trailColorFragment from './shaders/trail-color-fragment.glsl'
 import { replaceChunks } from './shaderChunks.js'
 import TrailHistory, { getTrailBankFactor, getTrailWidths } from './trailHistory.js'
 
-// World units of flown path the ribbon covers, and its segment count: one
-// row per unit keeps the twist of the default barrel roll at full boost to
-// about 25 degrees a segment at its fastest, so the stripes stay continuous.
+// World units of flown path the ribbon covers: TRAIL_LENGTH in flight, and
+// while a loop or an Immelmann draws its ring of smoke, all it has flown
+// since it started, up to MAX_TRAIL_LENGTH. One row per unit keeps the twist
+// of the default barrel roll at full boost to about 25 degrees a segment at
+// its fastest, so the stripes stay continuous.
 const TRAIL_LENGTH = 60
-const TRAIL_SEGMENTS = 60
-const SEGMENT_LENGTH = TRAIL_LENGTH / TRAIL_SEGMENTS
+const MAX_TRAIL_LENGTH = 380
+const SEGMENT_LENGTH = 1
+const MAX_SEGMENTS = MAX_TRAIL_LENGTH / SEGMENT_LENGTH
+// After a maneuver the longer trail holds for TRAIL_HOLD seconds, then its
+// tail comes back to TRAIL_LENGTH at TRAIL_SHRINK_SPEED units per second.
+const TRAIL_HOLD = 1.2
+const TRAIL_SHRINK_SPEED = 90
 
-// The two wing-tip stripes: a ribbon along the last TRAIL_LENGTH units of the
+// The two wing-tip stripes: a ribbon along the last `length` units of the
 // flown path (src/trailHistory.js), in world space, so `mesh` is a direct
 // scene child. trail-color-fragment.glsl draws the ink stripes inside it;
 // `settings` (params.trails) is read on every refresh.
 export default class WingTrails {
+	length = TRAIL_LENGTH
+	holdTime = 0
+	// The history's flown distance when the current maneuver started.
+	maneuverStart = 0
+
 	constructor(settings) {
 		this.settings = settings
 		this.history = new TrailHistory()
@@ -50,21 +62,30 @@ export default class WingTrails {
 			uTrailOscillationFrequency: { value: settings.oscillation.frequency },
 			uTrailOscillationAmplitude: { value: settings.oscillation.amplitude },
 			uTrailTint: { value: new Color(1, 1, 1) },
+			// The shader's distance behind the airplane is (1 - uv.y) times the
+			// maximum length; the stripes taper in over `uTrailTaperLength` from
+			// the wings and out over the same before `uTrailLength`, the current
+			// end of the ribbon.
+			uTrailMaxLength: { value: MAX_TRAIL_LENGTH },
+			uTrailTaperLength: { value: TRAIL_LENGTH / 2 },
+			uTrailLength: { value: TRAIL_LENGTH },
 		}
 
-		const positions = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 3)
-		const uv = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 2)
-		const widths = new Float32Array((TRAIL_SEGMENTS + 1) * 2 * 2)
-		const distances = new Float32Array((TRAIL_SEGMENTS + 1) * 2)
-		const banks = new Float32Array((TRAIL_SEGMENTS + 1) * 2)
-		const indices = new Uint16Array(TRAIL_SEGMENTS * 6)
-		for (let row = 0; row <= TRAIL_SEGMENTS; row++) {
-			const v = 1 - row / TRAIL_SEGMENTS
+		// Allocated for the longest trail; rows sit a fixed SEGMENT_LENGTH apart,
+		// so `uv` never changes.
+		const positions = new Float32Array((MAX_SEGMENTS + 1) * 2 * 3)
+		const uv = new Float32Array((MAX_SEGMENTS + 1) * 2 * 2)
+		const widths = new Float32Array((MAX_SEGMENTS + 1) * 2 * 2)
+		const distances = new Float32Array((MAX_SEGMENTS + 1) * 2)
+		const banks = new Float32Array((MAX_SEGMENTS + 1) * 2)
+		const indices = new Uint16Array(MAX_SEGMENTS * 6)
+		for (let row = 0; row <= MAX_SEGMENTS; row++) {
+			const v = 1 - row / MAX_SEGMENTS
 			uv[row * 4] = 0
 			uv[row * 4 + 1] = v
 			uv[row * 4 + 2] = 1
 			uv[row * 4 + 3] = v
-			if (row === TRAIL_SEGMENTS) continue
+			if (row === MAX_SEGMENTS) continue
 			const i = row * 6
 			const vertex = row * 2
 			indices.set([vertex, vertex + 2, vertex + 1, vertex + 1, vertex + 2, vertex + 3], i)
@@ -105,12 +126,34 @@ export default class WingTrails {
 		this.uniforms.uTrailTint.value.setRGB(r, g, b, SRGBColorSpace)
 	}
 
+	// A loop or an Immelmann starts: the trail keeps what it flies from here.
+	startManeuver() {
+		this.maneuverStart = this.history.distance
+	}
+
+	// The trail's length after `dt` more seconds: while a loop or an Immelmann
+	// runs (`maneuver`), all it has flown since it started, plus the tail's
+	// fade, so the whole ring shows; it grows with the history, so nothing is
+	// cut. Afterwards the longer trail holds, then shrinks back to TRAIL_LENGTH.
+	updateLength(dt, maneuver = false) {
+		if (maneuver) {
+			const flown = this.history.distance - this.maneuverStart + TRAIL_LENGTH / 2
+			this.length = Math.min(Math.max(this.length, flown), MAX_TRAIL_LENGTH)
+			this.holdTime = TRAIL_HOLD
+		} else if (this.holdTime > 0) {
+			this.holdTime -= dt
+		} else {
+			this.length = Math.max(TRAIL_LENGTH, this.length - TRAIL_SHRINK_SPEED * dt)
+		}
+	}
+
 	// Records the current pose: `body` is the flying Plane (its +Z is the
 	// flight direction), `model` the banking and rolling airplane mesh, `anchor`
 	// the emission point in model space, `turnInput`, `speed`, and `baseSpeed`
-	// set the stripe widths, and `bank` (the steering bank, without the barrel
-	// roll) sets the stripes' sideways oscillation.
-	record(body, model, anchor, turnInput, speed, baseSpeed, bank) {
+	// set the stripe widths, with `smoke` (0 to 1, a loop's or an Immelmann's)
+	// at any speed, and `bank` (the steering bank, without the barrel roll)
+	// sets the stripes' sideways oscillation.
+	record(body, model, anchor, turnInput, speed, baseSpeed, bank, smoke = 0) {
 		body.updateWorldMatrix(true, false)
 		// Also refreshes the model's world matrix for localToWorld() below.
 		model.getWorldQuaternion(this.quaternion)
@@ -118,7 +161,7 @@ export default class WingTrails {
 		this.wing.set(1, 0, 0).applyQuaternion(this.quaternion)
 		model.localToWorld(this.center.copy(anchor))
 
-		getTrailWidths(turnInput, speed, baseSpeed, this.widths)
+		getTrailWidths(turnInput, speed, baseSpeed, this.widths, smoke)
 		this.history.push(
 			this.center,
 			this.forward,
@@ -126,14 +169,16 @@ export default class WingTrails {
 			this.widths[0],
 			this.widths[1],
 			getTrailBankFactor(bank),
-			TRAIL_LENGTH,
+			this.length,
 		)
 	}
 
 	// Drops the recorded path, so no ribbon joins the old place to the new one
-	// after the airplane moves without flying.
+	// after the airplane moves without flying, and its longer trail with it.
 	clear() {
 		this.history.clear()
+		this.length = TRAIL_LENGTH
+		this.holdTime = 0
 		this.refresh()
 	}
 
@@ -157,10 +202,16 @@ export default class WingTrails {
 		const distances = geometry.attributes.trailDistance.array
 		const banks = geometry.attributes.trailBank.array
 		const row = this.row
+		// The ribbon ends at the current length, or sooner where the history
+		// does (after clear(), or while a longer trail is still growing).
+		const length = Math.min(this.length, this.history.availableDistance)
+		const segments = Math.min(MAX_SEGMENTS, Math.ceil(length / SEGMENT_LENGTH))
+		uniforms.uTrailLength.value = length
 		let firstStripeRow = -1
 		let lastStripeRow = -1
-		for (let index = 0; index <= TRAIL_SEGMENTS; index++) {
-			this.history.sample(index * SEGMENT_LENGTH, row)
+		let from = this.history.count - 1
+		for (let index = 0; index <= segments; index++) {
+			from = this.history.sample(index * SEGMENT_LENGTH, row, from)
 			const wingLength = Math.hypot(row[6], row[7], row[8])
 			const wingScale = wingLength > 0 ? (settings.ribbonWidth * 0.5) / wingLength : 0
 			const wingX = row[6] * wingScale
@@ -190,10 +241,6 @@ export default class WingTrails {
 		// Segment s joins rows s and s + 1. The fragment shader discards every
 		// pixel without stripe width, so only segments touching a row with a
 		// stripe are drawn; in level, cruise-speed flight that is none.
-		const segments = Math.min(
-			TRAIL_SEGMENTS,
-			Math.ceil(this.history.availableDistance / SEGMENT_LENGTH),
-		)
 		const firstSegment = Math.max(firstStripeRow - 1, 0)
 		const endSegment = firstStripeRow < 0 ? 0 : Math.min(lastStripeRow + 1, segments)
 		geometry.setDrawRange(firstSegment * 6, Math.max(endSegment - firstSegment, 0) * 6)

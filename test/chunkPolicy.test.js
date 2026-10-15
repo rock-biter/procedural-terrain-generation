@@ -255,3 +255,33 @@ test('the curved sphere encloses every point of the box after its drop', () => {
 		assert.ok(radius <= reach + range / 2 + 1e-9)
 	}
 })
+
+test('streaming both ways holds the shapes for a heading and its opposite, at the finer LOD', () => {
+	for (const streaming of [CHUNK_STREAMING.desktop, CHUNK_STREAMING.mobile]) {
+		const half = CHUNK_STREAMING.headingSectors / 2
+		for (let sector = 0; sector < CHUNK_STREAMING.headingSectors; sector++) {
+			const options = {
+				heading: getSectorDirection(sector),
+				lookAhead: streaming.lookAhead,
+				lodLookAhead: streaming.lodLookAhead,
+				rearDistance: streaming.rearDistance,
+				bothWays: true,
+			}
+			const both = getDesiredChunks(0, 0, streaming.maxDistance, options)
+			const ahead = getForwardSet(sector, streaming)
+			const behind = getForwardSet((sector + half) % CHUNK_STREAMING.headingSectors, streaming)
+			assert.equal(both.size, new Set([...ahead.keys(), ...behind.keys()]).size)
+			for (const [key, target] of both) {
+				const lods = [ahead.get(key), behind.get(key)].filter(Boolean).map((t) => t.LOD)
+				assert.ok(lods.length > 0, key)
+				assert.equal(target.LOD, Math.min(...lods), key)
+			}
+			// Turning around keeps the same set: the Immelmann's flip drops nothing.
+			const flipped = getDesiredChunks(0, 0, streaming.maxDistance, {
+				...options,
+				heading: getSectorDirection((sector + half) % CHUNK_STREAMING.headingSectors),
+			})
+			assert.deepEqual([...flipped.keys()].sort(), [...both.keys()].sort())
+		}
+	}
+})

@@ -1231,6 +1231,31 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	barrelRollFolder.add(params.barrelRoll, 'overshoot', 0, 90, 1).name('Overshoot (°)')
 	barrelRollFolder.add(params.barrelRoll, 'settle', 0, 0.6, 0.01).name('Settle share')
 	barrelRollFolder.add(params.barrelRoll, 'wobbles', 0, 4, 0.1).name('Wobbles')
+	// Read when the next one starts; the buttons start one like the click in
+	// the top of the screen and the wheel back (after the Play intro).
+	const loopFolder = airplaneFolder.addFolder('Loop')
+	loopFolder.add(params.loop, 'duration', 1, 5, 0.05).name('Duration (s)')
+	loopFolder.add(params.loop, 'radius', 12, 45, 1).name('Radius')
+	loopFolder.add(params.loop, 'power', 1.2, 4, 0.1).name('Ease power')
+	loopFolder.add(params.loop, 'rigSpeed', 0, 1, 0.01).name('Camera speed share')
+	// Seen edge-on (90°) the ring of smoke would vanish; from behind (0°) the
+	// loop would collapse into a line.
+	loopFolder.add(params.loop, 'cameraAzimuth', 30, 60, 1).name('Camera azimuth (°)')
+	loopFolder.add(params.loop, 'cameraDistance', 0.6, 2, 0.05).name('Camera distance')
+	loopFolder.add({ start: () => world.plane?.startManeuver('loop') }, 'start').name('Start loop')
+	const immelmannFolder = airplaneFolder.addFolder('Immelmann')
+	immelmannFolder.add(params.immelmann, 'duration', 1, 5, 0.05).name('Duration (s)')
+	immelmannFolder.add(params.immelmann, 'radius', 12, 45, 1).name('Radius')
+	immelmannFolder.add(params.immelmann, 'power', 1.2, 4, 0.1).name('Climb ease power')
+	immelmannFolder.add(params.immelmann, 'climbShare', 0.3, 0.8, 0.01).name('Climb share')
+	immelmannFolder.add(params.immelmann, 'topSpeed', 0.3, 1, 0.01).name('Speed share at the top')
+	immelmannFolder.add(params.immelmann, 'rollOverlap', 0, 0.6, 0.01).name('Roll overlap')
+	immelmannFolder.add(params.immelmann, 'rollPower', 1.2, 4, 0.1).name('Roll ease power')
+	immelmannFolder.add(params.immelmann, 'cameraAzimuth', 30, 60, 1).name('Camera azimuth (°)')
+	immelmannFolder.add(params.immelmann, 'cameraDistance', 0.6, 2, 0.05).name('Camera distance')
+	immelmannFolder
+		.add({ start: () => world.plane?.startManeuver('immelmann') }, 'start')
+		.name('Start Immelmann')
 
 	const trailsFolder = gui.addFolder('Trails')
 	trailsFolder.add(params.trails, 'ribbonWidth', 7.5, 12, 0.1).name('Ribbon width')

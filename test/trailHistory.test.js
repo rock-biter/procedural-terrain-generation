@@ -34,6 +34,12 @@ test('shows trails only in sharp turns, caps turn width, and reaches full width 
 	getTrailWidths(0, 55, 55, widths)
 	assert.equal(widths[0], 0)
 	assert.equal(widths[1], 0)
+	// A loop's or an Immelmann's smoke shows at cruise speed.
+	getTrailWidths(0, 55, 55, widths, 1)
+	assert.equal(widths[0], 1)
+	assert.equal(widths[1], 1)
+	getTrailWidths(0, 55, 55, widths, 0.5)
+	assert.equal(widths[0], 0.5)
 })
 
 function center(x, z = 0) {
@@ -116,11 +122,37 @@ test('starts a new path after clear, without a segment from the old place', () =
 	history.clear()
 	assert.equal(history.count, 0)
 	assert.equal(history.availableDistance, 0)
-	assert.equal(history.sample(0, row), false)
+	assert.equal(history.sample(0, row), -1)
 
 	history.push(center(5000), forward, levelWing, 1, 1, 0)
 	history.push(center(5001), forward, levelWing, 1, 1, 0)
 	assert.equal(history.availableDistance, 1)
 	history.sample(10, row)
 	assert.equal(row[0], 5000)
+})
+
+test('sampling farther and farther behind from the last offset matches sampling each anew', () => {
+	const history = new TrailHistory()
+	const row = new Float64Array(13)
+	const fresh = new Float64Array(13)
+	// The longest trail (380 units) flown at the finest spacing still fits.
+	for (let step = 0; step <= 1800; step++) {
+		const angle = step * 0.01
+		history.push(
+			{ x: Math.sin(angle) * 40, y: 10 + step * 0.01, z: step * 0.23 },
+			forward,
+			{ x: Math.cos(angle), y: Math.sin(angle), z: 0 },
+			1,
+			1,
+			0,
+			380,
+		)
+	}
+	assert.ok(history.availableDistance >= 380)
+	let from = history.count - 1
+	for (let behind = 0; behind <= 380; behind++) {
+		from = history.sample(behind, row, from)
+		history.sample(behind, fresh)
+		assert.deepEqual(row, fresh, `${behind}`)
+	}
 })

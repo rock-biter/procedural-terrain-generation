@@ -206,6 +206,33 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// ease in and out, the degrees it rolls past the end, the share of the
 		// time spent swinging back, and the half-swings of that elastic return.
 		barrelRoll: { duration: 1.1, power: 3, overshoot: 20, settle: 0.5, wobbles: 0.3 },
+		// The loop (a click in the top of the screen) and the Immelmann (the
+		// wheel back at cruise speed), read when each starts
+		// (src/maneuverPolicy.js): length in seconds, radius in units, the power
+		// of the ease in and out of the climb, the rig's share of the speed while
+		// the loop flies, the Immelmann's share of the time to its top, its
+		// speed share there, the share of the climb its half roll overlaps, and
+		// the roll's power, and the camera framing (degrees from straight
+		// behind, and a scale of the distance that fits the circle).
+		loop: {
+			duration: 2.4,
+			radius: 28,
+			power: 2,
+			rigSpeed: 0.15,
+			cameraAzimuth: 45,
+			cameraDistance: 1,
+		},
+		immelmann: {
+			duration: 2.6,
+			radius: 28,
+			power: 2,
+			climbShare: 0.6,
+			topSpeed: 0.5,
+			rollOverlap: 0.3,
+			rollPower: 2,
+			cameraAzimuth: 45,
+			cameraDistance: 1,
+		},
 		trails: {
 			ribbonWidth: 9.6,
 			lineWidth: 0.65,

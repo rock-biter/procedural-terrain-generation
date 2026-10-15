@@ -16,6 +16,7 @@ import {
 	getFacingYaw,
 } from '../src/cloudPlacement.js'
 import { FLIGHT_LIMITS } from '../src/flightPolicy.js'
+import { MANEUVER_LIMITS } from '../src/maneuverPolicy.js'
 import { CLOUD_TYPE_COUNT, IMPOSTOR_INSTANCE_STRIDE } from '../src/impostors/impostorTypes.js'
 
 // The follow camera rides this far above the airplane (Plane.addEffect()).
@@ -94,6 +95,8 @@ test('keeps bases inside the field reach, the altitude band, and the type range'
 test('the lowest cloud stays above the highest eye', () => {
 	const { altitude } = createCloudSettings()
 	assert.ok(altitude.min > FLIGHT_LIMITS.maximumAltitude + CAMERA_HEIGHT + 20)
+	// A loop's or an Immelmann's top, with the camera above the rig there.
+	assert.ok(altitude.min > MANEUVER_LIMITS.maximumTopAltitude + CAMERA_HEIGHT + 10)
 })
 
 test('density and coverage scale the cloud count', () => {
