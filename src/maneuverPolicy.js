@@ -1,33 +1,44 @@
 import { clamp01, lerp, smoothstep } from './math.js'
 import { FLIGHT_LIMITS } from './flightPolicy.js'
 
-// The airplane's aerobatic maneuvers (three-free, tested in Node): the barrel
-// roll (a click on the canvas), the loop (a click in the top of the screen),
-// and the Immelmann (the wheel back at cruise speed). src/plane.js runs them
+// The airplane's aerobatic maneuvers (three-free, tested in Node): the
+// aileron roll and the barrel roll (a click in the middle or toward a side
+// of the screen), the loop (a click in the top of the screen), and the
+// Immelmann (the wheel back at cruise speed). src/plane.js runs them
 // one at a time; each pose is in the frame of the flying Plane (the rig),
 // whose +Z is the flight direction and +Y up, with the model's pitch
 // (rotation.x, negative is nose up) and roll (rotation.z).
 
 export const MANEUVER = Object.freeze({
+	AILERON_ROLL: 'aileronRoll',
 	BARREL_ROLL: 'barrelRoll',
 	LOOP: 'loop',
 	IMMELMANN: 'immelmann',
 })
 
 export const MANEUVER_LIMITS = Object.freeze({
-	// Full turns of the barrel roll about the nose, and the longest share of it
+	// Full turns of the aileron roll about the nose, and the longest share of it
 	// its elastic return may take, so the turns always keep some time.
-	barrelRollTurns: 2,
-	maximumBarrelRollSettle: 0.9,
+	aileronRollTurns: 2,
+	maximumAileronRollSettle: 0.9,
 	// The loop and the Immelmann climb 2 radii above the rig. The top stays
 	// below `maximumTopAltitude`, so the airplane and the eye stay well under
 	// the cloud bases (Y 197 at the lowest); the radius shrinks near it, and
 	// the maneuver does not start without room for `minimumRadius`.
 	maximumTopAltitude: 170,
 	minimumRadius: 12,
-	// The wheel back turns around with an Immelmann at up to this speed effect
-	// (cruise); above it, it brakes.
+	// Up to this speed effect the airplane cruises: the wheel back turns
+	// around with an Immelmann; above it (while accelerating, or still fast
+	// after), the wheel back brakes.
 	cruiseSpeedEffect: 0.15,
+	// A click farther than this from the middle of the screen (-1 to 1 across
+	// it, like the turn input), in a tight turn, flies a barrel roll toward
+	// its side; nearer the middle an aileron roll.
+	barrelRollSide: 0.3,
+	// A barrel roll climbs 2 radii above the rig, smaller under
+	// `maximumTopAltitude`, and falls back to an aileron roll without room for
+	// `minimumBarrelRollRadius`.
+	minimumBarrelRollRadius: 4,
 	// The share of an Immelmann at which the rig turns around, its camera
 	// framing fully in, and after which the framing hands back to the chase
 	// camera behind the airplane on the new heading; and the fastest its entry
@@ -73,17 +84,17 @@ export function easeInOut(t, power) {
 	return x < 0.5 ? 0.5 * (2 * x) ** power : 1 - 0.5 * (2 - 2 * x) ** power
 }
 
-// The barrel roll's unwrapped angle (radians, rolling toward +rotation.z) at
-// `progress` (0 to 1) of the roll, eased by `settings` (params.barrelRoll):
+// The aileron roll's unwrapped angle (radians, rolling toward +rotation.z) at
+// `progress` (0 to 1) of the roll, eased by `settings` (params.aileronRoll):
 // over the first `1 - settle` of the time it eases in and out with `power`
-// to `overshoot` degrees past the `barrelRollTurns` turns, then swings back
+// to `overshoot` degrees past the `aileronRollTurns` turns, then swings back
 // in a damped elastic return with `wobbles` half-swings across the end
 // angle. The speed is zero at the start, at the overshoot, and at the end,
 // where the angle is exactly the turns. Without a settle share there is no
 // overshoot.
-export function getBarrelRollTurnAngle(progress, settings, limits = MANEUVER_LIMITS) {
-	const turns = limits.barrelRollTurns * FULL_TURN
-	const settle = Math.min(Math.max(settings.settle, 0), limits.maximumBarrelRollSettle)
+export function getAileronRollTurnAngle(progress, settings, limits = MANEUVER_LIMITS) {
+	const turns = limits.aileronRollTurns * FULL_TURN
+	const settle = Math.min(Math.max(settings.settle, 0), limits.maximumAileronRollSettle)
 	const overshoot = settle > 0 ? settings.overshoot * DEGREES : 0
 	const swingStart = 1 - settle
 	const t = clamp01(progress)
@@ -96,23 +107,67 @@ export function getBarrelRollTurnAngle(progress, settings, limits = MANEUVER_LIM
 }
 
 // The roll angle (radians, wrapped by wrapAngle()) `elapsed` seconds into a
-// barrel roll with `settings` (params.barrelRoll), toward `direction` (1 or
+// aileron roll with `settings` (params.aileronRoll), toward `direction` (1 or
 // -1, the sign of the model's rotation.z). It is 0 at the start and again
 // from `settings.duration` on.
-export function getBarrelRollAngle(elapsed, settings, direction, limits = MANEUVER_LIMITS) {
+export function getAileronRollAngle(elapsed, settings, direction, limits = MANEUVER_LIMITS) {
 	const progress = settings.duration > 0 ? elapsed / settings.duration : 1
-	return wrapAngle(direction * getBarrelRollTurnAngle(progress, settings, limits))
+	return wrapAngle(direction * getAileronRollTurnAngle(progress, settings, limits))
 }
 
-// The maneuver a click starts: the loop in the top of the screen (above the
-// climb band, `yRatio` from the top), the barrel roll anywhere else.
-export function getClickManeuver(yRatio, top = FLIGHT_LIMITS.verticalHoldTop) {
-	return yRatio < top ? MANEUVER.LOOP : MANEUVER.BARREL_ROLL
-}
-
-// Whether the wheel back turns around (an Immelmann) instead of braking.
-export function canTurnAround(speedEffect, limits = MANEUVER_LIMITS) {
+// Whether the airplane cruises (at `speedEffect`): the wheel back then turns
+// around (an Immelmann); faster, it brakes.
+export function isCruising(speedEffect, limits = MANEUVER_LIMITS) {
 	return speedEffect <= limits.cruiseSpeedEffect
+}
+
+// The roll a click at `x` (-1 to 1 across the screen) starts: a barrel roll
+// toward a side, past `barrelRollSide`, as in a tight turn; an aileron roll
+// nearer the middle.
+export function getClickRoll(x, limits = MANEUVER_LIMITS) {
+	return Math.abs(x) > limits.barrelRollSide ? MANEUVER.BARREL_ROLL : MANEUVER.AILERON_ROLL
+}
+
+// The maneuver a click starts at `click` ({ x, yRatio }: -1 to 1 across the
+// screen, and a ratio from its top): the loop in the top of the screen
+// (above the climb band); anywhere else a roll (getClickRoll()).
+export function getClickManeuver(click, top = FLIGHT_LIMITS.verticalHoldTop) {
+	return click.yRatio < top ? MANEUVER.LOOP : getClickRoll(click.x)
+}
+
+// The radius a barrel roll flies from `altitude`: `radius`, smaller where
+// its top would pass `maximumTopAltitude`, or null without room for
+// `minimumBarrelRollRadius` (an aileron roll then).
+export function getBarrelRollRadius(radius, altitude, limits = MANEUVER_LIMITS) {
+	const fitting = Math.min(radius, (limits.maximumTopAltitude - altitude) / 2)
+	return fitting >= limits.minimumBarrelRollRadius ? fitting : null
+}
+
+// The model's pose `progress` into a barrel roll of `radius`
+// (params.barrelRoll), toward `direction` (1 or -1, the sign of its roll):
+// `turns` full turns, eased in and out with `power`, on a cylinder along the
+// flight whose axis runs `radius` above the rig. Seen from behind the
+// airplane circles that axis, centered on the screen: out to one side while
+// it climbs, over the top inverted, down the other side, and back. Its top
+// always faces the axis, as in a real barrel roll, which rolls it toward
+// `direction` and keeps its motion across the flight along its wings. `out`
+// receives `x` and `y` (the model's local position: +X is the airplane's
+// left), `roll`, and `velocityX` and `velocityY`, its speed across the flight
+// per unit of progress (divide by the duration for units per second): with
+// the flight speed ahead, the way its nose points.
+export function getBarrelRollPose(progress, settings, radius, direction, out = {}) {
+	const p = clamp01(progress)
+	const turn = settings.turns * FULL_TURN
+	const angle = easeInOut(p, settings.power) * turn
+	out.x = direction * radius * Math.sin(angle)
+	out.y = radius * (1 - Math.cos(angle))
+	out.roll = wrapAngle(direction * angle)
+	// The ease's slope: power (2p)^(power - 1), mirrored past halfway.
+	const half = p < 0.5 ? 2 * p : 2 - 2 * p
+	const rate = radius * turn * settings.power * half ** (settings.power - 1)
+	out.velocityX = direction * Math.cos(angle) * rate
+	out.velocityY = Math.sin(angle) * rate
+	return out
 }
 
 // The radius a loop or an Immelmann flies from `altitude`: `radius`, smaller

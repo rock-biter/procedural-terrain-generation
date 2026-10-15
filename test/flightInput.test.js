@@ -32,7 +32,7 @@ test('a wheel event holds its request for a short time', () => {
 	assert.equal(input.takeRequest(0.01), 0)
 })
 
-test('a click on the click target requests one maneuver at its height', () => {
+test('a click on the click target requests one maneuver at its place', () => {
 	const target = new EventTarget()
 	const canvas = new EventTarget()
 	const input = new FlightInput(target, canvas)
@@ -40,9 +40,10 @@ test('a click on the click target requests one maneuver at its height', () => {
 	// Page controls bubble their clicks to window, not to the canvas.
 	target.dispatchEvent(pointer('click', { clientY: 100 }))
 	assert.equal(input.takeClickRequest(), null)
-	canvas.dispatchEvent(pointer('click', { clientY: 400 }))
-	canvas.dispatchEvent(pointer('click', { clientY: 50 }))
-	assert.equal(input.takeClickRequest(), 0.1)
+	canvas.dispatchEvent(pointer('click', { clientX: 500, clientY: 400 }))
+	canvas.dispatchEvent(pointer('click', { clientX: 150, clientY: 50 }))
+	// The latest, -1 to 1 across the screen like the turn input.
+	assert.deepEqual(input.takeClickRequest(), { x: -0.7, yRatio: 0.1 })
 	// Spent once taken, however many clicks came in.
 	assert.equal(input.takeClickRequest(), null)
 	input.enabled = false

@@ -21,7 +21,7 @@ import TrailHistory, { getTrailBankFactor, getTrailWidths } from './trailHistory
 // World units of flown path the ribbon covers: TRAIL_LENGTH in flight, and
 // while a loop or an Immelmann draws its ring of smoke, all it has flown
 // since it started, up to MAX_TRAIL_LENGTH. One row per unit keeps the twist
-// of the default barrel roll at full boost to about 25 degrees a segment at
+// of the default aileron roll at full boost to about 25 degrees a segment at
 // its fastest, so the stripes stay continuous.
 const TRAIL_LENGTH = 60
 const MAX_TRAIL_LENGTH = 380
@@ -151,7 +151,7 @@ export default class WingTrails {
 	// flight direction), `model` the banking and rolling airplane mesh, `anchor`
 	// the emission point in model space, `turnInput`, `speed`, and `baseSpeed`
 	// set the stripe widths, with `smoke` (0 to 1, a loop's or an Immelmann's)
-	// at any speed, and `bank` (the steering bank, without the barrel roll)
+	// at any speed, and `bank` (the steering bank, without a maneuver's roll)
 	// sets the stripes' sideways oscillation.
 	record(body, model, anchor, turnInput, speed, baseSpeed, bank, smoke = 0) {
 		body.updateWorldMatrix(true, false)

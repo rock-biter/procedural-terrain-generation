@@ -201,11 +201,17 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// Airplane propeller rotation in turns per second. With two blades, speeds
 		// near half the frame rate (30 at 60 fps) strobe and look still.
 		propeller: { speed: 4 },
-		// The barrel roll (src/plane.js), read when each roll starts: its length
-		// in seconds, then its ease (getBarrelRollTurnAngle()): the power of the
+		// The aileron roll (a click near the middle, about the airplane's axis),
+		// read when each roll starts (src/maneuverPolicy.js): its length in
+		// seconds, then its ease (getAileronRollTurnAngle()): the power of the
 		// ease in and out, the degrees it rolls past the end, the share of the
 		// time spent swinging back, and the half-swings of that elastic return.
-		barrelRoll: { duration: 1.1, power: 3, overshoot: 20, settle: 0.5, wobbles: 0.3 },
+		aileronRoll: { duration: 1.1, power: 3, overshoot: 20, settle: 0.5, wobbles: 0.3 },
+		// The barrel roll (a click toward a side, on a cylinder along
+		// the flight), read when each starts: its length in seconds, the
+		// cylinder's radius in units, its full turns, and the power of its ease
+		// in and out (getBarrelRollPose()).
+		barrelRoll: { duration: 1.4, radius: 12, turns: 1, power: 2 },
 		// The loop (a click in the top of the screen) and the Immelmann (the
 		// wheel back at cruise speed), read when each starts
 		// (src/maneuverPolicy.js): length in seconds and radius in units (the

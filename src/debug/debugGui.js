@@ -1224,13 +1224,22 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 
 	const airplaneFolder = gui.addFolder('Airplane')
 	airplaneFolder.add(params.propeller, 'speed', 0, 20, 0.1).name('Propeller speed (turns/s)')
-	// Read when the next roll starts (a click on the canvas).
+	// Read when the next roll starts (a click on the canvas: the aileron roll
+	// near the middle, the barrel roll toward a side).
+	const aileronRollFolder = airplaneFolder.addFolder('Aileron roll')
+	aileronRollFolder.add(params.aileronRoll, 'duration', 0.5, 3, 0.05).name('Duration (s)')
+	aileronRollFolder.add(params.aileronRoll, 'power', 1.5, 5, 0.1).name('Ease power')
+	aileronRollFolder.add(params.aileronRoll, 'overshoot', 0, 90, 1).name('Overshoot (°)')
+	aileronRollFolder.add(params.aileronRoll, 'settle', 0, 0.6, 0.01).name('Settle share')
+	aileronRollFolder.add(params.aileronRoll, 'wobbles', 0, 4, 0.1).name('Wobbles')
 	const barrelRollFolder = airplaneFolder.addFolder('Barrel roll')
-	barrelRollFolder.add(params.barrelRoll, 'duration', 0.5, 3, 0.05).name('Duration (s)')
-	barrelRollFolder.add(params.barrelRoll, 'power', 1.5, 5, 0.1).name('Ease power')
-	barrelRollFolder.add(params.barrelRoll, 'overshoot', 0, 90, 1).name('Overshoot (°)')
-	barrelRollFolder.add(params.barrelRoll, 'settle', 0, 0.6, 0.01).name('Settle share')
-	barrelRollFolder.add(params.barrelRoll, 'wobbles', 0, 4, 0.1).name('Wobbles')
+	barrelRollFolder.add(params.barrelRoll, 'duration', 0.6, 4, 0.05).name('Duration (s)')
+	barrelRollFolder.add(params.barrelRoll, 'radius', 4, 30, 0.5).name('Radius')
+	barrelRollFolder.add(params.barrelRoll, 'turns', 1, 3, 1).name('Turns')
+	barrelRollFolder.add(params.barrelRoll, 'power', 1.2, 4, 0.1).name('Ease power')
+	barrelRollFolder
+		.add({ start: () => world.plane?.startManeuver('barrelRoll') }, 'start')
+		.name('Start barrel roll')
 	// Read when the next one starts; the buttons start one like the click in
 	// the top of the screen and the wheel back (after the Play intro).
 	const loopFolder = airplaneFolder.addFolder('Loop')

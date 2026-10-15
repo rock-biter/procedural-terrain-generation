@@ -9,7 +9,7 @@ import { FLIGHT_LIMITS } from './flightPolicy'
 // effect toward (getNextSpeedEffect()), and the first event of a deliberate
 // wheel gesture back also requests a turnaround, which Plane takes with
 // takeTurnRequest() (an Immelmann at cruise speed); a click or tap requests a
-// maneuver at its height on the screen, which Plane takes with
+// maneuver at its place on the screen, which Plane takes with
 // takeClickRequest(). dispose() removes the listeners.
 export default class FlightInput {
 	cursor = new Vector2()
@@ -17,8 +17,10 @@ export default class FlightInput {
 	enabled = true
 	request = 0
 	requestTime = 0
-	// The click's height as a ratio from the top of the screen, or null.
-	clickRequest = null
+	// Whether a click waits, and its place: `x` from -1 (left edge) to 1
+	// (right edge) like the turn input, `yRatio` from the top.
+	clicked = false
+	click = { x: 0, yRatio: 0 }
 	turnRequest = false
 	// Set by consumeWheelGesture(): the rest of the gesture neither boosts nor
 	// brakes.
@@ -51,7 +53,10 @@ export default class FlightInput {
 		}
 		// A steering drag ends without a click, so only a click or tap counts.
 		this.onClick = (event) => {
-			if (this.enabled) this.clickRequest = event.clientY / innerHeight
+			if (!this.enabled) return
+			this.clicked = true
+			this.click.x = (event.clientX / innerWidth) * 2 - 1
+			this.click.yRatio = event.clientY / innerHeight
 		}
 		target.addEventListener('mousemove', this.onMouseMove)
 		target.addEventListener('touchmove', this.onTouchMove)
@@ -95,19 +100,19 @@ export default class FlightInput {
 		this.gestureConsumed = true
 	}
 
-	// The height of a click since the last call (a ratio from the top of the
-	// screen), or null; spent either way, so a click during a maneuver is
-	// dropped rather than queued.
+	// The place of the latest click since the last call ({ x, yRatio }, read
+	// before the next click), or null; spent either way, so a click during a
+	// maneuver is dropped rather than queued.
 	takeClickRequest() {
-		const ratio = this.clickRequest
-		this.clickRequest = null
-		return ratio
+		if (!this.clicked) return null
+		this.clicked = false
+		return this.click
 	}
 
 	// Drops every held request, so none applies once input is back.
 	clearRequests() {
 		this.requestTime = 0
-		this.clickRequest = null
+		this.clicked = false
 		this.turnRequest = false
 	}
 

@@ -1,4 +1,4 @@
-import { MathUtils, Matrix4, Object3D, Vector3 } from 'three'
+import { MathUtils, Matrix4, Object3D, Quaternion, Vector3 } from 'three'
 import FlightInput from './flightInput'
 import FollowCamera from './followCamera'
 import Propeller from './propeller'
@@ -17,10 +17,13 @@ import {
 	smoothMinimumAltitude,
 } from './flightPolicy'
 import {
-	canTurnAround,
-	getBarrelRollAngle,
+	isCruising,
+	getAileronRollAngle,
+	getBarrelRollPose,
+	getBarrelRollRadius,
 	getCircleFraming,
 	getClickManeuver,
+	getClickRoll,
 	createImmelmannPath,
 	getImmelmannCruise,
 	getImmelmannFraming,
@@ -39,15 +42,24 @@ const V3 = new Vector3(0, 0, 0)
 const RIG_BEFORE = new Matrix4()
 const REBASE = new Matrix4()
 const IMMELMANN_POSE = {}
+const X_AXIS = new Vector3(1, 0, 0)
+const Z_AXIS = new Vector3(0, 0, 1)
+const PITCH = new Quaternion()
+const BANK = new Quaternion()
+const FLIGHT = new Quaternion()
+const BASIS = new Matrix4()
+const NOSE = new Vector3()
+const TOP = new Vector3()
+const SIDE = new Vector3()
 
 // The player airplane: flight (speed, turn, terrain-aware altitude), the
-// banking model and its maneuvers (src/maneuverPolicy.js: the barrel roll,
-// the loop, and the Immelmann), and the parts it drives: the input
-// (src/flightInput.js), the chase camera (src/followCamera.js), the propeller
-// (src/propeller.js), and the wing trails (src/wingTrails.js). The Plane
-// itself is the rig the camera, the streaming, and most of the world follow:
-// it only moves forward and turns about Y, while a loop or an Immelmann
-// moves the airplane model away from it and back.
+// banking model and its maneuvers (src/maneuverPolicy.js: the aileron roll,
+// the barrel roll, the loop, and the Immelmann), and the parts it drives: the
+// input (src/flightInput.js), the chase camera (src/followCamera.js), the
+// propeller (src/propeller.js), and the wing trails (src/wingTrails.js). The
+// Plane itself is the rig the camera, the streaming, and most of the world
+// follow: it only moves forward and turns about Y, while a barrel roll, a
+// loop, or an Immelmann moves the airplane model away from it and back.
 export default class Plane extends Object3D {
 	baseSpeed = 35
 	// The cruise speed to restore while hold() keeps the airplane still.
@@ -61,6 +73,12 @@ export default class Plane extends Object3D {
 	terrainSlowdown = 0
 	terrainBrakeEffect = 0
 	acceleration = 0
+	// The nose's pitch from the vertical speed, eased (the model's rotation.x
+	// in plain flight).
+	pitch = 0
+	// A barrel roll's speed across the flight (units per second, in the rig),
+	// which with the flight speed ahead gives the way the nose points.
+	rollVelocity = new Vector3()
 	// The model's rotation.z is the steering bank plus a maneuver's roll, kept
 	// apart so the bank's ease never pulls the roll back.
 	bank = 0
@@ -83,7 +101,7 @@ export default class Plane extends Object3D {
 
 	// `modelConfig` is the airplane's entry in AIRPLANE_MODELS
 	// (src/airplaneModels.js): trail anchor and propeller data. A click on
-	// `canvas` starts a loop or a barrel roll.
+	// `canvas` starts a loop or a roll.
 	constructor(airplane, params, camera, modelConfig, canvas) {
 		super()
 
@@ -304,14 +322,17 @@ export default class Plane extends Object3D {
 		}
 	}
 
+	// An aileron roll or a barrel roll: steering goes on and a full boost holds.
 	get isRolling() {
-		return this.maneuver?.type === MANEUVER.BARREL_ROLL
+		const type = this.maneuver?.type
+		return type === MANEUVER.AILERON_ROLL || type === MANEUVER.BARREL_ROLL
 	}
 
 	// A loop or an Immelmann: the airplane leaves the rig, steering waits, and
 	// the speed effect holds.
 	get isFlyingFigure() {
-		return this.maneuver !== null && this.maneuver.type !== MANEUVER.BARREL_ROLL
+		const type = this.maneuver?.type
+		return type === MANEUVER.LOOP || type === MANEUVER.IMMELMANN
 	}
 
 	// An Immelmann: the chunk streaming (src/chunkManager.js) keeps both
@@ -321,15 +342,19 @@ export default class Plane extends Object3D {
 		return this.maneuver?.type === MANEUVER.IMMELMANN
 	}
 
-	// Starts the `type` maneuver (MANEUVER) toward the current turn (right in
-	// level flight), unless one is under way, the Play intro has not handed
-	// over yet (the speed does not follow the effect before), or a loop or an
-	// Immelmann has no room below the top altitude. Returns whether it started.
-	startManeuver(type) {
+	// Starts the `type` maneuver (MANEUVER) toward `direction` (1 or -1; by
+	// default the current turn, right in level flight), unless one is under way, the Play intro has not handed
+	// over yet (the speed does not follow the effect before), or a barrel
+	// roll, a loop, or an Immelmann has no room below the top altitude.
+	// Returns whether it started.
+	startManeuver(type, direction = this.cursor.x < 0 ? -1 : 1) {
 		if (this.maneuver || !this.followCamera.active) return false
 		const settings = { ...this.params[type] }
 		let radius = 0
-		if (type !== MANEUVER.BARREL_ROLL) {
+		if (type === MANEUVER.BARREL_ROLL) {
+			radius = getBarrelRollRadius(settings.radius, this.position.y)
+			if (radius === null) return false
+		} else if (type !== MANEUVER.AILERON_ROLL) {
 			radius = getManeuverRadius(settings.radius, this.position.y)
 			if (radius === null) return false
 		}
@@ -338,7 +363,7 @@ export default class Plane extends Object3D {
 			elapsed: 0,
 			settings,
 			radius,
-			direction: this.cursor.x < 0 ? -1 : 1,
+			direction,
 			fov: this.camera.getEffectiveFOV(),
 			aspect: this.camera.aspect,
 		}
@@ -357,38 +382,45 @@ export default class Plane extends Object3D {
 			})
 		}
 		this.maneuver = maneuver
-		if (type !== MANEUVER.BARREL_ROLL) this.wingTrails.startManeuver()
+		// The trail keeps all a loop or an Immelmann flies, which the camera
+		// frames; a barrel roll's spiral passes around the chase camera.
+		if (this.isFlyingFigure) this.wingTrails.startManeuver()
 		return true
 	}
 
 	// Back to plain flight: the model on the rig, level.
 	endManeuver() {
-		if (this.maneuver && this.maneuver.type !== MANEUVER.BARREL_ROLL) {
+		if (this.maneuver && this.maneuver.type !== MANEUVER.AILERON_ROLL) {
 			this.model.position.set(0, 0, 0)
-			this.model.rotation.x = 0
+			this.model.rotation.set(this.pitch, 0, wrapAngle(this.bank))
 		}
 		this.maneuver = null
 		this.roll = 0
+		this.rollVelocity.set(0, 0, 0)
 		this.framing.weight = 0
 	}
 
 	// Clicks and wheel gestures are taken every frame, so one during a
-	// maneuver is dropped, not queued: a click in the top of the screen loops
-	// (or rolls, without room above for a loop), elsewhere it rolls; the wheel
-	// back at cruise speed turns around with an Immelmann, and the rest of
-	// that gesture does not brake.
+	// maneuver is dropped, not queued: a click in the top of the screen loops;
+	// elsewhere it rolls, a barrel roll toward the click's side away from the
+	// middle (as in a tight turn) and an aileron roll in the middle (without
+	// room for the maneuver, it falls back to the roll for the click's place,
+	// and to an aileron roll); the wheel back at cruise speed turns around
+	// with an Immelmann, and the rest of that gesture does not brake.
 	takeManeuverRequests() {
-		const clickRatio = this.input.takeClickRequest()
-		if (clickRatio !== null && !this.maneuver) {
-			const type = getClickManeuver(clickRatio)
-			if (!this.startManeuver(type) && type === MANEUVER.LOOP) {
-				this.startManeuver(MANEUVER.BARREL_ROLL)
+		const click = this.input.takeClickRequest()
+		if (click !== null && !this.maneuver) {
+			// Toward the click's side, which on touch the steering may not follow.
+			const direction = click.x < 0 ? -1 : 1
+			for (const type of [getClickManeuver(click), getClickRoll(click.x)]) {
+				if (this.startManeuver(type, direction)) break
 			}
+			if (!this.maneuver) this.startManeuver(MANEUVER.AILERON_ROLL, direction)
 		}
 		if (!this.input.takeTurnRequest()) return
 		if (this.maneuver) {
 			this.input.consumeWheelGesture()
-		} else if (canTurnAround(this.acceleration) && this.startManeuver(MANEUVER.IMMELMANN)) {
+		} else if (isCruising(this.acceleration) && this.startManeuver(MANEUVER.IMMELMANN)) {
 			this.input.consumeWheelGesture()
 		}
 	}
@@ -433,13 +465,23 @@ export default class Plane extends Object3D {
 		this.turnAround()
 	}
 
-	// Poses the model `progress` into the maneuver: the barrel roll's roll, or
-	// the loop's and the Immelmann's place, pitch, and roll on the rig.
+	// Poses the model `progress` into the maneuver: the aileron roll's roll,
+	// the barrel roll's place on its cylinder, roll, and pull, or the loop's
+	// and the Immelmann's place, pitch, and roll on the rig.
 	applyManeuverPose(progress) {
 		const maneuver = this.maneuver
 		if (!maneuver) return
+		if (maneuver.type === MANEUVER.AILERON_ROLL) {
+			this.roll = getAileronRollAngle(maneuver.elapsed, maneuver.settings, maneuver.direction)
+			return
+		}
 		if (maneuver.type === MANEUVER.BARREL_ROLL) {
-			this.roll = getBarrelRollAngle(maneuver.elapsed, maneuver.settings, maneuver.direction)
+			const { settings, radius, direction } = maneuver
+			const pose = getBarrelRollPose(progress, settings, radius, direction, this.maneuverPose)
+			this.model.position.set(pose.x, pose.y, 0)
+			this.roll = pose.roll
+			const perSecond = settings.duration > 0 ? 1 / settings.duration : 0
+			this.rollVelocity.set(pose.velocityX * perSecond, pose.velocityY * perSecond, 0)
 			return
 		}
 		const pose = this.maneuverPose
@@ -546,16 +588,30 @@ export default class Plane extends Object3D {
 			Math.PI * turnInput * 0.25 * (1 - this.acceleration * 0.5),
 			dt * 5,
 		)
-		this.model.rotation.z = wrapAngle(this.bank + this.roll)
+		const climb = MathUtils.clamp(
+			this.actualVerticalSpeed / FLIGHT_LIMITS.maximumVerticalSpeed,
+			-1,
+			1,
+		)
+		this.pitch = MathUtils.lerp(this.pitch, -Math.PI * climb * 0.08, dt * 5)
+		const roll = wrapAngle(this.bank + this.roll)
 		if (figure) {
-			this.model.rotation.x = this.maneuverPose.pitch
+			this.model.rotation.set(this.maneuverPose.pitch, 0, roll)
+		} else if (this.maneuver?.type === MANEUVER.BARREL_ROLL) {
+			// The nose along its path (its speed across the flight and the flight
+			// speed ahead), the top toward the cylinder's axis (the roll, which
+			// keeps it square to the nose), then pitched and banked like plain
+			// flight.
+			NOSE.set(this.rollVelocity.x, this.rollVelocity.y, Math.max(Math.abs(this.speed), 1))
+			NOSE.normalize()
+			TOP.set(-Math.sin(this.roll), Math.cos(this.roll), 0)
+			SIDE.crossVectors(TOP, NOSE)
+			FLIGHT.setFromRotationMatrix(BASIS.makeBasis(SIDE, TOP, NOSE))
+			PITCH.setFromAxisAngle(X_AXIS, this.pitch)
+			BANK.setFromAxisAngle(Z_AXIS, this.bank)
+			this.model.quaternion.copy(PITCH).multiply(FLIGHT).multiply(BANK)
 		} else {
-			const pitch = MathUtils.clamp(
-				this.actualVerticalSpeed / FLIGHT_LIMITS.maximumVerticalSpeed,
-				-1,
-				1,
-			)
-			this.model.rotation.x = MathUtils.lerp(this.model.rotation.x, -Math.PI * pitch * 0.08, dt * 5)
+			this.model.rotation.set(this.pitch, 0, roll)
 		}
 
 		// The speed follows the effect once the intro has handed over.
@@ -569,8 +625,8 @@ export default class Plane extends Object3D {
 
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
 		this.uniforms.uAcceleration.value = Math.max(visualSpeedEffect, 0)
-		// A barrel roll holds a full boost, a loop or an Immelmann holds the
-		// effect where it was; a wheel request is still spent.
+		// A roll holds a full boost, a loop or an Immelmann holds the effect
+		// where it was; a wheel request is still spent.
 		const wheelRequest = this.input.takeRequest(dt)
 		if (!figure) {
 			this.acceleration = getNextSpeedEffect(
@@ -640,6 +696,7 @@ export default class Plane extends Object3D {
 			pitch: this.model.rotation.x,
 			heading: this.rotation.y,
 			modelOffset: {
+				x: this.model.position.x,
 				y: this.model.position.y,
 				z: this.model.position.z,
 			},

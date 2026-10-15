@@ -3,11 +3,14 @@ import test from 'node:test'
 import { createAppParams } from '../src/appParams.js'
 import { FLIGHT_LIMITS } from '../src/flightPolicy.js'
 import {
-	canTurnAround,
-	getBarrelRollAngle,
-	getBarrelRollTurnAngle,
+	isCruising,
+	getAileronRollAngle,
+	getAileronRollTurnAngle,
+	getBarrelRollPose,
+	getBarrelRollRadius,
 	getCircleFraming,
 	getClickManeuver,
+	getClickRoll,
 	getFramingDistance,
 	createImmelmannPath,
 	getImmelmannCruise,
@@ -26,8 +29,8 @@ import {
 } from '../src/maneuverPolicy.js'
 
 const degrees = (value) => (value * Math.PI) / 180
-const close = (actual, expected, message) =>
-	assert.ok(Math.abs(actual - expected) < 1e-9, `${message ?? ''} ${actual} != ${expected}`)
+const close = (actual, expected, message, tolerance = 1e-9) =>
+	assert.ok(Math.abs(actual - expected) < tolerance, `${message ?? ''} ${actual} != ${expected}`)
 
 test('wrapAngle keeps an angle within one turn, in [-PI, PI)', () => {
 	close(wrapAngle(degrees(375)), degrees(15))
@@ -48,14 +51,14 @@ test('wrapAngle keeps an angle within one turn, in [-PI, PI)', () => {
 const ROLL = { duration: 0.75, power: 2, overshoot: 20, settle: 0.3, wobbles: 1 }
 const TURNS = Math.PI * 4
 
-test('the barrel roll eases to an overshoot, swings back, and ends on two turns', () => {
-	assert.equal(MANEUVER_LIMITS.barrelRollTurns, 2)
-	assert.equal(getBarrelRollTurnAngle(0, ROLL), 0)
-	close(getBarrelRollTurnAngle(0.7, ROLL), TURNS + degrees(20), 'overshoot')
-	close(getBarrelRollTurnAngle(1, ROLL), TURNS, 'end')
-	close(getBarrelRollTurnAngle(2, ROLL), TURNS, 'past the end')
+test('the aileron roll eases to an overshoot, swings back, and ends on two turns', () => {
+	assert.equal(MANEUVER_LIMITS.aileronRollTurns, 2)
+	assert.equal(getAileronRollTurnAngle(0, ROLL), 0)
+	close(getAileronRollTurnAngle(0.7, ROLL), TURNS + degrees(20), 'overshoot')
+	close(getAileronRollTurnAngle(1, ROLL), TURNS, 'end')
+	close(getAileronRollTurnAngle(2, ROLL), TURNS, 'past the end')
 	// Halfway through the ease, halfway to the overshoot.
-	close(getBarrelRollTurnAngle(0.35, ROLL), (TURNS + degrees(20)) / 2, 'halfway')
+	close(getAileronRollTurnAngle(0.35, ROLL), (TURNS + degrees(20)) / 2, 'halfway')
 
 	// Rises without stopping to the overshoot, then one wobble swings below
 	// the end before settling.
@@ -63,7 +66,7 @@ test('the barrel roll eases to an overshoot, swings back, and ends on two turns'
 	let lowest = Infinity
 	for (let step = 1; step <= 1000; step++) {
 		const progress = step / 1000
-		const angle = getBarrelRollTurnAngle(progress, ROLL)
+		const angle = getAileronRollTurnAngle(progress, ROLL)
 		if (progress <= 0.7) assert.ok(angle > previous, `rising at ${progress}`)
 		else lowest = Math.min(lowest, angle)
 		previous = angle
@@ -72,50 +75,55 @@ test('the barrel roll eases to an overshoot, swings back, and ends on two turns'
 
 	// No speed at the start, at the overshoot, and at the end.
 	const speed = (progress) =>
-		(getBarrelRollTurnAngle(progress + 1e-6, ROLL) -
-			getBarrelRollTurnAngle(progress - 1e-6, ROLL)) /
+		(getAileronRollTurnAngle(progress + 1e-6, ROLL) -
+			getAileronRollTurnAngle(progress - 1e-6, ROLL)) /
 		2e-6
 	for (const progress of [1e-6, 0.7, 1 - 1e-6]) {
 		assert.ok(Math.abs(speed(progress)) < 1e-3, `${progress}: ${speed(progress)}`)
 	}
 })
 
-test('the barrel roll ease follows its settings', () => {
+test('the aileron roll ease follows its settings', () => {
 	// Without wobbles the return never crosses the end angle.
 	const smooth = { ...ROLL, wobbles: 0 }
 	for (let step = 700; step <= 1000; step++) {
-		assert.ok(getBarrelRollTurnAngle(step / 1000, smooth) >= TURNS - 1e-12)
+		assert.ok(getAileronRollTurnAngle(step / 1000, smooth) >= TURNS - 1e-12)
 	}
 	// Without a settle share there is no overshoot: a plain ease in and out.
 	const plain = { ...ROLL, settle: 0 }
-	close(getBarrelRollTurnAngle(0.5, plain), TURNS / 2)
-	close(getBarrelRollTurnAngle(1, plain), TURNS)
+	close(getAileronRollTurnAngle(0.5, plain), TURNS / 2)
+	close(getAileronRollTurnAngle(1, plain), TURNS)
 	for (let step = 0; step <= 100; step++) {
-		assert.ok(getBarrelRollTurnAngle(step / 100, plain) <= TURNS + 1e-12)
+		assert.ok(getAileronRollTurnAngle(step / 100, plain) <= TURNS + 1e-12)
 	}
 	// A higher power starts slower.
-	assert.ok(getBarrelRollTurnAngle(0.1, { ...ROLL, power: 4 }) < getBarrelRollTurnAngle(0.1, ROLL))
+	assert.ok(
+		getAileronRollTurnAngle(0.1, { ...ROLL, power: 4 }) < getAileronRollTurnAngle(0.1, ROLL),
+	)
 	// The settle share is capped, so the turns always keep some time.
-	close(getBarrelRollTurnAngle(0, { ...ROLL, settle: 1 }), 0)
+	close(getAileronRollTurnAngle(0, { ...ROLL, settle: 1 }), 0)
 })
 
-test('the barrel roll angle stays wrapped and ends level in either direction', () => {
+test('the aileron roll angle stays wrapped and ends level in either direction', () => {
 	const { duration } = ROLL
-	assert.equal(getBarrelRollAngle(0, ROLL, 1), 0)
-	close(getBarrelRollAngle(duration, ROLL, 1), 0, 'end')
-	close(getBarrelRollAngle(duration, ROLL, -1), 0, 'end, mirrored')
-	close(getBarrelRollAngle(duration * 3, ROLL, 1), 0, 'past the end')
-	close(getBarrelRollAngle(duration * 0.7, ROLL, 1), degrees(20), 'overshoot')
-	close(getBarrelRollAngle(duration * 0.7, ROLL, -1), degrees(-20), 'overshoot, mirrored')
-	close(getBarrelRollAngle(1, { ...ROLL, duration: 0 }, 1), 0, 'no duration')
+	assert.equal(getAileronRollAngle(0, ROLL, 1), 0)
+	close(getAileronRollAngle(duration, ROLL, 1), 0, 'end')
+	close(getAileronRollAngle(duration, ROLL, -1), 0, 'end, mirrored')
+	close(getAileronRollAngle(duration * 3, ROLL, 1), 0, 'past the end')
+	close(getAileronRollAngle(duration * 0.7, ROLL, 1), degrees(20), 'overshoot')
+	close(getAileronRollAngle(duration * 0.7, ROLL, -1), degrees(-20), 'overshoot, mirrored')
+	close(getAileronRollAngle(1, { ...ROLL, duration: 0 }, 1), 0, 'no duration')
 
 	// The defaults sum up to the eased turns, never more than a third of a
 	// turn per 16 ms frame, so the wing trails stay continuous.
-	const defaults = createAppParams({ urlParams: new URLSearchParams(), isMobile: false }).barrelRoll
+	const defaults = createAppParams({
+		urlParams: new URLSearchParams(),
+		isMobile: false,
+	}).aileronRoll
 	let total = 0
 	let previous = 0
 	for (let elapsed = 0.016; elapsed < defaults.duration + 0.016; elapsed += 0.016) {
-		const angle = getBarrelRollAngle(Math.min(elapsed, defaults.duration), defaults, 1)
+		const angle = getAileronRollAngle(Math.min(elapsed, defaults.duration), defaults, 1)
 		assert.ok(angle >= -Math.PI && angle < Math.PI)
 		const delta = wrapAngle(angle - previous)
 		assert.ok(Math.abs(delta) < (Math.PI * 2) / 3, `${elapsed}: ${delta}`)
@@ -147,21 +155,29 @@ function framing() {
 	return { weight: 0, position: { x: 0, y: 0, z: 0 }, target: { x: 0, y: 0, z: 0 } }
 }
 
-test('a click loops in the top of the screen and rolls elsewhere', () => {
-	assert.equal(getClickManeuver(0.1), MANEUVER.LOOP)
-	assert.equal(getClickManeuver(FLIGHT_LIMITS.verticalHoldTop - 0.01), MANEUVER.LOOP)
-	assert.equal(getClickManeuver(FLIGHT_LIMITS.verticalHoldTop), MANEUVER.BARREL_ROLL)
-	assert.equal(getClickManeuver(0.9), MANEUVER.BARREL_ROLL)
+test('a click loops in the top of the screen, and rolls elsewhere, a barrel roll toward a side', () => {
+	const side = MANEUVER_LIMITS.barrelRollSide
+	const top = FLIGHT_LIMITS.verticalHoldTop
+	assert.equal(getClickManeuver({ x: 0, yRatio: 0.1 }), MANEUVER.LOOP)
+	assert.equal(getClickManeuver({ x: 0.9, yRatio: 0.1 }), MANEUVER.LOOP)
+	assert.equal(getClickManeuver({ x: 0, yRatio: top - 0.01 }), MANEUVER.LOOP)
+	assert.equal(getClickManeuver({ x: 0, yRatio: top }), MANEUVER.AILERON_ROLL)
+	assert.equal(getClickManeuver({ x: side, yRatio: 0.9 }), MANEUVER.AILERON_ROLL)
+	assert.equal(getClickManeuver({ x: -side, yRatio: 0.9 }), MANEUVER.AILERON_ROLL)
+	assert.equal(getClickManeuver({ x: side + 0.01, yRatio: 0.9 }), MANEUVER.BARREL_ROLL)
+	assert.equal(getClickManeuver({ x: -0.8, yRatio: 0.6 }), MANEUVER.BARREL_ROLL)
+	assert.equal(getClickRoll(0.1), MANEUVER.AILERON_ROLL)
+	assert.equal(getClickRoll(-0.5), MANEUVER.BARREL_ROLL)
 	// The maneuver names are their params keys.
 	for (const type of Object.values(MANEUVER)) assert.ok(params[type].duration > 0, type)
 })
 
 test('the wheel back turns around only at cruise speed or below', () => {
-	assert.ok(canTurnAround(0))
-	assert.ok(canTurnAround(-0.5))
-	assert.ok(canTurnAround(MANEUVER_LIMITS.cruiseSpeedEffect))
-	assert.ok(!canTurnAround(0.3))
-	assert.ok(!canTurnAround(1))
+	assert.ok(isCruising(0))
+	assert.ok(isCruising(-0.5))
+	assert.ok(isCruising(MANEUVER_LIMITS.cruiseSpeedEffect))
+	assert.ok(!isCruising(0.3))
+	assert.ok(!isCruising(1))
 })
 
 test('a loop or an Immelmann keeps its top under the maximum, or does not start', () => {
@@ -437,4 +453,64 @@ test('the Immelmann camera frames the whole figure from ahead and hands back to 
 	close(end.target.y, pose.y)
 	close(end.target.z, pose.z)
 	assert.ok(samples.length > 0)
+})
+
+const BARREL = params.barrelRoll
+
+test('a barrel roll keeps its top under the maximum, or falls back', () => {
+	assert.equal(getBarrelRollRadius(12, 60), 12)
+	close(getBarrelRollRadius(12, 160), (MANEUVER_LIMITS.maximumTopAltitude - 160) / 2)
+	assert.equal(getBarrelRollRadius(12, 166), null)
+})
+
+test('the barrel roll circles an axis above the airplane, centered across, its top toward it', () => {
+	for (const direction of [1, -1]) {
+		for (const turns of [1, 2]) {
+			const settings = { ...BARREL, turns }
+			const start = getBarrelRollPose(0, settings, R, direction, {})
+			for (const value of [start.x, start.y, start.roll, start.velocityX, start.velocityY]) {
+				close(value, 0)
+			}
+			const end = getBarrelRollPose(1, settings, R, direction, {})
+			for (const value of [end.x, end.y, end.roll]) assert.ok(Math.abs(value) < 1e-9)
+			// Out to the side first (+X, the airplane's left, for a positive
+			// roll), climbing.
+			const early = getBarrelRollPose(0.05, settings, R, direction, {})
+			assert.equal(Math.sign(early.x), direction)
+			assert.ok(early.y > 0 && early.y < Math.abs(early.x))
+			// Halfway in time is halfway round: over the top, inverted, after one
+			// turn, back on the line after two.
+			const half = getBarrelRollPose(0.5, settings, R, direction, {})
+			close(half.x, 0, 'halfway across', 1e-9)
+			close(half.y, turns === 1 ? 2 * R : 0, 'halfway height', 1e-9)
+			if (turns === 1) close(Math.abs(half.roll), Math.PI, 'inverted on top')
+			let left = 0
+			let right = 0
+			for (let step = 1; step < 400; step++) {
+				const progress = step / 400
+				const pose = getBarrelRollPose(progress, settings, R, direction, {})
+				left = Math.max(left, pose.x)
+				right = Math.min(right, pose.x)
+				close(Math.hypot(pose.x, pose.y - R), R, 'on the cylinder')
+				assert.ok(pose.y >= -1e-9, 'never below its line')
+				assert.ok(pose.roll >= -Math.PI && pose.roll < Math.PI)
+				// Its top (rolled up axis) toward the axis above.
+				close(-pose.x / R, -Math.sin(pose.roll), 'top x', 1e-9)
+				close((R - pose.y) / R, Math.cos(pose.roll), 'top y', 1e-9)
+				// The reported speed across, square to its top.
+				const next = getBarrelRollPose(progress + 1e-6, settings, R, direction, {})
+				close((next.x - pose.x) / 1e-6, pose.velocityX, 'speed x', 1e-3 * R * 40)
+				close((next.y - pose.y) / 1e-6, pose.velocityY, 'speed y', 1e-3 * R * 40)
+				close(
+					-Math.sin(pose.roll) * pose.velocityX + Math.cos(pose.roll) * pose.velocityY,
+					0,
+					'square',
+					1e-6,
+				)
+			}
+			// Centered across the screen.
+			close(left, R, 'left', 1e-2)
+			close(right, -R, 'right', 1e-2)
+		}
+	}
 })
