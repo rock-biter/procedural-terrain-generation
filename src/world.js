@@ -104,7 +104,13 @@ export default class World {
 	init(assets) {
 		const { renderer, scene } = this.setup
 		const { params, uniforms, isMobile } = this
-		this.plane = new Plane(assets.planeModel, params, this.camera, this.airplaneModel)
+		this.plane = new Plane(
+			assets.planeModel,
+			params,
+			this.camera,
+			this.airplaneModel,
+			renderer.domElement,
+		)
 
 		if (this.features.scenery) {
 			// The boat model replaces the stand-in boat before the bake reads the

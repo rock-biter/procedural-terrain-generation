@@ -6,6 +6,7 @@ import WingTrails from './wingTrails'
 import {
 	constrainDescentToMinimum,
 	FLIGHT_LIMITS,
+	getBarrelRollAngle,
 	getFlightCorridor,
 	getNextSpeedEffect,
 	getSafetyClimbSpeed,
@@ -15,13 +16,14 @@ import {
 	getTerrainSlowdown,
 	getVerticalInput,
 	smoothMinimumAltitude,
+	wrapAngle,
 } from './flightPolicy'
 const V3 = new Vector3(0, 0, 0)
 
 // The player airplane: flight (speed, turn, terrain-aware altitude), the
-// banking model, and the parts it drives: the input (src/flightInput.js), the
-// chase camera (src/followCamera.js), the propeller (src/propeller.js), and
-// the wing trails (src/wingTrails.js).
+// banking model and its barrel roll, and the parts it drives: the input
+// (src/flightInput.js), the chase camera (src/followCamera.js), the propeller
+// (src/propeller.js), and the wing trails (src/wingTrails.js).
 export default class Plane extends Object3D {
 	baseSpeed = 35
 	// The cruise speed to restore while hold() keeps the airplane still.
@@ -35,13 +37,24 @@ export default class Plane extends Object3D {
 	terrainSlowdown = 0
 	terrainBrakeEffect = 0
 	acceleration = 0
+	// The model's rotation.z is the steering bank plus the barrel roll, kept
+	// apart so the bank's ease never pulls the roll back.
+	bank = 0
+	roll = 0
+	// Seconds into the barrel roll, or null when none is under way.
+	rollElapsed = null
+	// params.barrelRoll as the roll started, so a ?gui=1 edit during a roll
+	// does not make it jump.
+	rollSettings = { duration: 0 }
+	rollDirection = 1
 	uniforms = {
 		uAcceleration: { value: 0 },
 	}
 
 	// `modelConfig` is the airplane's entry in AIRPLANE_MODELS
-	// (src/airplaneModels.js): trail anchor and propeller data.
-	constructor(airplane, params, camera, modelConfig) {
+	// (src/airplaneModels.js): trail anchor and propeller data. A click on
+	// `canvas` starts a barrel roll.
+	constructor(airplane, params, camera, modelConfig, canvas) {
 		super()
 
 		this.params = params
@@ -49,7 +62,7 @@ export default class Plane extends Object3D {
 		this.modelConfig = modelConfig
 		this.trailAnchor = new Vector3().fromArray(modelConfig.trailAnchor)
 		this.add(airplane)
-		this.input = new FlightInput()
+		this.input = new FlightInput(window, canvas)
 		this.cursor = this.input.cursor
 		this.addCamera(camera)
 		this.followCamera = new FollowCamera(camera)
@@ -260,6 +273,34 @@ export default class Plane extends Object3D {
 		}
 	}
 
+	get isRolling() {
+		return this.rollElapsed !== null
+	}
+
+	// Starts a barrel roll toward the current turn (right in level flight),
+	// unless one is under way or the Play intro has not handed over yet (the
+	// speed does not follow the boost before). Returns whether it started.
+	startBarrelRoll() {
+		if (this.isRolling || !this.followCamera.active) return false
+		this.rollElapsed = 0
+		Object.assign(this.rollSettings, this.params.barrelRoll)
+		this.rollDirection = this.cursor.x < 0 ? -1 : 1
+		return true
+	}
+
+	// Advances the roll with the frame's `dt`, so it freezes with the ?debug=1
+	// pause; back to level once it has run its duration.
+	updateBarrelRoll(dt) {
+		if (!this.isRolling) return
+		this.rollElapsed += dt
+		if (this.rollElapsed >= this.rollSettings.duration) {
+			this.rollElapsed = null
+			this.roll = 0
+			return
+		}
+		this.roll = getBarrelRollAngle(this.rollElapsed, this.rollSettings, this.rollDirection)
+	}
+
 	update(dt) {
 		this.translateZ(Math.abs(this.speed * dt))
 		this.rotation.y += Math.PI * -this.cursor.x * dt * 0.2
@@ -267,11 +308,15 @@ export default class Plane extends Object3D {
 		this.propeller.update(dt)
 		const visualSpeedEffect = this.getVisualSpeedEffect()
 
-		this.model.rotation.z = MathUtils.lerp(
-			this.model.rotation.z,
+		// Always taken: a click during a roll is dropped, not queued.
+		if (this.input.takeRollRequest()) this.startBarrelRoll()
+		this.updateBarrelRoll(dt)
+		this.bank = MathUtils.lerp(
+			this.bank,
 			Math.PI * this.cursor.x * 0.25 * (1 - this.acceleration * 0.5),
 			dt * 5,
 		)
+		this.model.rotation.z = wrapAngle(this.bank + this.roll)
 		const pitch = MathUtils.clamp(
 			this.actualVerticalSpeed / FLIGHT_LIMITS.maximumVerticalSpeed,
 			-1,
@@ -285,7 +330,9 @@ export default class Plane extends Object3D {
 
 		this.speed = MathUtils.lerp(this.speed, this.baseSpeed, dt * 0.3)
 		this.uniforms.uAcceleration.value = Math.max(visualSpeedEffect, 0)
-		this.acceleration = getNextSpeedEffect(this.acceleration, this.input.takeRequest(dt), dt)
+		// A barrel roll holds a full boost; a wheel request is still spent.
+		const wheelRequest = this.input.takeRequest(dt)
+		this.acceleration = getNextSpeedEffect(this.acceleration, this.isRolling ? 1 : wheelRequest, dt)
 		this.wingTrails.record(
 			this,
 			this.model,
@@ -293,14 +340,18 @@ export default class Plane extends Object3D {
 			this.cursor.x,
 			this.speed,
 			this.baseSpeed,
+			this.bank,
 		)
 		this.wingTrails.refresh()
 	}
 
 	setInputEnabled(enabled) {
 		this.input.enabled = enabled
-		// A wheel request held when input stops must not apply on resume.
-		if (!enabled) this.input.requestTime = 0
+		// A wheel or roll request held when input stops must not apply on resume.
+		if (!enabled) {
+			this.input.requestTime = 0
+			this.input.rollRequest = false
+		}
 	}
 
 	dispose() {
@@ -321,6 +372,14 @@ export default class Plane extends Object3D {
 			pointerYRatio: this.pointerYRatio,
 			verticalInput: getVerticalInput(this.pointerYRatio),
 			verticalVelocity: this.verticalVelocity,
+			// `angle` is the model's rotation.z (the bank plus the roll), in [-PI, PI).
+			roll: {
+				active: this.isRolling,
+				elapsed: this.rollElapsed,
+				duration: this.rollSettings.duration,
+				angle: this.model.rotation.z,
+				bank: this.bank,
+			},
 			camera: this.camera
 				? {
 						x: this.camera.position.x,

@@ -1224,6 +1224,13 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 
 	const airplaneFolder = gui.addFolder('Airplane')
 	airplaneFolder.add(params.propeller, 'speed', 0, 20, 0.1).name('Propeller speed (turns/s)')
+	// Read when the next roll starts (a click on the canvas).
+	const barrelRollFolder = airplaneFolder.addFolder('Barrel roll')
+	barrelRollFolder.add(params.barrelRoll, 'duration', 0.5, 3, 0.05).name('Duration (s)')
+	barrelRollFolder.add(params.barrelRoll, 'power', 1.5, 5, 0.1).name('Ease power')
+	barrelRollFolder.add(params.barrelRoll, 'overshoot', 0, 90, 1).name('Overshoot (°)')
+	barrelRollFolder.add(params.barrelRoll, 'settle', 0, 0.6, 0.01).name('Settle share')
+	barrelRollFolder.add(params.barrelRoll, 'wobbles', 0, 4, 0.1).name('Wobbles')
 
 	const trailsFolder = gui.addFolder('Trails')
 	trailsFolder.add(params.trails, 'ribbonWidth', 7.5, 12, 0.1).name('Ribbon width')

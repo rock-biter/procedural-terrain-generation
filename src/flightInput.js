@@ -1,19 +1,23 @@
 import { Vector2 } from 'three'
 import { FLIGHT_LIMITS } from './flightPolicy'
 
-// Pointer, touch, and wheel input of the flight. The mouse and touch set the
-// turn input (`cursor.x`, -1 to 1) and the pointer's vertical ratio; the wheel
-// holds a boost (+1) or brake (-1) request that Plane eases the speed effect
-// toward (getNextSpeedEffect()). dispose() removes the listeners.
+// Pointer, touch, wheel, and click input of the flight. The mouse and touch
+// set the turn input (`cursor.x`, -1 to 1) and the pointer's vertical ratio;
+// the wheel holds a boost (+1) or brake (-1) request that Plane eases the
+// speed effect toward (getNextSpeedEffect()); a click or tap on `clickTarget`
+// (the canvas, so page controls never trigger it) requests a barrel roll that
+// Plane takes with takeRollRequest(). dispose() removes the listeners.
 export default class FlightInput {
 	cursor = new Vector2()
 	pointerYRatio = (FLIGHT_LIMITS.verticalHoldTop + FLIGHT_LIMITS.verticalHoldBottom) / 2
 	enabled = true
 	request = 0
 	requestTime = 0
+	rollRequest = false
 
-	constructor(target = window) {
+	constructor(target = window, clickTarget = target) {
 		this.target = target
+		this.clickTarget = clickTarget
 		this.onMouseMove = (event) => this.setPointer(event.clientX, event.clientY, 1)
 		// Touch turns are gentler for the same finger travel.
 		this.onTouchMove = (event) => {
@@ -25,9 +29,14 @@ export default class FlightInput {
 			this.request = event.deltaY > 0 ? 1 : -1
 			this.requestTime = FLIGHT_LIMITS.wheelHold
 		}
+		// A steering drag ends without a click, so only a click or tap rolls.
+		this.onClick = () => {
+			if (this.enabled) this.rollRequest = true
+		}
 		target.addEventListener('mousemove', this.onMouseMove)
 		target.addEventListener('wheel', this.onWheel)
 		target.addEventListener('touchmove', this.onTouchMove)
+		clickTarget.addEventListener('click', this.onClick)
 	}
 
 	setPointer(clientX, clientY, turnScale) {
@@ -51,9 +60,18 @@ export default class FlightInput {
 		return this.request
 	}
 
+	// Whether a roll was requested since the last call; the request is spent
+	// either way, so a click during a roll is dropped rather than queued.
+	takeRollRequest() {
+		const requested = this.rollRequest
+		this.rollRequest = false
+		return requested
+	}
+
 	dispose() {
 		this.target.removeEventListener('mousemove', this.onMouseMove)
 		this.target.removeEventListener('wheel', this.onWheel)
 		this.target.removeEventListener('touchmove', this.onTouchMove)
+		this.clickTarget.removeEventListener('click', this.onClick)
 	}
 }

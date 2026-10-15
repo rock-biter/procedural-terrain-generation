@@ -32,12 +32,33 @@ test('a wheel event holds its request for a short time', () => {
 	assert.equal(input.takeRequest(0.01), 0)
 })
 
+test('a click on the click target requests one barrel roll', () => {
+	const target = new EventTarget()
+	const canvas = new EventTarget()
+	const input = new FlightInput(target, canvas)
+	assert.equal(input.takeRollRequest(), false)
+	// Page controls bubble their clicks to window, not to the canvas.
+	target.dispatchEvent(new Event('click'))
+	assert.equal(input.takeRollRequest(), false)
+	canvas.dispatchEvent(new Event('click'))
+	canvas.dispatchEvent(new Event('click'))
+	assert.equal(input.takeRollRequest(), true)
+	// Spent once taken, however many clicks came in.
+	assert.equal(input.takeRollRequest(), false)
+	input.enabled = false
+	canvas.dispatchEvent(new Event('click'))
+	assert.equal(input.takeRollRequest(), false)
+})
+
 test('dispose removes the listeners', () => {
 	const target = new EventTarget()
-	const input = new FlightInput(target)
+	const canvas = new EventTarget()
+	const input = new FlightInput(target, canvas)
 	input.dispose()
 	target.dispatchEvent(pointer('wheel', { deltaY: 3 }))
 	target.dispatchEvent(pointer('mousemove', { clientX: 900, clientY: 10 }))
+	canvas.dispatchEvent(new Event('click'))
 	assert.equal(input.takeRequest(0.01), 0)
 	assert.equal(input.cursor.x, 0)
+	assert.equal(input.takeRollRequest(), false)
 })

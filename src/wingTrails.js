@@ -18,9 +18,12 @@ import trailColorFragment from './shaders/trail-color-fragment.glsl'
 import { replaceChunks } from './shaderChunks.js'
 import TrailHistory, { getTrailBankFactor, getTrailWidths } from './trailHistory.js'
 
-// World units of flown path the ribbon covers, and its segment count.
+// World units of flown path the ribbon covers, and its segment count: one
+// row per unit keeps the twist of the default barrel roll at full boost to
+// about 25 degrees a segment at its fastest, so the stripes stay continuous.
 const TRAIL_LENGTH = 60
-const TRAIL_SEGMENTS = 30
+const TRAIL_SEGMENTS = 60
+const SEGMENT_LENGTH = TRAIL_LENGTH / TRAIL_SEGMENTS
 
 // The two wing-tip stripes: a ribbon along the last TRAIL_LENGTH units of the
 // flown path (src/trailHistory.js), in world space, so `mesh` is a direct
@@ -103,10 +106,11 @@ export default class WingTrails {
 	}
 
 	// Records the current pose: `body` is the flying Plane (its +Z is the
-	// flight direction), `model` the banking airplane mesh, `anchor` the
-	// emission point in model space, and `turnInput`, `speed`, and `baseSpeed`
-	// set the stripe widths.
-	record(body, model, anchor, turnInput, speed, baseSpeed) {
+	// flight direction), `model` the banking and rolling airplane mesh, `anchor`
+	// the emission point in model space, `turnInput`, `speed`, and `baseSpeed`
+	// set the stripe widths, and `bank` (the steering bank, without the barrel
+	// roll) sets the stripes' sideways oscillation.
+	record(body, model, anchor, turnInput, speed, baseSpeed, bank) {
 		body.updateWorldMatrix(true, false)
 		// Also refreshes the model's world matrix for localToWorld() below.
 		model.getWorldQuaternion(this.quaternion)
@@ -121,7 +125,7 @@ export default class WingTrails {
 			this.wing,
 			this.widths[0],
 			this.widths[1],
-			getTrailBankFactor(model.rotation.z),
+			getTrailBankFactor(bank),
 			TRAIL_LENGTH,
 		)
 	}
@@ -156,7 +160,7 @@ export default class WingTrails {
 		let firstStripeRow = -1
 		let lastStripeRow = -1
 		for (let index = 0; index <= TRAIL_SEGMENTS; index++) {
-			this.history.sample((index * TRAIL_LENGTH) / TRAIL_SEGMENTS, row)
+			this.history.sample(index * SEGMENT_LENGTH, row)
 			const wingLength = Math.hypot(row[6], row[7], row[8])
 			const wingScale = wingLength > 0 ? (settings.ribbonWidth * 0.5) / wingLength : 0
 			const wingX = row[6] * wingScale
@@ -186,7 +190,10 @@ export default class WingTrails {
 		// Segment s joins rows s and s + 1. The fragment shader discards every
 		// pixel without stripe width, so only segments touching a row with a
 		// stripe are drawn; in level, cruise-speed flight that is none.
-		const segments = Math.min(TRAIL_SEGMENTS, Math.ceil(this.history.availableDistance / 2))
+		const segments = Math.min(
+			TRAIL_SEGMENTS,
+			Math.ceil(this.history.availableDistance / SEGMENT_LENGTH),
+		)
 		const firstSegment = Math.max(firstStripeRow - 1, 0)
 		const endSegment = firstStripeRow < 0 ? 0 : Math.min(lastStripeRow + 1, segments)
 		geometry.setDrawRange(firstSegment * 6, Math.max(endSegment - firstSegment, 0) * 6)
