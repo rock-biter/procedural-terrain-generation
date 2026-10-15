@@ -208,12 +208,13 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		barrelRoll: { duration: 1.1, power: 3, overshoot: 20, settle: 0.5, wobbles: 0.3 },
 		// The loop (a click in the top of the screen) and the Immelmann (the
 		// wheel back at cruise speed), read when each starts
-		// (src/maneuverPolicy.js): length in seconds, radius in units, the power
-		// of the ease in and out of the climb, the rig's share of the speed while
-		// the loop flies, the Immelmann's share of the time to its top, its
-		// speed share there, the share of the climb its half roll overlaps, and
-		// the roll's power, and the camera framing (degrees from straight
-		// behind, and a scale of the distance that fits the circle).
+		// (src/maneuverPolicy.js): length in seconds and radius in units (the
+		// top is 2 radii up); the loop's ease in and out and the rig's share of
+		// the speed while it flies; the Immelmann's turn past the top (degrees
+		// of a loop before it eases back out level, reversed, at its starting
+		// height) and the power of its half roll; and the camera framing
+		// (degrees from the figure's edge-on direction, and a scale of the
+		// distance that fits it).
 		loop: {
 			duration: 2.4,
 			radius: 28,
@@ -223,12 +224,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 			cameraDistance: 1,
 		},
 		immelmann: {
-			duration: 2.6,
+			duration: 2.8,
 			radius: 28,
-			power: 2,
-			climbShare: 0.6,
-			topSpeed: 0.5,
-			rollOverlap: 0.3,
+			peakAngle: 250,
 			rollPower: 2,
 			cameraAzimuth: 45,
 			cameraDistance: 1,

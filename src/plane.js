@@ -21,9 +21,11 @@ import {
 	getBarrelRollAngle,
 	getCircleFraming,
 	getClickManeuver,
+	createImmelmannPath,
+	getImmelmannCruise,
 	getImmelmannFraming,
 	getImmelmannPose,
-	getImmelmannRigSpeedFactor,
+	getImmelmannRig,
 	getLoopFramingWeight,
 	getLoopPose,
 	getLoopRigSpeedFactor,
@@ -31,12 +33,12 @@ import {
 	getManeuverSmoke,
 	MANEUVER,
 	MANEUVER_LIMITS,
-	stepAltitudeCeiling,
 	wrapAngle,
 } from './maneuverPolicy'
 const V3 = new Vector3(0, 0, 0)
 const RIG_BEFORE = new Matrix4()
 const REBASE = new Matrix4()
+const IMMELMANN_POSE = {}
 
 // The player airplane: flight (speed, turn, terrain-aware altitude), the
 // banking model and its maneuvers (src/maneuverPolicy.js: the barrel roll,
@@ -66,15 +68,15 @@ export default class Plane extends Object3D {
 	// The maneuver under way, or null: its `type` (MANEUVER), seconds
 	// `elapsed`, `settings` (a copy of params[type] as it started, so a ?gui=1
 	// edit does not make it jump), `radius`, `direction` (1 or -1, toward the
-	// turn as it started), the camera's `fov` then, and the Immelmann's `phase`.
+	// turn as it started), and the camera's `fov` and `aspect` then; for an
+	// Immelmann also its `path` (createImmelmannPath()), `length`, and
+	// `cruise`, where it started (`originX`, `originZ`) and its heading then
+	// (`forwardX`, `forwardZ`), and whether the rig has `turned` around.
 	maneuver = null
 	// The loop's and the Immelmann's pose of the model, and the camera framing
 	// (src/maneuverPolicy.js), filled in place.
-	maneuverPose = { phase: 1, y: 0, z: 0, pitch: 0, roll: 0 }
+	maneuverPose = { y: 0, z: 0, climb: 0, pitch: 0, roll: 0 }
 	framing = { weight: 0, position: new Vector3(), target: new Vector3(), floor: 0 }
-	// The flight ceiling, raised above FLIGHT_LIMITS.maximumAltitude after an
-	// Immelmann and coming back down at `speed` (stepAltitudeCeiling()).
-	ceiling = { altitude: FLIGHT_LIMITS.maximumAltitude, speed: 0 }
 	uniforms = {
 		uAcceleration: { value: 0 },
 	}
@@ -176,8 +178,6 @@ export default class Plane extends Object3D {
 		this.position.set(x, y, z)
 		this.verticalVelocity = 0
 		this.actualVerticalSpeed = 0
-		this.ceiling.altitude = FLIGHT_LIMITS.maximumAltitude
-		this.ceiling.speed = 0
 		this.resetTerrainState()
 		this.wingTrails.clear()
 	}
@@ -199,11 +199,6 @@ export default class Plane extends Object3D {
 				sampleHeight: this.terrainSampler,
 			},
 			this.flightCorridor ?? undefined,
-		)
-		// Raised after an Immelmann, until it has come back down.
-		this.flightCorridor.maximumAltitude = Math.max(
-			this.flightCorridor.maximumAltitude,
-			this.ceiling.altitude,
 		)
 		const targetMinimumAltitude = this.flightCorridor.minimumAltitude
 		const currentMinimumAltitude = this.smoothedMinimumAltitude
@@ -338,7 +333,7 @@ export default class Plane extends Object3D {
 			radius = getManeuverRadius(settings.radius, this.position.y)
 			if (radius === null) return false
 		}
-		this.maneuver = {
+		const maneuver = {
 			type,
 			elapsed: 0,
 			settings,
@@ -346,8 +341,22 @@ export default class Plane extends Object3D {
 			direction: this.cursor.x < 0 ? -1 : 1,
 			fov: this.camera.getEffectiveFOV(),
 			aspect: this.camera.aspect,
-			phase: 1,
 		}
+		if (type === MANEUVER.IMMELMANN) {
+			const path = createImmelmannPath(settings.peakAngle)
+			const length = (2 * radius) / path.height
+			Object.assign(maneuver, {
+				path,
+				length,
+				cruise: getImmelmannCruise(Math.abs(this.speed), settings.duration, length),
+				originX: this.position.x,
+				originZ: this.position.z,
+				forwardX: Math.sin(this.rotation.y),
+				forwardZ: Math.cos(this.rotation.y),
+				turned: false,
+			})
+		}
+		this.maneuver = maneuver
 		if (type !== MANEUVER.BARREL_ROLL) this.wingTrails.startManeuver()
 		return true
 	}
@@ -394,28 +403,34 @@ export default class Plane extends Object3D {
 		return duration > 0 ? Math.min(maneuver.elapsed / duration, 1) : 1
 	}
 
-	// The rig's share of the flight speed `progress` into the maneuver,
-	// negative to fly back: it slows down during a loop, and during an
-	// Immelmann's climb it turns back to fly on with the airplane over the top.
-	getRigSpeedFactor(progress) {
+	// Moves the rig `dt` seconds on, `progress` into the maneuver: forward at
+	// the flight speed, slower during a loop; during an Immelmann it follows
+	// getImmelmannRig() from where it started, out and back, to meet the
+	// airplane at the end of its path.
+	moveRig(progress, dt) {
 		const maneuver = this.maneuver
-		if (maneuver?.type === MANEUVER.LOOP) {
-			return getLoopRigSpeedFactor(progress, maneuver.settings.rigSpeed)
-		}
 		if (maneuver?.type === MANEUVER.IMMELMANN) {
-			return getImmelmannRigSpeedFactor(progress, maneuver.settings)
+			const along = getImmelmannRig(progress, maneuver.path, maneuver.cruise) * maneuver.length
+			this.position.x = maneuver.originX + maneuver.forwardX * along
+			this.position.z = maneuver.originZ + maneuver.forwardZ * along
+			return
 		}
-		return 1
+		const factor =
+			maneuver?.type === MANEUVER.LOOP
+				? getLoopRigSpeedFactor(progress, maneuver.settings.rigSpeed)
+				: 1
+		this.translateZ(Math.abs(this.speed) * factor * dt)
 	}
 
-	// Turns the rig around once an Immelmann passes its top, before the rig
-	// moves this frame, so it moves on along the new heading.
+	// Turns the rig around once an Immelmann reaches `immelmannTurn`, with the
+	// camera framing fully in, so the framing hands back to the chase camera
+	// on the new heading.
 	updateTurnaround(progress) {
 		const maneuver = this.maneuver
-		if (maneuver?.type !== MANEUVER.IMMELMANN || maneuver.phase !== 1) return
-		if (progress < maneuver.settings.climbShare) return
-		maneuver.phase = 2
-		this.turnAround(maneuver.radius)
+		if (maneuver?.type !== MANEUVER.IMMELMANN || maneuver.turned) return
+		if (progress < MANEUVER_LIMITS.immelmannTurn) return
+		maneuver.turned = true
+		this.turnAround()
 	}
 
 	// Poses the model `progress` into the maneuver: the barrel roll's roll, or
@@ -431,21 +446,31 @@ export default class Plane extends Object3D {
 		if (maneuver.type === MANEUVER.LOOP) {
 			getLoopPose(progress, maneuver.settings, maneuver.radius, pose)
 		} else {
-			getImmelmannPose(progress, maneuver.settings, maneuver.radius, maneuver.direction, pose)
+			const { path, length, cruise, settings, direction } = maneuver
+			getImmelmannPose(progress, path, length, cruise, settings, direction, pose)
+			// Along the start heading, so mirrored once the rig has turned
+			// around, where a climb angle of A with a roll of R is a pitch of
+			// PI + A with a roll of PI + R.
+			if (maneuver.turned) {
+				pose.z = -pose.z
+				pose.pitch = wrapAngle(Math.PI + pose.climb)
+				pose.roll = wrapAngle(Math.PI + pose.roll)
+			} else {
+				pose.pitch = wrapAngle(-pose.climb)
+				pose.roll = wrapAngle(pose.roll)
+			}
 		}
 		this.model.position.set(0, pose.y, pose.z)
 		this.roll = pose.roll
 	}
 
-	// The Immelmann's top: the rig rises to the airplane, 2 radii up, and turns
-	// around, where the airplane keeps the same pose (a pitch of -PI is a yaw
-	// of PI with a roll of PI) and, flying back with the rig, the same speed. The camera stays where it was in the
-	// world, the ceiling lets the rig stay up there, and the terrain corridor
-	// starts over on the new heading, so the turn does not brake.
-	turnAround(radius) {
+	// The rig turns around in place during an Immelmann; the airplane and the
+	// camera stay where they are in the world (applyManeuverPose() and
+	// FollowCamera.rebase()), and the terrain corridor starts over on the new
+	// heading, so the turn does not brake.
+	turnAround() {
 		this.updateMatrix()
 		RIG_BEFORE.copy(this.matrix)
-		this.position.y += 2 * radius
 		this.rotation.y = wrapAngle(this.rotation.y + Math.PI)
 		this.updateMatrix()
 		this.updateMatrixWorld()
@@ -453,8 +478,6 @@ export default class Plane extends Object3D {
 		// rig and back through the new one.
 		REBASE.copy(this.matrix).invert().multiply(RIG_BEFORE)
 		this.followCamera.rebase(REBASE)
-		this.ceiling.altitude = Math.max(this.ceiling.altitude, this.position.y)
-		this.ceiling.speed = 0
 		this.verticalVelocity = 0
 		this.actualVerticalSpeed = 0
 		this.resetTerrainState()
@@ -471,7 +494,27 @@ export default class Plane extends Object3D {
 			const weight = getLoopFramingWeight(progress)
 			getCircleFraming(weight, radius, fov, aspect, settings, direction, framing)
 		} else {
-			getImmelmannFraming(progress, radius, fov, aspect, settings, direction, framing)
+			const { path, length, cruise } = maneuver
+			getImmelmannPose(progress, path, length, cruise, settings, direction, IMMELMANN_POSE)
+			getImmelmannFraming(
+				progress,
+				path,
+				length,
+				cruise,
+				fov,
+				aspect,
+				settings,
+				direction,
+				IMMELMANN_POSE,
+				framing,
+			)
+			// Along the start heading, so mirrored once the rig has turned around.
+			if (maneuver.turned) {
+				framing.position.x = -framing.position.x
+				framing.position.z = -framing.position.z
+				framing.target.x = -framing.target.x
+				framing.target.z = -framing.target.z
+			}
 		}
 		framing.floor = -Infinity
 		if (this.terrainSampler) {
@@ -491,7 +534,7 @@ export default class Plane extends Object3D {
 		// Steering waits during a loop or an Immelmann.
 		const turnInput = figure ? 0 : this.cursor.x
 		this.updateTurnaround(progress)
-		this.translateZ(Math.abs(this.speed) * this.getRigSpeedFactor(progress) * dt)
+		this.moveRig(progress, dt)
 		this.rotation.y += Math.PI * -turnInput * dt * 0.2
 		this.updateAltitude(dt, figure ? 0 : getVerticalInput(this.pointerYRatio))
 		this.propeller.update(dt)
@@ -535,7 +578,6 @@ export default class Plane extends Object3D {
 				this.isRolling ? 1 : wheelRequest,
 				dt,
 			)
-			stepAltitudeCeiling(this.ceiling, dt)
 		}
 		this.wingTrails.updateLength(dt, figure)
 		this.wingTrails.record(
@@ -586,7 +628,7 @@ export default class Plane extends Object3D {
 						elapsed: this.maneuver.elapsed,
 						duration: this.maneuver.settings.duration,
 						radius: this.maneuver.radius,
-						phase: this.maneuver.phase,
+						turned: this.maneuver.turned ?? false,
 						framing: this.framing.weight,
 					}
 				: null,
@@ -601,7 +643,6 @@ export default class Plane extends Object3D {
 				y: this.model.position.y,
 				z: this.model.position.z,
 			},
-			altitudeCeiling: this.ceiling.altitude,
 			trailLength: this.wingTrails.length,
 			camera: this.camera
 				? {

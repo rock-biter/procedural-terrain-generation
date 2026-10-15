@@ -28,11 +28,13 @@ export const MANEUVER_LIMITS = Object.freeze({
 	// The wheel back turns around with an Immelmann at up to this speed effect
 	// (cruise); above it, it brakes.
 	cruiseSpeedEffect: 0.15,
-	// After an Immelmann the ceiling above FLIGHT_LIMITS.maximumAltitude comes
-	// down at up to this speed (units per second), speeding up and slowing
-	// down at `ceilingDescentAcceleration`, so the airplane glides back under it.
-	ceilingDescentSpeed: 10,
-	ceilingDescentAcceleration: 8,
+	// The share of an Immelmann at which the rig turns around, its camera
+	// framing fully in, and after which the framing hands back to the chase
+	// camera behind the airplane on the new heading; and the fastest its entry
+	// and exit speed may be, in path lengths per maneuver, so the airplane
+	// never flies back along its path.
+	immelmannTurn: 0.7,
+	maximumImmelmannCruise: 3,
 	// Shares of a loop or an Immelmann over which the rig slows down at the
 	// start and speeds up at the end, the camera framing eases in and out, and
 	// the smoke of the trails fades in and out.
@@ -47,18 +49,16 @@ export const MANEUVER_LIMITS = Object.freeze({
 	cameraClearance: 6,
 })
 
-// The chase camera's place in the rig (src/followCamera.js), where the
-// Immelmann's camera orbit ends, and where its line of sight (renderSetup's
-// lookAt, 0.1 down per unit ahead) crosses the airplane's place: the orbit
-// ends looking there, so the blend back to the chase camera does not nod.
+// The chase camera's place in the rig (src/followCamera.js).
 export const CHASE_CAMERA = Object.freeze({
 	height: 7,
 	distance: 18,
-	lookHeight: 5.2,
 })
 
 const FULL_TURN = Math.PI * 2
 const DEGREES = Math.PI / 180
+// Points along the Immelmann's path table.
+const PATH_SAMPLES = 256
 
 // `angle` (radians) brought into [-PI, PI), so a rotation never accumulates:
 // 375 degrees becomes 15, 720 becomes 0, and -10 stays -10.
@@ -132,28 +132,6 @@ export function getLoopRigSpeedFactor(progress, rigSpeed, limits = MANEUVER_LIMI
 	return lerp(1, rigSpeed, dip)
 }
 
-// The rig's share of the flight speed `progress` into an Immelmann
-// (params.immelmann): during the climb it slows down and turns back, to
-// `-topSpeed` at the top (`climbShare`), where the airplane, at rest on the
-// rig, flies back with it; turned around there, the rig goes on at
-// `topSpeed` the same way in the world, then speeds back up. Neither the
-// rig, the camera on it, nor the airplane ever stops or jumps in speed.
-export function getImmelmannRigSpeedFactor(progress, settings) {
-	const p = clamp01(progress)
-	const { climbShare, topSpeed } = settings
-	return p < climbShare
-		? lerp(1, -topSpeed, smoothstep(0, climbShare, p))
-		: lerp(topSpeed, 1, smoothstep(climbShare, 1, p))
-}
-
-// The Immelmann's half roll (0 to 1) `progress` into it: from `rollOverlap`
-// of the climb before the top, so it cross-fades with the half loop, to the
-// end, eased with `rollPower`.
-export function getImmelmannRoll(progress, settings) {
-	const start = settings.climbShare * (1 - settings.rollOverlap)
-	return easeInOut((clamp01(progress) - start) / (1 - start), settings.rollPower)
-}
-
 // The model's pose `progress` into a loop of `radius` (params.loop): a full
 // vertical circle in the rig frame, eased in and out with `power`, from and
 // back to the rig. `out` receives `y` and `z` (the model's local position),
@@ -167,34 +145,131 @@ export function getLoopPose(progress, settings, radius, out = {}) {
 	return out
 }
 
-// The model's pose `progress` into an Immelmann of `radius`
-// (params.immelmann), with `out.phase`:
-// 1. over the first `climbShare` of the time, a half loop eased in and out
-//    with `power`, ending above the rig, inverted, nose back, at rest on the
-//    rig, which by then flies back with it (getImmelmannRigSpeedFactor());
-// 2. then, in the frame of the rig turned around and lifted to the top
-//    (src/plane.js), straight on.
-// The half roll back upright, toward `direction` (1 or -1), starts before the
-// top and runs through it (getImmelmannRoll()). Turned around, the airplane
-// keeps its pose: a pitch of -PI is a yaw of PI with a roll of PI.
-export function getImmelmannPose(progress, settings, radius, direction, out = {}) {
-	const p = clamp01(progress)
-	const climbShare = settings.climbShare
-	const roll = direction * Math.PI * getImmelmannRoll(p, settings)
-	if (p < climbShare) {
-		const angle = easeInOut(p / climbShare, settings.power) * Math.PI
-		out.phase = 1
-		out.y = radius * (1 - Math.cos(angle))
-		out.z = radius * Math.sin(angle)
-		out.pitch = wrapAngle(-angle)
-		out.roll = wrapAngle(roll)
-		return out
+// The Immelmann's climb angle (radians: 0 level ahead, PI/2 straight up, PI
+// level back) at `u` (0 to 1) of its path: up with a smoothstep to `peak`
+// over the first `rise` of it, then back to PI over the rest. It starts and
+// ends straight, and turns from climbing to diving at `peak` without a kink.
+function getPathAngle(u, peak, rise) {
+	return u < rise
+		? peak * smoothstep(0, 1, u / rise)
+		: peak + (Math.PI - peak) * smoothstep(rise, 1, u)
+}
+
+// The path's end height per unit of its length, also filling `heights` and
+// `lengths` (along the start heading) at PATH_SAMPLES + 1 points when given.
+function integratePath(peak, rise, heights = null, lengths = null) {
+	let height = 0
+	let along = 0
+	if (heights) {
+		heights[0] = 0
+		lengths[0] = 0
 	}
-	out.phase = 2
-	out.y = 0
-	out.z = 0
-	out.pitch = 0
-	out.roll = wrapAngle(Math.PI + roll)
+	for (let i = 0; i < PATH_SAMPLES; i++) {
+		const angle = getPathAngle((i + 0.5) / PATH_SAMPLES, peak, rise)
+		height += Math.sin(angle) / PATH_SAMPLES
+		along += Math.cos(angle) / PATH_SAMPLES
+		if (heights) {
+			heights[i + 1] = height
+			lengths[i + 1] = along
+		}
+	}
+	return height
+}
+
+// The Immelmann's path (params.immelmann.peakAngle): up like a loop, over
+// the top, on to `peakAngle` degrees (into the dive; 270 would be three
+// quarters of a loop), then eased out level on the reversed heading at its
+// starting height, for which the share of the climb is solved. Positions are
+// per unit of path length: `heights` and `lengths` (along the start heading)
+// at PATH_SAMPLES + 1 points, the highest `height`, the `front` and `back`
+// ends, and the `end`; `top` is where it passes the top, inverted.
+export function createImmelmannPath(peakAngle) {
+	const peak = Math.min(Math.max(peakAngle, 190), 265) * DEGREES
+	let low = 0.05
+	let high = 0.995
+	for (let i = 0; i < 50; i++) {
+		const rise = (low + high) / 2
+		if (integratePath(peak, rise) > 0) high = rise
+		else low = rise
+	}
+	const rise = (low + high) / 2
+	const heights = new Float64Array(PATH_SAMPLES + 1)
+	const lengths = new Float64Array(PATH_SAMPLES + 1)
+	integratePath(peak, rise, heights, lengths)
+	// Where the climb's smoothstep reaches PI / peak.
+	let below = 0
+	let above = 1
+	for (let i = 0; i < 40; i++) {
+		const x = (below + above) / 2
+		if (peak * smoothstep(0, 1, x) < Math.PI) below = x
+		else above = x
+	}
+	return {
+		peak,
+		rise,
+		top: rise * (below + above) * 0.5,
+		heights,
+		lengths,
+		height: Math.max(...heights),
+		front: Math.max(...lengths),
+		back: Math.min(...lengths),
+		end: lengths[PATH_SAMPLES],
+	}
+}
+
+// `values` (a path table) at `u` (0 to 1) of the path.
+function samplePath(values, u) {
+	const x = clamp01(u) * PATH_SAMPLES
+	const i = Math.min(Math.floor(x), PATH_SAMPLES - 1)
+	return values[i] + (values[i + 1] - values[i]) * (x - i)
+}
+
+// The cubic Hermite curve at `t` (0 to 1) from `start` to `end`, with those
+// slopes there.
+function hermite(t, start, startSlope, end, endSlope) {
+	const t2 = t * t
+	const t3 = t2 * t
+	return (
+		(2 * t3 - 3 * t2 + 1) * start +
+		(t3 - 2 * t2 + t) * startSlope +
+		(-2 * t3 + 3 * t2) * end +
+		(t3 - t2) * endSlope
+	)
+}
+
+// An Immelmann's entry and exit speed in path lengths per maneuver: the
+// flight `speed` over `duration` seconds and a path `length` units long.
+export function getImmelmannCruise(speed, duration, length, limits = MANEUVER_LIMITS) {
+	return Math.min((speed * duration) / length, limits.maximumImmelmannCruise)
+}
+
+// The share of its path an Immelmann has flown `progress` into it, entering
+// and leaving at `cruise` (getImmelmannCruise()), so at the flight speed,
+// and faster (or slower) between: the airplane never stops.
+export function getImmelmannDistance(progress, cruise) {
+	return hermite(clamp01(progress), 0, cruise, 1, cruise)
+}
+
+// The rig's place `progress` into an Immelmann along the start heading, in
+// path lengths: it leaves with the airplane, turns back, and arrives with
+// it at the path's end, at the flight speed on the reversed heading, so the
+// camera keeps up and the airplane lands back on the rig.
+export function getImmelmannRig(progress, path, cruise) {
+	return hermite(clamp01(progress), 0, cruise, path.end, -cruise)
+}
+
+// The airplane `progress` into an Immelmann along `path`, `length` units
+// long (params.immelmann), toward `direction` (1 or -1): `out.y` and `out.z`,
+// its place from the rig along the start heading; `out.climb`, its climb
+// angle; and `out.roll`, the half roll back upright from the top to the
+// path's end (eased with `rollPower`), where it is level on the reversed
+// heading, back on the rig.
+export function getImmelmannPose(progress, path, length, cruise, settings, direction, out = {}) {
+	const u = getImmelmannDistance(progress, cruise)
+	out.y = samplePath(path.heights, u) * length
+	out.z = (samplePath(path.lengths, u) - getImmelmannRig(progress, path, cruise)) * length
+	out.climb = getPathAngle(clamp01(u), path.peak, path.rise)
+	out.roll = direction * Math.PI * easeInOut((u - path.top) / (1 - path.top), settings.rollPower)
 	return out
 }
 
@@ -205,14 +280,16 @@ export function getManeuverSmoke(progress, limits = MANEUVER_LIMITS) {
 	return smoothstep(0, limits.smokeIn, p) * (1 - smoothstep(1 - limits.smokeOut, 1, p))
 }
 
-// The camera distance from a circle's center that fits the circle of
-// `radius`, seen `azimuth` radians from straight behind, with a margin in a
-// view of `fov` vertical degrees and `aspect` (width over height), scaled by
-// `distance`: its top and bottom at the center's depth, and its nearest side,
-// R sin(azimuth) across but R cos(azimuth) closer, which a portrait phone
-// needs to back off for.
-export function getFramingDistance(
-	radius,
+// The camera distance from a vertical figure's middle that fits it,
+// `halfHeight` tall and `halfLength` long each way, seen `azimuth` radians
+// from its edge-on direction, with a margin in a view of `fov` vertical
+// degrees and `aspect` (width over height), scaled by `distance`: its top and
+// bottom at the middle's depth, and its nearest end, `halfLength`
+// sin(azimuth) across but `halfLength` cos(azimuth) closer, which a portrait
+// phone needs to back off for.
+export function getFigureFramingDistance(
+	halfHeight,
+	halfLength,
 	fov,
 	aspect,
 	azimuth,
@@ -221,14 +298,25 @@ export function getFramingDistance(
 ) {
 	const tangent = Math.tan((fov * DEGREES) / 2)
 	const margin = limits.framingMargin
-	const height = (margin * radius) / tangent
+	const height = (margin * halfHeight) / tangent
 	const width =
-		radius * Math.cos(azimuth) + (margin * radius * Math.sin(azimuth)) / (aspect * tangent)
+		halfLength * Math.cos(azimuth) + (margin * halfLength * Math.sin(azimuth)) / (aspect * tangent)
 	return distance * Math.max(height, width)
 }
 
-// The camera's level framing of a loop or the climb of an Immelmann, in the
-// rig frame: `out.weight` (0 to 1, `weight`) of the blend from the
+// getFigureFramingDistance() for a circle of `radius`.
+export function getFramingDistance(
+	radius,
+	fov,
+	aspect,
+	azimuth,
+	distance,
+	limits = MANEUVER_LIMITS,
+) {
+	return getFigureFramingDistance(radius, radius, fov, aspect, azimuth, distance, limits)
+}
+
+// The camera's level framing of a loop, in the rig frame: `out.weight` (0 to 1, `weight`) of the blend from the
 // chase camera, `out.position` beside and behind the circle, `cameraAzimuth`
 // degrees from straight behind toward `side` (1 or -1, +X or -X), at the
 // height of its center, and `out.target`, the circle's center. From straight
@@ -253,65 +341,47 @@ export function getLoopFramingWeight(progress, limits = MANEUVER_LIMITS) {
 	return smoothstep(0, limits.framingIn, p) * (1 - smoothstep(1 - limits.framingOut, 1, p))
 }
 
-// The camera `progress` into an Immelmann (see getCircleFraming()): during
-// the climb, the level framing of the half circle; once the rig has turned
-// around at the top, an orbit around the rig from that same place (in the
-// new frame: mirrored, and 2 radii lower) to the chase position behind the
-// airplane, looking from the old circle's center to the airplane, and the
-// blend back to the chase camera over the last `framingOut` of that turn.
+// The camera `progress` into an Immelmann, from the rig along the start
+// heading like getImmelmannPose() (`pose`): level, beside the path,
+// `cameraAzimuth` degrees from ahead toward `side`, so the airplane flies
+// away from it on the way out, far enough to keep the whole figure in view,
+// at the height of its middle; looking at its middle, then at the airplane
+// as it dives and levels out. The weight blends in over `framingIn` and,
+// once the rig has turned around (`immelmannTurn`), back to the chase camera
+// behind the airplane on the new heading.
 export function getImmelmannFraming(
 	progress,
-	radius,
+	path,
+	length,
+	cruise,
 	fov,
 	aspect,
 	settings,
 	side,
+	pose,
 	out,
 	limits = MANEUVER_LIMITS,
 ) {
 	const p = clamp01(progress)
-	const climbShare = settings.climbShare
-	// Fully in by the top, where the rig turns around.
-	const fadeIn = smoothstep(0, Math.min(limits.framingIn, climbShare), p)
-	if (p < climbShare) return getCircleFraming(fadeIn, radius, fov, aspect, settings, side, out)
-
 	const azimuth = settings.cameraAzimuth * DEGREES
-	const distance = getFramingDistance(radius, fov, aspect, azimuth, settings.cameraDistance)
-	const turn = (p - climbShare) / (1 - climbShare)
-	const t = easeInOut(turn, 2)
-	// Mirrored by the turn: from behind toward `side` becomes ahead toward
-	// `-side`, the start of an orbit back behind the airplane on that side.
-	const startAngle = -side * (Math.PI - azimuth)
-	const angle = startAngle * (1 - t)
-	const orbitRadius = lerp(distance, CHASE_CAMERA.distance, t)
-	out.weight = 1 - smoothstep(1 - limits.framingOut, 1, turn)
-	out.position.x = orbitRadius * Math.sin(angle)
-	out.position.y = lerp(-radius, CHASE_CAMERA.height, t)
-	out.position.z = -orbitRadius * Math.cos(angle)
-	const look = smoothstep(0, 0.5, t)
-	out.target.x = 0
-	out.target.y = lerp(-radius, CHASE_CAMERA.lookHeight, look)
-	out.target.z = 0
-	return out
-}
-
-// Moves `ceiling` ({ altitude, speed }, the raised ceiling and its descent
-// speed) `dt` seconds on, in place: the descent speeds up, up to
-// `ceilingDescentSpeed`, and slows down to settle on the flight ceiling, so
-// the rig the clamp pulls down neither drops nor stops at once.
-export function stepAltitudeCeiling(ceiling, dt, limits = MANEUVER_LIMITS, flight = FLIGHT_LIMITS) {
-	const above = ceiling.altitude - flight.maximumAltitude
-	if (above <= 0) {
-		ceiling.altitude = flight.maximumAltitude
-		ceiling.speed = 0
-		return ceiling
-	}
-	const acceleration = limits.ceilingDescentAcceleration
-	ceiling.speed = Math.min(
-		ceiling.speed + acceleration * dt,
-		limits.ceilingDescentSpeed,
-		Math.sqrt(2 * acceleration * above),
+	const halfHeight = (path.height * length) / 2
+	const halfLength = ((path.front - path.back) * length) / 2
+	const middle = ((path.front + path.back) / 2 - getImmelmannRig(p, path, cruise)) * length
+	const distance = getFigureFramingDistance(
+		halfHeight,
+		halfLength,
+		fov,
+		aspect,
+		azimuth,
+		settings.cameraDistance,
 	)
-	ceiling.altitude = Math.max(flight.maximumAltitude, ceiling.altitude - ceiling.speed * dt)
-	return ceiling
+	out.weight = smoothstep(0, limits.framingIn, p) * (1 - smoothstep(limits.immelmannTurn, 1, p))
+	out.position.x = side * distance * Math.sin(azimuth)
+	out.position.y = halfHeight
+	out.position.z = middle + distance * Math.cos(azimuth)
+	const follow = smoothstep(0.45, 0.8, p)
+	out.target.x = 0
+	out.target.y = lerp(halfHeight, pose.y, follow)
+	out.target.z = lerp(middle, pose.z, follow)
+	return out
 }

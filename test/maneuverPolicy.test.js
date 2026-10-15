@@ -4,16 +4,17 @@ import { createAppParams } from '../src/appParams.js'
 import { FLIGHT_LIMITS } from '../src/flightPolicy.js'
 import {
 	canTurnAround,
-	CHASE_CAMERA,
 	getBarrelRollAngle,
 	getBarrelRollTurnAngle,
 	getCircleFraming,
 	getClickManeuver,
 	getFramingDistance,
+	createImmelmannPath,
+	getImmelmannCruise,
+	getImmelmannDistance,
 	getImmelmannFraming,
 	getImmelmannPose,
-	getImmelmannRigSpeedFactor,
-	getImmelmannRoll,
+	getImmelmannRig,
 	getLoopFramingWeight,
 	getLoopPose,
 	getLoopRigSpeedFactor,
@@ -21,7 +22,6 @@ import {
 	getManeuverSmoke,
 	MANEUVER,
 	MANEUVER_LIMITS,
-	stepAltitudeCeiling,
 	wrapAngle,
 } from '../src/maneuverPolicy.js'
 
@@ -207,7 +207,7 @@ test('the loop flies a full circle above the rig, nose along it, and comes back 
 	assert.ok(Math.hypot(start.y, start.z) < 1e-3 && Math.hypot(end.y, end.z) < 1e-3)
 })
 
-test('the rig slows during a loop and turns back with the airplane over the top of an Immelmann', () => {
+test('the rig slows during a loop', () => {
 	assert.equal(getLoopRigSpeedFactor(0, 0.15), 1)
 	assert.equal(getLoopRigSpeedFactor(1, 0.15), 1)
 	close(getLoopRigSpeedFactor(0.5, 0.15), 0.15)
@@ -215,118 +215,147 @@ test('the rig slows during a loop and turns back with the airplane over the top 
 		const factor = getLoopRigSpeedFactor(step / 100, 0.15)
 		assert.ok(factor >= 0.15 - 1e-12 && factor <= 1)
 	}
-	const { climbShare, topSpeed } = IMMELMANN
-	assert.equal(getImmelmannRigSpeedFactor(0, IMMELMANN), 1)
-	close(getImmelmannRigSpeedFactor(climbShare - 1e-9, IMMELMANN), -topSpeed, 'flying back')
-	// Turned around: the same speed the same way in the world.
-	assert.equal(getImmelmannRigSpeedFactor(climbShare, IMMELMANN), topSpeed)
-	assert.equal(getImmelmannRigSpeedFactor(1, IMMELMANN), 1)
 })
 
-// The Immelmann flown in the world: the rig moving along its heading by the
-// signed speed factor, turned around and lifted at the top as src/plane.js
-// does, and the airplane's place and wing axis on it.
+test('the Immelmann path turns past the top and eases out level and reversed at its starting height', () => {
+	for (let peakAngle = 200; peakAngle <= 260; peakAngle += 10) {
+		const path = createImmelmannPath(peakAngle)
+		const last = path.heights.length - 1
+		assert.ok(Math.abs(path.heights[last]) < 1e-9, `${peakAngle}: ${path.heights[last]}`)
+		assert.equal(path.end, path.lengths[last])
+		assert.ok(path.end < 0, 'ends behind where it started')
+		assert.ok(path.height > 0.1 && path.front > 0 && path.back <= path.end)
+		assert.ok(path.top > 0.2 && path.top < path.rise, `${peakAngle}: top ${path.top}`)
+		close(path.peak, degrees(peakAngle))
+	}
+	const path = createImmelmannPath(IMMELMANN.peakAngle)
+	// It passes the top about halfway.
+	assert.ok(path.top > 0.45 && path.top < 0.6, `${path.top}`)
+	const pose = getImmelmannPose(0, path, 1, 1, IMMELMANN, 1, {})
+	assert.equal(pose.climb, 0)
+	close(getImmelmannPose(1, path, 1, 1, IMMELMANN, 1, {}).climb, Math.PI)
+	// Straight at both ends: no kink as it starts the climb or levels out.
+	const climbAt = (u) =>
+		getImmelmannPose(
+			// The progress whose distance is `u` at a cruise of 1 (u = t here).
+			u,
+			path,
+			1,
+			1,
+			IMMELMANN,
+			1,
+			{},
+		).climb
+	// A kink would turn about 1e-2 over this step.
+	assert.ok(climbAt(1e-3) < 1e-3, `${climbAt(1e-3)}`)
+	assert.ok(Math.abs(climbAt(1 - 1e-3) - Math.PI) < 1e-3)
+})
+
+test('an Immelmann enters and leaves at the flight speed and never stops', () => {
+	assert.equal(getImmelmannCruise(55, 2, 100), 1.1)
+	assert.equal(getImmelmannCruise(55, 20, 100), MANEUVER_LIMITS.maximumImmelmannCruise)
+	for (const cruise of [0.5, 1, 2, 3]) {
+		assert.equal(getImmelmannDistance(0, cruise), 0)
+		close(getImmelmannDistance(1, cruise), 1)
+		let previous = 0
+		for (let step = 1; step <= 1000; step++) {
+			const distance = getImmelmannDistance(step / 1000, cruise)
+			assert.ok(distance >= previous - 1e-12, `${cruise} ${step}`)
+			previous = distance
+		}
+	}
+})
+
+// The Immelmann flown in the world, with yaw 0 at the start: the rig along
+// getImmelmannRig(), the airplane along getImmelmannPose() from it, and its
+// wing axis through the pose src/plane.js gives the model.
 function flyImmelmann(settings, direction, speed, step) {
-	let x = 0
-	let y = 0
-	let z = 0
-	let yaw = 0
-	let turned = false
+	const path = createImmelmannPath(settings.peakAngle)
+	const length = (2 * R) / path.height
+	const cruise = getImmelmannCruise(speed, settings.duration, length)
 	const samples = []
 	for (let time = 0; time <= settings.duration + 1e-9; time += step) {
 		const progress = Math.min(time / settings.duration, 1)
-		if (!turned && progress >= settings.climbShare) {
-			turned = true
-			y += 2 * R
-			yaw += Math.PI
-		}
-		const advance = speed * getImmelmannRigSpeedFactor(progress, settings) * step
-		x += Math.sin(yaw) * advance
-		z += Math.cos(yaw) * advance
-		const pose = getImmelmannPose(progress, settings, R, direction, {})
-		const [offsetX, offsetY, offsetZ] = toWorld([0, pose.y, pose.z], { yaw })
+		const rig = getImmelmannRig(progress, path, cruise) * length
+		const pose = getImmelmannPose(progress, path, length, cruise, settings, direction, {})
 		samples.push({
-			position: [x + offsetX, y + offsetY, z + offsetZ],
-			wing: toWorld([1, 0, 0], { yaw, pitch: pose.pitch, roll: pose.roll }),
+			rig,
+			pose,
+			position: [0, pose.y, rig + pose.z],
+			wing: toWorld([1, 0, 0], { pitch: -pose.climb, roll: pose.roll }),
 		})
 	}
-	return samples
+	return { samples, path, length }
 }
 
-test('the Immelmann climbs a half loop, rolls through the top in the same pose, and ends upright', () => {
-	const { climbShare, rollOverlap } = IMMELMANN
-	const pose = {}
-	getImmelmannPose(0, IMMELMANN, R, 1, pose)
-	assert.equal(pose.phase, 1)
-	for (const value of [pose.y, pose.z, pose.pitch, pose.roll]) close(value, 0)
-	const top = getImmelmannPose(climbShare - 1e-9, IMMELMANN, R, 1, {})
-	assert.equal(top.phase, 1)
-	close(top.y, 2 * R)
-	assert.ok(Math.abs(top.z) < 1e-6)
-	// At rest on the rig at the top (the rig carries the speed there).
-	const below = getImmelmannPose(climbShare - 1e-4, IMMELMANN, R, 1, {})
-	assert.ok(Math.hypot(top.y - below.y, top.z - below.z) < 1e-4)
-	// The half roll cross-fades with the climb: it starts before the top and
-	// is under way there.
-	const rollStart = climbShare * (1 - rollOverlap)
-	assert.equal(getImmelmannRoll(rollStart - 1e-3, IMMELMANN), 0)
-	const atTop = getImmelmannRoll(climbShare, IMMELMANN)
-	assert.ok(atTop > 0.01 && atTop < 0.5, `${atTop}`)
-	assert.equal(getImmelmannRoll(1, IMMELMANN), 1)
-
-	for (const direction of [1, -1]) {
-		const before = getImmelmannPose(climbShare - 1e-9, IMMELMANN, R, direction, {})
-		const turned = getImmelmannPose(climbShare, IMMELMANN, R, direction, {})
-		assert.equal(turned.phase, 2)
-		for (const value of [turned.y, turned.z, turned.pitch]) close(value, 0)
-		// The rig turned around (yaw + PI) holds the airplane in the same world
-		// pose as the old rig did, mid-roll.
-		for (const axis of [
-			[1, 0, 0],
-			[0, 1, 0],
-			[0, 0, 1],
-		]) {
-			const old = toWorld(axis, { yaw: 0.3, pitch: before.pitch, roll: before.roll })
-			const now = toWorld(axis, { yaw: 0.3 + Math.PI, pitch: turned.pitch, roll: turned.roll })
-			for (let i = 0; i < 3; i++) assert.ok(Math.abs(now[i] - old[i]) < 1e-6, `${axis} ${i}`)
+test('the Immelmann flies a smooth reversal back to its height and onto the rig', () => {
+	const speed = 55
+	const step = 1 / 120
+	for (const settings of [IMMELMANN, { ...IMMELMANN, peakAngle: 210, duration: 3 }]) {
+		for (const direction of [1, -1]) {
+			const { samples } = flyImmelmann(settings, direction, speed, step)
+			let previousVelocity = null
+			for (let i = 1; i < samples.length; i++) {
+				const [x0, y0, z0] = samples[i - 1].position
+				const [x1, y1, z1] = samples[i].position
+				const velocity = [(x1 - x0) / step, (y1 - y0) / step, (z1 - z0) / step]
+				const flown = Math.hypot(...velocity) * step
+				// Never stops, never jumps in velocity.
+				assert.ok(flown / step > speed * 0.8, `${i}: ${flown / step}`)
+				if (previousVelocity) {
+					const change = Math.hypot(...velocity.map((v, axis) => v - previousVelocity[axis]))
+					assert.ok(change < 6, `${i}: ${change}`)
+				}
+				previousVelocity = velocity
+				// The nose along the path.
+				const [, noseY, noseZ] = toWorld([0, 0, 1], { pitch: -samples[i].pose.climb })
+				assert.ok(Math.abs(velocity[1] / (flown / step) - noseY) < 0.05, `${i}: nose y`)
+				assert.ok(Math.abs(velocity[2] / (flown / step) - noseZ) < 0.05, `${i}: nose z`)
+				// The wings turn at most about 15 degrees a unit flown.
+				const [a, b] = [samples[i - 1].wing, samples[i].wing]
+				const dot = Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
+				assert.ok(Math.acos(dot) / flown < degrees(15), `${i}: twist`)
+			}
+			// From and back onto the rig, at the flight speed both ways, and
+			// level at the starting height on the reversed heading, upright.
+			const [first, second] = samples
+			const [beforeLast, last] = samples.slice(-2)
+			close(first.pose.y, 0)
+			close(first.pose.z, 0)
+			assert.ok(Math.abs(last.pose.y) < 1e-6 && Math.abs(last.pose.z) < 1e-6)
+			assert.ok(Math.abs((second.position[2] - first.position[2]) / step - speed) < 1, 'enters')
+			assert.ok(Math.abs((last.position[2] - beforeLast.position[2]) / step + speed) < 1)
+			close(last.pose.climb, Math.PI)
+			close(Math.abs(last.pose.roll), Math.PI)
+			assert.ok(Math.abs(last.wing[0] + 1) < 1e-9, 'wings level, upright on the reversed heading')
+			// The half roll starts at the top, toward `direction`.
+			const topIndex = samples.findIndex((sample) => sample.pose.climb >= Math.PI)
+			assert.equal(Math.abs(samples[topIndex - 1].pose.roll), 0)
+			const later = samples[Math.round((topIndex + samples.length) / 2)].pose.roll
+			assert.equal(Math.sign(later), direction)
 		}
-		const end = getImmelmannPose(1, IMMELMANN, R, direction, {})
-		close(end.roll, 0, 'upright')
-		const late = getImmelmannPose(climbShare + 0.8 * (1 - climbShare), IMMELMANN, R, direction, {})
-		assert.equal(Math.sign(wrapAngle(late.roll - Math.PI)), direction, 'rolls toward direction')
 	}
 })
 
-test('the Immelmann flies on through the top without stopping, jumping, or knotting the trails', () => {
-	const speed = 55
-	const step = 1 / 120
-	for (const settings of [IMMELMANN, { ...IMMELMANN, topSpeed: 0.3, rollOverlap: 0.6 }]) {
-		const samples = flyImmelmann(settings, 1, speed, step)
-		let previousVelocity = null
-		for (let i = 1; i < samples.length; i++) {
-			const [x0, y0, z0] = samples[i - 1].position
-			const [x1, y1, z1] = samples[i].position
-			const velocity = [(x1 - x0) / step, (y1 - y0) / step, (z1 - z0) / step]
-			const flown = Math.hypot(...velocity) * step
-			// Never stops: at least the speed share at the top.
-			assert.ok(flown / step > speed * settings.topSpeed * 0.9, `${i}: ${flown / step}`)
-			// No jump in velocity, the turnaround included: the curve's own
-			// acceleration only.
-			if (previousVelocity) {
-				const change = Math.hypot(...velocity.map((v, axis) => v - previousVelocity[axis]))
-				assert.ok(change < 6, `${i}: ${change}`)
+test('the turned-around rig holds the airplane in the same world pose', () => {
+	// With the rig turned around (yaw PI), a climb angle A with a roll R is a
+	// pitch of PI + A with a roll of PI + R (src/plane.js).
+	for (const climb of [0, 1, 2.5, Math.PI, 4]) {
+		for (const roll of [0, 0.7, -2, Math.PI]) {
+			for (const axis of [
+				[1, 0, 0],
+				[0, 1, 0],
+				[0, 0, 1],
+			]) {
+				const before = toWorld(axis, { yaw: 0.3, pitch: -climb, roll })
+				const after = toWorld(axis, {
+					yaw: 0.3 + Math.PI,
+					pitch: wrapAngle(Math.PI + climb),
+					roll: wrapAngle(Math.PI + roll),
+				})
+				for (let i = 0; i < 3; i++) assert.ok(Math.abs(after[i] - before[i]) < 1e-9)
 			}
-			previousVelocity = velocity
-			// The wings turn at most about 15 degrees a unit flown.
-			const [a, b] = [samples[i - 1].wing, samples[i].wing]
-			const dot = Math.min(1, a[0] * b[0] + a[1] * b[1] + a[2] * b[2])
-			assert.ok(Math.acos(dot) / flown < (15 * Math.PI) / 180, `${i}: twist`)
 		}
-		// Back the other way, two radii up.
-		const last = samples.at(-1)
-		const first = samples[0]
-		close(last.position[1] - first.position[1], 2 * R)
-		close(last.wing[0], -1, 'wings level on the reversed heading')
 	}
 })
 
@@ -368,49 +397,44 @@ test('the loop framing looks at the whole circle from beside it, level, and blen
 	)
 })
 
-test('the Immelmann camera orbits on from where the climb framing left it to behind the airplane', () => {
-	const { climbShare } = IMMELMANN
-	for (const side of [1, -1]) {
-		const before = getImmelmannFraming(climbShare - 1e-9, R, 60, 1.5, IMMELMANN, side, framing())
-		const after = getImmelmannFraming(climbShare, R, 60, 1.5, IMMELMANN, side, framing())
-		assert.equal(before.weight, 1)
-		assert.equal(after.weight, 1)
-		// The rig turned around and rose 2 radii: (x, y, z) becomes (-x, y - 2R, -z).
-		close(after.position.x, -before.position.x)
-		close(after.position.y, before.position.y - 2 * R)
-		close(after.position.z, -before.position.z)
-		close(after.target.y, before.target.y - 2 * R)
-		const end = getImmelmannFraming(1, R, 60, 1.5, IMMELMANN, side, framing())
-		assert.equal(end.weight, 0)
-		close(end.position.x, 0)
-		close(end.position.y, CHASE_CAMERA.height)
-		close(end.position.z, -CHASE_CAMERA.distance)
-		// Looking along the chase camera's own line of sight (0.1 down per unit).
-		close(end.target.y, CHASE_CAMERA.height - 0.1 * CHASE_CAMERA.distance)
-	}
-})
-
-test('the raised ceiling eases down to the flight ceiling', () => {
-	const ceiling = { altitude: 150, speed: 0 }
-	const step = 1 / 60
-	let previousSpeed = 0
-	let time = 0
-	while (ceiling.altitude > FLIGHT_LIMITS.maximumAltitude && time < 20) {
-		stepAltitudeCeiling(ceiling, step)
-		// Never faster than the cap, and never a jump in speed (within the
-		// discrete step where the slowing down takes over).
-		assert.ok(ceiling.speed <= MANEUVER_LIMITS.ceilingDescentSpeed + 1e-9)
-		assert.ok(
-			Math.abs(ceiling.speed - previousSpeed) <=
-				MANEUVER_LIMITS.ceilingDescentAcceleration * step * 1.5,
-			`${time}`,
+test('the Immelmann camera frames the whole figure from ahead and hands back to the chase camera', () => {
+	const { samples, path, length } = flyImmelmann(IMMELMANN, 1, 55, 1 / 60)
+	const cruise = getImmelmannCruise(55, IMMELMANN.duration, length)
+	const fov = 60
+	const at = (progress, side = 1) => {
+		const pose = getImmelmannPose(progress, path, length, cruise, IMMELMANN, 1, {})
+		return getImmelmannFraming(
+			progress,
+			path,
+			length,
+			cruise,
+			fov,
+			1.5,
+			IMMELMANN,
+			side,
+			pose,
+			framing(),
 		)
-		previousSpeed = ceiling.speed
-		time += step
 	}
-	assert.equal(ceiling.altitude, FLIGHT_LIMITS.maximumAltitude)
-	// 55 units at up to 10 per second: 5.5 s, and about 1.25 s more with the ramps.
-	assert.ok(time > 6.5 && time < 7, `${time}`)
-	stepAltitudeCeiling(ceiling, step)
-	assert.deepEqual(ceiling, { altitude: FLIGHT_LIMITS.maximumAltitude, speed: 0 })
+	assert.equal(at(0).weight, 0)
+	assert.equal(at(MANEUVER_LIMITS.immelmannTurn).weight, 1, 'fully in when the rig turns around')
+	assert.equal(at(1).weight, 0)
+	const middle = at(0.4)
+	const rig = getImmelmannRig(0.4, path, cruise) * length
+	const halfHeight = (path.height * length) / 2
+	// Level with the figure's middle, ahead of it on `side`.
+	assert.equal(middle.position.y, halfHeight)
+	assert.ok(middle.position.x > 0 && at(0.4, -1).position.x === -middle.position.x)
+	const figureMiddle = ((path.front + path.back) / 2) * length - rig
+	assert.ok(middle.position.z > figureMiddle)
+	close(middle.target.z, figureMiddle)
+	// The whole figure fits in the view.
+	const distance = Math.hypot(middle.position.x, middle.position.z - figureMiddle)
+	assert.ok(Math.atan(halfHeight / distance) < degrees(fov / 2) / 1.2)
+	// Late, it looks at the airplane.
+	const end = at(0.95)
+	const pose = getImmelmannPose(0.95, path, length, cruise, IMMELMANN, 1, {})
+	close(end.target.y, pose.y)
+	close(end.target.z, pose.z)
+	assert.ok(samples.length > 0)
 })
