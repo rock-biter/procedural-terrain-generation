@@ -352,6 +352,28 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		hazeFolder.add(settings.haze, 'wash', 0, 0.5, 0.005).name('Wash')
 
 		const actions = {
+			// Every cloud setting plus each keyframe's cloud colors, rounded like the
+			// palette's JSON: one block to paste back as the new defaults. The
+			// freeze and the ?clouds= coverage are session state, left out.
+			copy() {
+				const json = JSON.stringify(
+					{
+						settings,
+						palette: params.dayNight.keyframes.map(({ name, cloudLit, cloudShade }) => ({
+							name,
+							cloudLit,
+							cloudShade,
+						})),
+					},
+					(key, value) => {
+						if (key === 'paused' || key === 'fixed') return undefined
+						return typeof value === 'number' ? Math.round(value * 1000) / 1000 : value
+					},
+					'\t',
+				)
+				console.log(json)
+				navigator.clipboard?.writeText(json).catch(() => {})
+			},
 			reset() {
 				const { fixed } = settings.coverage
 				copyHorizonCloudSettings(
@@ -361,6 +383,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				for (const controller of folder.controllersRecursive()) controller.updateDisplay()
 			},
 		}
+		folder.add(actions, 'copy').name('Copy clouds JSON')
 		folder.add(actions, 'reset').name('Reset clouds')
 	}
 
