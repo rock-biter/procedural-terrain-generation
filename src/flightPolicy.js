@@ -257,12 +257,75 @@ function setSample(sample, x, z, height, distance) {
 	sample.distance = distance
 }
 
+// Over the sea the airplane may fly lower than over land, as its waves allow
+// (getSeaFlightClearance()): the clearance follows the local wave level, the
+// highest the waves can rise there (getSeaCrestHeight() in
+// src/seaSurfacePolicy.js) between the highest they rise in the calmest and
+// in the roughest open water of that sea, from `calmClearance` (above the
+// drawn sea) on the calmest water, or calmer by the coast, to the terrain
+// clearance on the roughest sea, which so keeps the land's floor; it stays at
+// least `crestClearance` above the local crests.
+// The sea's clearance comes in over the first `shoreDepth` world units of
+// water. `enabled` false keeps the terrain clearance everywhere.
+export const SEA_FLIGHT_DEFAULTS = Object.freeze({
+	enabled: true,
+	calmClearance: 4,
+	crestClearance: 1.5,
+	shoreDepth: 2,
+})
+
+export function createSeaFlightSettings() {
+	return { ...SEA_FLIGHT_DEFAULTS }
+}
+
+// Clearance over a point `depth` world units under the sea (the flight
+// height's opposite; 0 or less is land) whose waves can rise `crest` world
+// units above the drawn sea, `calmCrest` and `roughCrest` in the calmest and
+// the roughest open water of that sea, with `settings`
+// (createSeaFlightSettings()).
+export function getSeaFlightClearance(
+	depth,
+	crest,
+	calmCrest,
+	roughCrest,
+	settings,
+	limits = FLIGHT_LIMITS,
+) {
+	const terrain = limits.minimumTerrainClearance
+	if (!settings?.enabled || depth <= 0) return terrain
+	const range = roughCrest - calmCrest
+	const level = range > 0 ? clamp01((crest - calmCrest) / range) : 0
+	const calm = Math.min(settings.calmClearance, terrain)
+	const sea = Math.min(
+		terrain,
+		Math.max(calm + (terrain - calm) * level, Math.max(crest, 0) + settings.crestClearance),
+	)
+	const share = smoothstep(0, Math.max(settings.shoreDepth, 1e-3), depth)
+	return terrain + (sea - terrain) * share
+}
+
+function getSampleClearance(sampleClearance, x, z, height, limits) {
+	return sampleClearance ? sampleClearance(x, z, height) : limits.minimumTerrainClearance
+}
+
 // Samples the terrain under and ahead of the airplane, farther at higher
-// speed, and derives the altitude limits. Writes into `out`
+// speed, and derives the altitude limits. `sampleClearance(x, z, height)`,
+// called right after `sampleHeight(x, z)` at the same point with its result,
+// returns the clearance there (the terrain's without it). Writes into `out`
 // (createFlightCorridor()), so passing the same object every frame allocates
 // nothing.
 export function getFlightCorridor(
-	{ x, z, forwardX, forwardZ, speed, baseSpeed = speed, sampleHeight, limits = FLIGHT_LIMITS },
+	{
+		x,
+		z,
+		forwardX,
+		forwardZ,
+		speed,
+		baseSpeed = speed,
+		sampleHeight,
+		sampleClearance = null,
+		limits = FLIGHT_LIMITS,
+	},
 	out = createFlightCorridor(),
 ) {
 	const forwardLength = Math.hypot(forwardX, forwardZ)
@@ -277,52 +340,42 @@ export function getFlightCorridor(
 	const nearLookAheadDistance = limits.maximumNearLookAheadDistance * lookAheadScale
 	const middleLookAheadDistance = limits.maximumMiddleLookAheadDistance * lookAheadScale
 	const lookAheadDistance = limits.maximumFarLookAheadDistance * lookAheadScale
-	const currentTerrainHeight = Math.max(sampleHeight(x, z), -1)
-	const nearTerrainHeight = Math.max(
-		sampleHeight(x + directionX * nearLookAheadDistance, z + directionZ * nearLookAheadDistance),
-		-1,
-	)
-	const middleTerrainHeight = Math.max(
-		sampleHeight(
-			x + directionX * middleLookAheadDistance,
-			z + directionZ * middleLookAheadDistance,
-		),
-		-1,
-	)
-	const farTerrainHeight = Math.max(
-		sampleHeight(x + directionX * lookAheadDistance, z + directionZ * lookAheadDistance),
-		-1,
-	)
+	const nearX = x + directionX * nearLookAheadDistance
+	const nearZ = z + directionZ * nearLookAheadDistance
+	const middleX = x + directionX * middleLookAheadDistance
+	const middleZ = z + directionZ * middleLookAheadDistance
+	const farX = x + directionX * lookAheadDistance
+	const farZ = z + directionZ * lookAheadDistance
+	let height = sampleHeight(x, z)
+	const terrainClearance = getSampleClearance(sampleClearance, x, z, height, limits)
+	const currentTerrainHeight = Math.max(height, -1)
+	height = sampleHeight(nearX, nearZ)
+	const nearClearance = getSampleClearance(sampleClearance, nearX, nearZ, height, limits)
+	const nearTerrainHeight = Math.max(height, -1)
+	height = sampleHeight(middleX, middleZ)
+	const middleClearance = getSampleClearance(sampleClearance, middleX, middleZ, height, limits)
+	const middleTerrainHeight = Math.max(height, -1)
+	height = sampleHeight(farX, farZ)
+	const farClearance = getSampleClearance(sampleClearance, farX, farZ, height, limits)
+	const farTerrainHeight = Math.max(height, -1)
 	const terrainCeiling = Math.max(
 		currentTerrainHeight,
 		nearTerrainHeight,
 		middleTerrainHeight,
 		farTerrainHeight,
 	)
-	const terrainClearance = limits.minimumTerrainClearance
+	// The highest floor of the four: each sample's height plus its clearance.
+	const floor = Math.max(
+		currentTerrainHeight + terrainClearance,
+		nearTerrainHeight + nearClearance,
+		middleTerrainHeight + middleClearance,
+		farTerrainHeight + farClearance,
+	)
 	const { samples } = out
 	setSample(samples[0], x, z, currentTerrainHeight, 0)
-	setSample(
-		samples[1],
-		x + directionX * nearLookAheadDistance,
-		z + directionZ * nearLookAheadDistance,
-		nearTerrainHeight,
-		nearLookAheadDistance,
-	)
-	setSample(
-		samples[2],
-		x + directionX * middleLookAheadDistance,
-		z + directionZ * middleLookAheadDistance,
-		middleTerrainHeight,
-		middleLookAheadDistance,
-	)
-	setSample(
-		samples[3],
-		x + directionX * lookAheadDistance,
-		z + directionZ * lookAheadDistance,
-		farTerrainHeight,
-		lookAheadDistance,
-	)
+	setSample(samples[1], nearX, nearZ, nearTerrainHeight, nearLookAheadDistance)
+	setSample(samples[2], middleX, middleZ, middleTerrainHeight, middleLookAheadDistance)
+	setSample(samples[3], farX, farZ, farTerrainHeight, lookAheadDistance)
 
 	out.lookAheadScale = lookAheadScale
 	out.nearLookAheadDistance = nearLookAheadDistance
@@ -335,7 +388,7 @@ export function getFlightCorridor(
 	out.terrainCeiling = terrainCeiling
 	out.terrainClearance = terrainClearance
 	out.collisionAltitude = Math.min(currentTerrainHeight + terrainClearance, limits.maximumAltitude)
-	out.minimumAltitude = Math.min(terrainCeiling + terrainClearance, limits.maximumAltitude)
+	out.minimumAltitude = Math.min(floor, limits.maximumAltitude)
 	out.maximumAltitude = limits.maximumAltitude
 	return out
 }

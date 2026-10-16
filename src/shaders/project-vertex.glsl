@@ -62,7 +62,9 @@ vSeaWaveNoise = seaWaveNoise;
 
 // Near the airplane the sea's vertices follow its waves, calm toward the
 // coast and still under the frozen sea's sheet; farther, inside the LOD 0
-// block, they rest and the waves live in the fragment's normals alone.
+// block, they rest and the waves live in the fragment's normals alone. The
+// airplane's wake lifts them too, looked up only within the rectangle it
+// occupies (getSeaWake()), and not at all where it does not move them.
 vec3 seaOffset = vec3(0.0);
 if (height < 0.0) {
 	float seaFade = getSeaVertexFade(wPosition.xz);
@@ -70,6 +72,13 @@ if (height < 0.0) {
 		float seaStill = getSeaIceStill(height, vIceValue);
 		SeaWaves seaWaves = getSeaWaves(wPosition.xz, -height, seaOceanMask, vSeaState, seaStill, 0.0, seaWaveNoise);
 		seaOffset = seaWaves.offset * seaFade;
+	}
+	if (uSeaWakeShape.x > 0.0) {
+		float seaWakeFade;
+		vec4 seaWake = getSeaWake(wPosition.xz, -height, seaWakeFade);
+		if (seaWakeFade > 0.0) {
+			seaOffset.y += clamp(seaWake.z, -1.0, 1.0) * uSeaWakeShape.x * (1.0 - getSeaIceStill(height, vIceValue));
+		}
 	}
 }
 

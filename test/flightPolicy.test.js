@@ -7,6 +7,8 @@ import {
 	getFlightCorridor,
 	getSafetyClimbSpeed,
 	getSceneryClearance,
+	getSeaFlightClearance,
+	createSeaFlightSettings,
 	getNextSpeedEffect,
 	getSpeedForEffect,
 	getTerrainBrakeImpulse,
@@ -394,4 +396,74 @@ test('the wheel eases the speed effect toward its request, then it decays', () =
 	assert.equal(effect, held * (1 - dt * FLIGHT_LIMITS.speedEffectDecay))
 	for (let frame = 0; frame < 12; frame++) effect = getNextSpeedEffect(effect, -1, dt)
 	assert.ok(effect < -0.85)
+})
+
+test('flies lower over a calm sea, at the land floor over the roughest one', () => {
+	const settings = createSeaFlightSettings()
+	const terrain = FLIGHT_LIMITS.minimumTerrainClearance
+	const calm = 1.5
+	const rough = 6
+	// Land, or the feature off, keeps the terrain clearance.
+	assert.equal(getSeaFlightClearance(0, 0, calm, rough, settings), terrain)
+	assert.equal(getSeaFlightClearance(-3, 0, calm, rough, settings), terrain)
+	assert.equal(getSeaFlightClearance(20, 0, calm, rough, { ...settings, enabled: false }), terrain)
+	// Open water: from the calm clearance on the calmest water (or calmer, by
+	// the coast) to the terrain's on the roughest sea, rising with the level.
+	assert.equal(getSeaFlightClearance(20, calm, calm, rough, settings), settings.calmClearance)
+	assert.equal(getSeaFlightClearance(20, 0.5, calm, rough, settings), settings.calmClearance)
+	assert.equal(getSeaFlightClearance(20, rough, calm, rough, settings), terrain)
+	let previous = 0
+	for (let crest = 0; crest <= rough; crest += 0.5) {
+		const clearance = getSeaFlightClearance(20, crest, calm, rough, settings)
+		assert.ok(clearance >= previous && clearance >= crest + settings.crestClearance - 1e-9)
+		previous = clearance
+	}
+	// Never closer to the crests than crestClearance, never above the terrain's.
+	assert.ok(getSeaFlightClearance(20, 2, 1, 2.1, { ...settings, calmClearance: 0.5 }) >= 3.5)
+	assert.equal(getSeaFlightClearance(20, 50, calm, rough, settings), terrain)
+	// It comes in smoothly from the shore.
+	const shallow = getSeaFlightClearance(settings.shoreDepth / 2, 0, calm, rough, settings)
+	assert.ok(shallow < terrain && shallow > settings.calmClearance)
+	previous = terrain
+	for (let depth = 0; depth <= settings.shoreDepth; depth += 0.05) {
+		const clearance = getSeaFlightClearance(depth, 0, calm, rough, settings)
+		assert.ok(clearance <= previous + 1e-12 && previous - clearance < 0.3)
+		previous = clearance
+	}
+})
+
+test("takes each sample's own clearance for the floor", () => {
+	const options = {
+		x: 0,
+		z: 0,
+		forwardX: 0,
+		forwardZ: 1,
+		speed: 35,
+		baseSpeed: 35,
+		sampleHeight: (x, z) => (z > 30 ? 2 : -20),
+	}
+	const terrainOnly = getFlightCorridor(options)
+	assert.equal(terrainOnly.minimumAltitude, 2 + FLIGHT_LIMITS.minimumTerrainClearance)
+	const calls = []
+	const sea = getFlightCorridor({
+		...options,
+		sampleClearance: (x, z, height) => {
+			calls.push(height)
+			return height < 0 ? 4 : FLIGHT_LIMITS.minimumTerrainClearance
+		},
+	})
+	// Called once per sample, with the unclamped height.
+	assert.equal(calls.length, 4)
+	assert.equal(calls[0], -20)
+	assert.equal(sea.collisionAltitude, -1 + 4)
+	assert.equal(sea.terrainClearance, 4)
+	// The land ahead still sets the floor.
+	assert.equal(sea.minimumAltitude, 2 + FLIGHT_LIMITS.minimumTerrainClearance)
+	const open = getFlightCorridor({
+		...options,
+		sampleHeight: () => -20,
+		sampleClearance: () => 4,
+	})
+	assert.equal(open.minimumAltitude, -1 + 4)
+	assert.equal(open.terrainCeiling, -1)
 })

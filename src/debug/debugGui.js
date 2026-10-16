@@ -25,6 +25,7 @@ import {
 	SCENERY_CELL_SIZES,
 	SCENERY_TYPE_KEYS,
 } from '../sceneryPlacement'
+import { SEA_WAKE_MAP_SIZES } from '../seaWakePolicy'
 import { BIOME, TERRAIN_BANDS } from '../terrainBands'
 import { updateTerrainNormalUniforms } from '../terrainNormals'
 import { TERRAIN_PALETTE_BANDS, TERRAIN_SEA_COLORS } from '../terrainPalettePolicy'
@@ -1224,6 +1225,16 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 
 	const airplaneFolder = gui.addFolder('Airplane')
 	airplaneFolder.add(params.propeller, 'speed', 0, 20, 0.1).name('Propeller speed (turns/s)')
+	// Live: the floor over the sea follows its waves (getSeaFlightClearance()).
+	const seaFlightFolder = airplaneFolder.addFolder('Low over the sea')
+	seaFlightFolder.add(params.seaFlight, 'enabled').name('Lower over a calm sea')
+	seaFlightFolder
+		.add(params.seaFlight, 'calmClearance', 0.5, 10, 0.1)
+		.name('Above a still sea (units)')
+	seaFlightFolder
+		.add(params.seaFlight, 'crestClearance', 0, 10, 0.1)
+		.name('Min above crests (units)')
+	seaFlightFolder.add(params.seaFlight, 'shoreDepth', 0.1, 10, 0.1).name('Shore depth (units)')
 	// Read when the next roll starts (a click on the canvas: the aileron roll
 	// near the middle, the barrel roll toward a side).
 	const aileronRollFolder = airplaneFolder.addFolder('Aileron roll')
@@ -1279,7 +1290,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 	oscillationFolder.add(params.trails.oscillation, 'amplitude', 0, 0.5, 0.005)
 
 	// Live: the moving sea of both sea types (src/seaSurfacePolicy.js), then
-	// the foam around the sea rocks (src/seaFoam.js).
+	// the foam around the sea rocks (src/seaFoam.js) and the airplane's wake
+	// (src/seaWake.js).
 	function addSeaSurfaceControls() {
 		const settings = params.seaSurface
 		const apply = () => updateSeaSurfaceUniforms(uniforms, settings)
@@ -1290,6 +1302,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			'Deep ocean mask (red)': SEA_SURFACE_DEBUG_VIEWS.oceanMask,
 			'Wave amount (coast, ice)': SEA_SURFACE_DEBUG_VIEWS.waveAmount,
 			'Crest squeeze': SEA_SURFACE_DEBUG_VIEWS.crestSqueeze,
+			'Airplane wake': SEA_SURFACE_DEBUG_VIEWS.wake,
 		}
 		folder.add(settings, 'debugView', debugViews).name('Debug view').onChange(apply)
 		folder.addColor(settings, 'foamColor').name('Foam color').onChange(apply)
@@ -1373,6 +1386,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			.name('Radius (units)')
 			.onChange(updateSeaFoam)
 
+		addSeaWakeControls(folder.addFolder('Airplane wake'))
+
 		const presets = {
 			copy() {
 				const json = JSON.stringify(
@@ -1391,6 +1406,100 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		}
 		folder.add(presets, 'copy').name('Copy sea JSON')
 		folder.add(presets, 'reset').name('Reset sea')
+	}
+
+	// Live: the airplane's wake on the sea (src/seaWake.js, rules in
+	// src/seaWakePolicy.js). The area and the resolution start the wake over.
+	function addSeaWakeControls(folder) {
+		const settings = params.seaWake
+		const apply = () => world.seaWake?.applySettings()
+		folder.add(settings, 'enabled').name('Enabled').onChange(apply)
+		folder.add(settings, 'radius', 64, 800, 8).name('Area half-size (units)').onFinishChange(apply)
+		folder.add(settings, 'mapSize', SEA_WAKE_MAP_SIZES).name('Resolution (texels)').onChange(apply)
+		folder.add(settings, 'shoreDepth', 0.1, 10, 0.1).name('Shore depth (units)').onChange(apply)
+		folder.add(settings.altitude, 'full', 0, 60, 0.5).name('Full below altitude')
+		folder.add(settings.altitude, 'none', 1, 80, 0.5).name('None above altitude')
+
+		const trail = folder.addFolder('Trail')
+		trail.add(settings.trail, 'impulse', 0, 6, 0.05).name('Kick')
+		trail.add(settings.trail, 'radius', 0.5, 8, 0.1).name('Kick radius (units)')
+		trail
+			.add(settings.trail, 'pulseSpacing', 4, 80, 0.5)
+			.name('Pulse every (units)')
+			.onChange(apply)
+		trail.add(settings.trail, 'pulseMix', 0, 1, 0.01).name('Pulse (0 trough, 1 wave)')
+		trail.add(settings.trail, 'foam', 0, 1, 0.01).name('Foam')
+		trail.add(settings.trail, 'foamRadius', 0.5, 10, 0.1).name('Foam radius (units)')
+
+		const ripples = folder.addFolder('Ripples')
+		ripples.add(settings.waves, 'angle', 5, 60, 0.5).name('V half-angle (deg)').onChange(apply)
+		ripples.add(settings.waves, 'minSpeed', 0, 40, 0.5).name('Min speed (units/s)')
+		ripples.add(settings.waves, 'maxCourant', 0.1, 0.7, 0.01).name('Max texels per step')
+		ripples.add(settings.waves, 'halfLife', 0.1, 6, 0.05).name('Half-life (s)')
+		ripples.add(settings.waves, 'spongeWidth', 0, 0.8, 0.01).name('Edge sponge width')
+		ripples.add(settings.waves, 'spongeRate', 0, 40, 0.5).name('Edge sponge rate (/s)')
+		ripples.add(settings.steps, 'rate', 0, 240, 5).name('Steps per second (0 all)')
+		ripples.add(settings.steps, 'maxSteps', 1, 6, 1).name('Max sub-steps')
+
+		const foam = folder.addFolder('Foam')
+		foam.add(settings.foam, 'halfLife', 0.1, 8, 0.05).name('Half-life (s)')
+		foam.add(settings.foam, 'spread', 0, 30, 0.1).name('Spread (units²/s)')
+		foam.add(settings.foam, 'intensity', 0, 2, 0.01).name('Intensity').onChange(apply)
+		foam.add(settings.foam, 'laceScale', 0.02, 2, 0.01).name('Lace frequency').onChange(apply)
+		foam.add(settings.foam, 'fray', 0, 1, 0.01).name('Lines fray').onChange(apply)
+
+		const lines = folder.addFolder('Crest lines')
+		lines.add(settings.lines, 'threshold', 0, 1, 0.005).name('From amplitude').onChange(apply)
+		lines.add(settings.lines, 'softness', 0.001, 1, 0.005).name('Softness').onChange(apply)
+		lines.add(settings.lines, 'halfWidth', 0, 2, 0.01).name('Half-width (units)').onChange(apply)
+		lines.add(settings.lines, 'intensity', 0, 1, 0.01).name('Intensity').onChange(apply)
+
+		const shading = folder.addFolder('Shading')
+		shading
+			.add(settings.shading, 'vertexAmplitude', 0, 2, 0.01)
+			.name('Vertex lift (units)')
+			.onChange(apply)
+		shading.add(settings.shading, 'normalStrength', 0, 4, 0.01).name('Normal tilt').onChange(apply)
+		shading.add(settings.shading, 'fadeStart', 0, 1, 0.01).name('Edge fade start').onChange(apply)
+		shading.add(settings.shading, 'fadeEnd', 0.02, 1, 0.01).name('Edge fade end').onChange(apply)
+		shading
+			.add(settings.shading, 'boatHeave', 0, 2, 0.01)
+			.name('Boat heave (units)')
+			.onChange(apply)
+		shading.add(settings.shading, 'boatTilt', 0, 4, 0.01).name('Boat tilt').onChange(apply)
+
+		const status = {
+			get state() {
+				const stats = world.seaWake?.getStats()
+				if (!stats) return '-'
+				if (!stats.supported) return 'unsupported'
+				return stats.active ? `active, strength ${stats.strength.toFixed(2)}` : 'idle'
+			},
+			get waves() {
+				const stats = world.seaWake?.getStats()
+				if (!stats?.active) return '-'
+				return `${stats.waveSpeed.toFixed(1)} u/s, ${stats.courant.toFixed(2)} texel/step, ${stats.steps} steps`
+			},
+			get cost() {
+				const stats = world.seaWake?.getStats()
+				return stats ? `${stats.updateMs.toFixed(2)} ms CPU, ${stats.boxes} boxes` : '-'
+			},
+		}
+		folder.add(status, 'state').name('State').listen().disable()
+		folder.add(status, 'waves').name('Waves').listen().disable()
+		folder.add(status, 'cost').name('Update').listen().disable()
+		const presets = {
+			copy() {
+				const json = JSON.stringify(
+					settings,
+					(key, value) => (typeof value === 'number' ? Math.round(value * 1000) / 1000 : value),
+					'\t',
+				)
+				console.log(json)
+				navigator.clipboard?.writeText(json).catch(() => {})
+			},
+		}
+		folder.add(presets, 'copy').name('Copy wake JSON')
 	}
 
 	// One sea type's settings (params.seaSurface.sea or .ocean).

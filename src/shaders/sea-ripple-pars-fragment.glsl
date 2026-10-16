@@ -267,6 +267,82 @@ float getSeaBreakingFoam(SeaWaves waves, vec2 xz, float oceanMask, float state, 
 	return coverage * breaking.z * fade;
 }
 
+// The airplane's wake foam (getSeaWake() in sea-wake-pars.glsl). x: the
+// trail foam's intensity, y: the frequency of its lace (per world unit), z:
+// the crest lines' fray (share of their half-width), w: the ripples'
+// wavenumber (radians per world unit, getSeaWakeLineWavenumber()).
+uniform vec4 uSeaWakeFoam;
+// The wake's crest lines. x: the ripples' amplitude (height units) where
+// they start, y: its softness, z: their half-width (world units), w: their
+// intensity.
+uniform vec4 uSeaWakeLines;
+
+// Coverage of the wake's trail foam `foam` (already faded): solid while
+// fresh, opening into a lace of `noise` (the baked noise at the lace's
+// frequency) as it fades, like the breaking foam; where the lace would alias
+// (`detail` 0) it is its mean coverage.
+float getSeaWakeTrailFoam(float foam, vec4 noise, float detail) {
+	float f = clamp(foam * uSeaWakeFoam.x, 0.0, 1.0);
+	if (f <= 0.0) return 0.0;
+	float lace = 0.5 + 0.5 * (noise.x * 0.65 + noise.y * 0.35);
+	return mix(f, smoothstep(0.92 - f, 1.08 - f, lace), detail);
+}
+
+// The amplitude (height units) of the wake's ripples at `wake` (getSeaWake()):
+// locally a wave of wavenumber k, so its height h and slope g = |∇h| / k
+// give the amplitude length(h, g) and the phase from the crest atan(g, h).
+vec2 getSeaWakeRipple(vec4 wake) {
+	float g = length(wake.xy) / uSeaWakeFoam.w;
+	return vec2(length(vec2(wake.z, g)), atan(g, wake.z));
+}
+
+// Coverage of the ink stroke on the crests of the wake's ripples, `ripple`
+// from getSeaWakeRipple(), `fade` the wake's fade (getSeaWake()), for a pixel
+// `pixel` world units wide: centered on the crest (phase 0), where the
+// amplitude passes the threshold, at most uSeaWakeLines.z wide on each side.
+// It thins with the fade, so it never ends on the map's edge, and with the
+// distance (`foamFade`, getSeaFoamFade()), box-filtered like the coast's
+// lines; where a wavelength spans only a few pixels it turns into its mean
+// coverage. `noise` and `detail` fray its edges like the lace.
+float getSeaWakeCrestLine(vec2 ripple, float fade, vec4 noise, float detail, float pixel, vec2 foamFade) {
+	float presence = smoothstep(uSeaWakeLines.x, uSeaWakeLines.x + uSeaWakeLines.y, ripple.x);
+	if (presence <= 0.0) return 0.0;
+	float k = uSeaWakeFoam.w;
+	float width = uSeaWakeLines.z * foamFade.x;
+	float halfWidth = width * sqrt(presence * fade);
+	float distance = ripple.y / k;
+	float fray = uSeaWakeFoam.z * detail;
+	distance += fray * 0.5 * width * noise.z;
+	halfWidth *= max(1.0 + fray * noise.w, 0.0);
+	float window = pixel * foamFade.y;
+	float wavelength = 6.2831853 / k;
+	float coverage = getSeaLineCoverage(abs(distance), halfWidth, window);
+	float mean = min(2.0 * halfWidth / wavelength, 1.0);
+	return mix(coverage, mean, smoothstep(0.25 * wavelength, 0.5 * wavelength, window)) * uSeaWakeLines.w;
+}
+
+// The wake's foam at flat world `xz`, from `wake` and `fade` (getSeaWake()),
+// for a pixel `pixel` world units wide, `foamFade` the foam's distance fade:
+// the trail's foam and the crests' strokes, the stronger of the two. One
+// noise sample serves both, taken only where either shows.
+float getSeaWakeFoam(vec4 wake, float fade, vec2 xz, float pixel, vec2 foamFade) {
+	if (fade <= 0.0) return 0.0;
+	vec2 ripple = getSeaWakeRipple(wake);
+	bool trail = wake.w * uSeaWakeFoam.x > 0.004;
+	// Near a crest, or anywhere once a quarter wavelength fits in the pixel's
+	// edge, where the stroke turns into its mean coverage.
+	float quarter = 1.5707963 / uSeaWakeFoam.w;
+	bool crest = ripple.x > uSeaWakeLines.x && (ripple.y < 1.5707963 || pixel * foamFade.y > quarter);
+	if (!trail && !crest) return 0.0;
+	float footprint = pixel * uSeaWakeFoam.y;
+	float detail = 1.0 - smoothstep(0.15, 0.35, footprint);
+	vec4 noise = vec4(0.0);
+	if (detail > 0.0) noise = sampleNoiseTile(xz * uSeaWakeFoam.y + uTime * vec2(0.05, 0.02), footprint);
+	float foam = trail ? getSeaWakeTrailFoam(wake.w, noise, detail) * foamFade.x : 0.0;
+	if (crest) foam = max(foam, getSeaWakeCrestLine(ripple, fade, noise, detail, pixel, foamFade));
+	return foam;
+}
+
 // The sea painted by the debug view `view` (SEA_SURFACE_DEBUG_VIEWS in
 // src/seaSurfacePolicy.js): the sea state, the deep ocean mask (blue sea, red
 // deep ocean), the share of the waves the coast and the ice leave, or the
@@ -276,6 +352,26 @@ vec3 getSeaSurfaceDebug(int view, float state, float oceanMask, SeaWaves waves) 
 	if (view == 2) return mix(vec3(0.1, 0.3, 1.0), vec3(1.0, 0.2, 0.1), oceanMask);
 	if (view == 3) return vec3(waves.amount);
 	return vec3(clamp(waves.squeeze * 2.0, 0.0, 1.0));
+}
+
+// SEA_SURFACE_DEBUG_VIEWS.wake in src/seaSurfacePolicy.js.
+#define SEA_WAKE_DEBUG_VIEW 5
+
+// The airplane's wake at flat world `xz` (getSeaWake(), already faded), for
+// the debug view: its crests red, its troughs blue, its foam green, over the
+// map's square (dark gray) and, brighter, the occupied rectangle as the
+// radial fade leaves it.
+vec3 getSeaWakeDebug(vec2 xz, vec4 wake) {
+	vec2 offset = (xz - uSeaWakeWindow.xy) * uSeaWakeWindow.w;
+	float inMap = step(max(abs(offset.x), abs(offset.y)), 1.0);
+	float inRect = step(uSeaWakeBounds.x, xz.x) * step(uSeaWakeBounds.y, xz.y)
+		* step(xz.x, uSeaWakeBounds.z) * step(xz.y, uSeaWakeBounds.w) * step(0.5, uSeaWakeShape.w);
+	float radial = 1.0 - smoothstep(uSeaWakeFade.x, uSeaWakeFade.y, length(offset));
+	vec3 color = vec3(0.04 + 0.08 * inMap + 0.12 * inRect * radial);
+	color += vec3(1.0, 0.0, 0.0) * clamp(wake.z * 2.0, 0.0, 1.0);
+	color += vec3(0.0, 0.3, 1.0) * clamp(-wake.z * 2.0, 0.0, 1.0);
+	color += vec3(0.0, 1.0, 0.0) * clamp(wake.w, 0.0, 1.0);
+	return color;
 }
 
 // Polynomial smooth maximum and minimum: max(a, b) and min(a, b), rounded

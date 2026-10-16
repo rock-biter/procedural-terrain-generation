@@ -23,6 +23,8 @@ import Chunk from '../src/chunk.js'
 import LensFlareEffect from '../src/lensFlareEffect.js'
 import { createLensFlareSettings } from '../src/lensFlarePolicy.js'
 import SunOcclusion, { createSunOcclusionUniforms } from '../src/sunOcclusion.js'
+import SeaWake, { createSeaWakeUniforms } from '../src/seaWake.js'
+import { createSeaWakeSettings } from '../src/seaWakePolicy.js'
 import { createSunOcclusionSettings } from '../src/sunOcclusionPolicy.js'
 import Plane from '../src/plane.js'
 import TerrainSampleDebug from '../src/terrainSampleDebug.js'
@@ -116,9 +118,28 @@ test('the terrain patches fit the standard material', () => {
 	)
 	assert.match(terrain.fragmentShader, /seaStill, groundPixel, vSeaWaveNoise\);/)
 	assert.match(terrain.fragmentShader, /wave\.z \* \(dot\(wave\.xy, xz\) \+ shifts\[i\]\)/)
+	// The airplane's wake lifts the vertices, looked up only where it lifts
+	// them, and adds its slopes and foam to the waves'.
+	assert.match(
+		terrain.vertexShader,
+		/if \(uSeaWakeShape\.x > 0\.0\) \{\s*float seaWakeFade;\s*vec4 seaWake = getSeaWake\(wPosition\.xz, -height, seaWakeFade\);/,
+	)
+	assert.match(
+		terrain.fragmentShader,
+		/seaWake = getSeaWake\(wPosition\.xz, -wPosition\.y, seaWakeFade\) \* \(1\.0 - seaStill\);/,
+	)
+	assert.match(
+		terrain.fragmentShader,
+		/crestFoam = max\(crestFoam, getSeaWakeFoam\(seaWake, seaWakeFade, wPosition\.xz, groundPixel, seaFoamFade\)\);/,
+	)
+	assert.match(terrain.fragmentShader, /seaWaves\.slope \+= seaWake\.xy \* uSeaWakeShape\.y;/)
 	// The floes ride the waves where they reach under them, without foam.
 	assert.match(terrain.fragmentShader, /uSeaFoamColor, crestFoam \* \(1\.0 - seaIce\)\)/)
-	assert.match(terrain.fragmentShader, /if \(seaWaves\.amount > 0\.0\) \{\s*vec3 waveN/)
+	assert.match(
+		terrain.fragmentShader,
+		/bool seaWaveTilt = seaWaves\.amount > 0\.0 \|\| seaWakeFade > 0\.0;/,
+	)
+	assert.match(terrain.fragmentShader, /if \(seaWaveTilt\) \{\s*vec3 waveN/)
 	// Foam lines ride the waves' crests, only within the foam's fade.
 	assert.match(terrain.fragmentShader, /if \(seaFoamFade\.x > 0\.0\) \{\s*int crestFoamStyle/)
 	assert.match(
@@ -217,8 +238,10 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 		/getSceneryFloat\(impostorType, impostorBase, aInstanceB\.z/,
 	)
 	assert.match(sceneryShader.vertexShader, /void getSeaFloatPose\(/)
-	// They float on the same varied waves, from simplex noise.
+	// They float on the same varied waves, from simplex noise, and on the
+	// airplane's wake.
 	assert.match(sceneryShader.vertexShader, /getSeaTypeWaveNoise\(0, xz\)\);/)
+	assert.match(sceneryShader.vertexShader, /vec4 wake = getSeaWake\(xz, depth, wakeFade\);/)
 	for (const name of ['uImpostorPaint', 'uSceneryPaletteColors', 'uSceneryPaletteWeights']) {
 		assert.ok(name in sceneryShader.uniforms, name)
 	}
@@ -384,6 +407,43 @@ test('the lens flare composite and its occlusion pass supply every uniform they 
 	// The occlusion pass and the composite share the sun's screen position.
 	assert.equal(fullscreenMaterial.uniforms.sunScreen, effect.uniforms.get('sunScreen'))
 	effect.dispose()
+})
+
+test('the wake step supplies every uniform it declares and writes the readers map', () => {
+	const uniforms = createSeaWakeUniforms()
+	const wake = new SeaWake({
+		renderer: null,
+		uniforms,
+		settings: createSeaWakeSettings(),
+		sampleHeight: () => -10,
+	})
+	const { material } = wake
+	assertDeclaredUniforms(
+		[material.vertexShader, material.fragmentShader],
+		new Map(Object.entries(material.uniforms)),
+	)
+	assert.match(material.fragmentShader, /layout\(location = 0\) out vec4 outState;/)
+	assert.match(material.fragmentShader, /layout\(location = 1\) out vec4 outSurface;/)
+	// The readers sample the second target of the step written last.
+	assert.equal(uniforms.uSeaWakeMap.value, wake.targets[0].textures[1])
+	assert.equal(wake.targets[0].textures.length, 2)
+	// Idle until the airplane flies low over the sea.
+	assert.equal(uniforms.uSeaWakeShape.value.w, 0)
+	wake.dispose()
+})
+
+test('the wake readers declare every shared wake uniform', () => {
+	const source = readFileSync(new URL('../src/shaders/sea-wake-pars.glsl', import.meta.url), 'utf8')
+	const supplied = new Map(Object.entries(createSeaWakeUniforms()))
+	assertDeclaredUniforms([source], supplied)
+	const fragment = readFileSync(
+		new URL('../src/shaders/sea-ripple-pars-fragment.glsl', import.meta.url),
+		'utf8',
+	)
+	for (const name of ['uSeaWakeFoam', 'uSeaWakeLines']) {
+		assert.match(fragment, new RegExp(`uniform vec4 ${name};`))
+		assert.ok(supplied.has(name), name)
+	}
 })
 
 test('the low-sun height map caster supplies every uniform it declares', () => {

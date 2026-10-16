@@ -14,6 +14,7 @@ import {
 import { createChunkGeometry, getChunkShadowIndex } from './chunkTopology'
 import ChunkWorkerPool from './chunkWorkerPool'
 import { getSeaWaveBound } from './seaSurfacePolicy'
+import { getSeaWakeBound } from './seaWakePolicy'
 import { updateBiomeOffsetUniforms } from './sharedUniforms'
 
 // New buffers a worker result adds, uploaded on the next render.
@@ -395,6 +396,8 @@ export default class ChunkManager {
 		const curvature = this.uniforms.uCurvature?.value
 		if (curvature) {
 			const waves = getSeaWaveBound(this.params.seaSurface)
+			// The airplane's wake lifts the sea's vertices too.
+			waves.vertical += getSeaWakeBound(this.params.seaWake)
 			for (const chunk of this.chunks.values()) {
 				chunk.updateCurvedBounds(this.camera.position, curvature, waves)
 			}

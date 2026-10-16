@@ -41,10 +41,11 @@ vec3 mapN = sampleTerrainNormal(terrainBand, terrainNormalSampleUv, dFdx(terrain
 	// moire at a distance; range set by uTerrainNormalFade.
 mapN.xy *= 1.0 - smoothstep(uTerrainNormalFade.x, uTerrainNormalFade.y, distanceFromCamera);
 // The waves' normal (color-fragment.glsl) in the tangent frame (T along +X,
-// B along -Z), added to the map's by their slopes, on the sea and on the
-// floes the waves reach under; it reaches past the maps' fade.
+// B along -Z), with the airplane's wake, added to the map's by their slopes,
+// on the sea and on the floes the waves reach under; it reaches past the
+// maps' fade.
 if (terrainBand == TERRAIN_BAND_SEA) mapN.xy *= seaRippleBoost;
-if (seaWaves.amount > 0.0) {
+if (seaWaveTilt) {
 	vec3 waveN = vec3(seaWaveNormal.x, - seaWaveNormal.z, seaWaveNormal.y);
 	mapN = vec3(mapN.xy * waveN.z + waveN.xy * mapN.z, mapN.z * waveN.z);
 }

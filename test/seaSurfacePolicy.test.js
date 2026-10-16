@@ -5,7 +5,10 @@ import {
 	copySeaSurfaceSettings,
 	createSeaSurfaceSettings,
 	getSeaBreakingLags,
+	getSeaCrestHeight,
+	getSeaOceanMask,
 	getSeaRegionDrift,
+	getSeaState,
 	getSeaWaveBound,
 	getSeaWaveComponents,
 	getSeaWaveGroupGain,
@@ -228,4 +231,39 @@ test('the uniforms mirror the settings and keep every smoothstep ordered', () =>
 	Object.assign(settings.foamFade, { start: 700, end: 600, blur: 0.5, altitudeGain: -1 })
 	updateSeaSurfaceUniforms(uniforms, settings)
 	assert.deepEqual(uniforms.uSeaFoamFade.value.toArray(), [700, 701, 1, 0])
+})
+
+test('the CPU sea state stays in range and drifts with the regions', () => {
+	const { regions } = createSeaSurfaceSettings()
+	const offset = [123, -456, 0, 0]
+	const [driftX, driftZ] = getSeaRegionDrift(regions)
+	let low = 1
+	let high = 0
+	for (let index = 0; index < 400; index++) {
+		const x = index * 397.3
+		const z = -index * 211.9
+		const state = getSeaState(x, z, regions, offset, 0)
+		low = Math.min(low, state)
+		high = Math.max(high, state)
+		close(getSeaState(x + driftX * 10, z + driftZ * 10, regions, offset, 10), state, 'drift')
+	}
+	assert.ok(low >= 0 && high <= 1 && high - low > 0.5, `${low} ${high}`)
+})
+
+test('the local crest height follows the sea state, the coast, and the deep ocean', () => {
+	const settings = createSeaSurfaceSettings()
+	const calm = getSeaCrestHeight(settings, 30, 0, 0)
+	const rough = getSeaCrestHeight(settings, 30, 0, 1)
+	assert.ok(calm > 0 && calm < rough)
+	// The roughest open sea reaches the culling bound of its type.
+	const { waves } = settings.sea
+	close(rough, waves.amplitude * waves.rough * getSeaWaveGroupGain(waves), 'rough sea')
+	// Calm toward the coast, still at its start.
+	assert.equal(getSeaCrestHeight(settings, settings.sea.coast.start, 0, 1), 0)
+	assert.ok(getSeaCrestHeight(settings, 5, 0, 1) < rough)
+	// The deep ocean's own waves inside its border.
+	assert.ok(getSeaCrestHeight(settings, 30, 1, 1) > rough)
+	assert.equal(getSeaOceanMask(0, settings), 0)
+	assert.equal(getSeaOceanMask(1, settings), 1)
+	assert.ok(rough <= getSeaWaveBound(settings).vertical)
 })

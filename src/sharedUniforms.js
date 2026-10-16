@@ -10,6 +10,7 @@ import { createCloudShadowUniforms } from './cloudShadows'
 import { createNoiseTexture } from './noiseTexture'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
+import { createSeaWakeUniforms } from './seaWake'
 import { createSunOcclusionUniforms } from './sunOcclusion'
 import {
 	getSeaBreakingLags,
@@ -86,6 +87,9 @@ export function createSharedUniforms(params, seed) {
 		...createCloudShadowUniforms(),
 		// Sea rock distance map and ripple shape; written by SeaFoam.
 		...createSeaFoamUniforms(),
+		// The airplane's wake map, window, occupied rectangle, and shading; written
+		// by SeaWake.
+		...createSeaWakeUniforms(),
 		// Low-sun terrain height map, window, and march; written by SunOcclusion.
 		...createSunOcclusionUniforms(),
 		// The moving sea (sea-surface-pars.glsl, sea-ripple-pars-fragment.glsl),

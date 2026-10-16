@@ -7,6 +7,9 @@
 #ifndef SEA_SURFACE_PARS
 #define SEA_SURFACE_PARS
 
+// The airplane's wake, which every reader of the waves adds to them.
+#include ./sea-wake-pars.glsl
+
 #define SEA_SURFACE_WAVE_COUNT 4
 // Two sea types: 0 the sea, 1 the deep ocean.
 #define SEA_SURFACE_TYPE_COUNT 2
@@ -104,7 +107,8 @@ float getSeaVertexFade(vec2 xz) {
 // them per vertex and the fragment reads them interpolated. Two simplex
 // fields, not one per component or the baked tile: the terrain's vertex
 // shader weighs on the frame, and a texture read or eight noises there cost
-// a sixth of it.
+// a sixth of it (the wake's one read is limited to the rectangle it
+// occupies, getSeaWake()).
 vec2 getSeaTypeWaveNoise(int type, vec2 xz) {
 	vec4 swell = uSeaWaves[type * SEA_SURFACE_WAVE_COUNT];
 	vec2 p = (xz - swell.xy * (0.5 * swell.w / max(swell.z, 1e-4) * uTime)) * uSeaWaveVariation[type].y;
@@ -201,14 +205,25 @@ vec3 getSeaWaveNormal(SeaWaves waves) {
 // Rigid pose of an object floating on the sea (never the deep ocean, which
 // the boats keep out of) at flat world `xz`, `depth` world units deep: the
 // offset of its base and the surface normal there. Like the terrain's
-// vertices, it rests beyond uSeaSurface.y from the airplane.
+// vertices, it rests beyond uSeaSurface.y from the airplane. The airplane's
+// wake heaves and tilts it too (uSeaWakeBoat).
 void getSeaFloatPose(vec2 xz, float depth, out vec3 offset, out vec3 normal) {
 	offset = vec3(0.0);
-	normal = vec3(0.0, 1.0, 0.0);
+	vec2 slope = vec2(0.0);
+	float squeeze = 0.0;
 	float fade = getSeaVertexFade(xz);
-	if (fade <= 0.0) return;
-	SeaWaves waves = getSeaTypeWaves(0, xz, depth, getSeaState(xz), 0.0, 0.0, getSeaTypeWaveNoise(0, xz));
-	offset = waves.offset * fade;
-	normal = normalize(vec3(-waves.slope.x * fade, 1.0 - waves.squeeze * fade, -waves.slope.y * fade));
+	if (fade > 0.0) {
+		SeaWaves waves = getSeaTypeWaves(0, xz, depth, getSeaState(xz), 0.0, 0.0, getSeaTypeWaveNoise(0, xz));
+		offset = waves.offset * fade;
+		slope = waves.slope * fade;
+		squeeze = waves.squeeze * fade;
+	}
+	float wakeFade;
+	vec4 wake = getSeaWake(xz, depth, wakeFade);
+	if (wakeFade > 0.0) {
+		offset.y += clamp(wake.z, -1.0, 1.0) * uSeaWakeBoat.x;
+		slope += wake.xy * (uSeaWakeShape.y * uSeaWakeBoat.y);
+	}
+	normal = normalize(vec3(-slope.x, 1.0 - squeeze, -slope.y));
 }
 #endif

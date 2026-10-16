@@ -143,7 +143,8 @@ export default class Chunk extends Mesh {
 	// The terrain and its scenery are drawn lower the farther they are from the
 	// eye (the airplane), so their culling spheres follow every frame; with flat
 	// ones a camera pitched down culls distant chunks it can see. `waves` is
-	// getSeaWaveBound() of the live sea settings: how far the sea's vertices
+	// getSeaWaveBound() of the live sea settings, its vertical bound raised by
+	// the airplane wake's lift (getSeaWakeBound()): how far the sea's vertices
 	// may move (project-vertex.glsl).
 	updateCurvedBounds(eye, curvature, waves = NO_WAVES) {
 		const flat = this.geometry.boundingSphere

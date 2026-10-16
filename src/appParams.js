@@ -4,6 +4,7 @@ import { createAuroraSettings, parseAuroraChance } from './auroraPolicy'
 import { createTerrainSettings } from './chunkGeometry'
 import { createCloudSettings } from './cloudPlacement'
 import { createDayNightPalette, DAY_NIGHT_DEFAULTS, getStartTimeOfDay } from './dayNightPolicy'
+import { createSeaFlightSettings } from './flightPolicy'
 import { createLensFlareSettings } from './lensFlarePolicy'
 import {
 	createCloudMeshSettings,
@@ -15,6 +16,7 @@ import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createSeaIceSettings } from './seaIcePolicy'
 import { createSeaSurfaceSettings } from './seaSurfacePolicy'
+import { createSeaWakeSettings } from './seaWakePolicy'
 import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
 import { createSunOcclusionSettings } from './sunOcclusionPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
@@ -148,6 +150,13 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// The coast's ripples around the sea rocks, from a top-down map of the
 		// distance to the nearest rock; see createSeaFoamSettings().
 		seaFoam: createSeaFoamSettings({ isMobile }),
+		// The airplane's wake on the sea while it flies low: a wave simulation in
+		// a map around it, read by the sea and the boats (src/seaWake.js); see
+		// createSeaWakeSettings().
+		seaWake: createSeaWakeSettings({ isMobile }),
+		// How low the airplane may fly over the sea, as its waves allow; see
+		// createSeaFlightSettings().
+		seaFlight: createSeaFlightSettings(),
 		// Shader-side, applied live: the moving sea of both sea types (waves,
 		// regions, ripples, crest lines, foam lines); see createSeaSurfaceSettings().
 		seaSurface: createSeaSurfaceSettings(),

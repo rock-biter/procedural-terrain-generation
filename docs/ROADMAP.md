@@ -453,6 +453,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 | `FEAT-007` | Ice biome, frozen sea, and biome tuning tools                   | In progress | [Terrain](TERRAIN.md#biome-field), [Rendering](RENDERING.md#sea-ice), [Experience](EXPERIENCE.md#debug-biome-map) |
 | `FEAT-008` | Aurora borealis over the ice                                    | In progress | [Rendering](RENDERING.md#aurora), [Experience](EXPERIENCE.md#movement-and-camera)              |
 | `FEAT-009` | Deep ocean biome with islets and palms                          | In progress | [Terrain](TERRAIN.md#deep-ocean), [Rendering](RENDERING.md#terrain)                            |
+| `FEAT-010` | Airplane wake on the sea and a lower floor over a calm sea      | In progress | [Rendering](RENDERING.md#airplane-wake), [Experience](EXPERIENCE.md#movement-and-camera)       |
 
 ### `FEAT-001`: Post-Processing Pipeline And Speed Effect
 
@@ -468,7 +469,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 ### `FEAT-003`: Biome Scenery With Octahedral Impostors
 
 - **Rejected:** real instanced meshes for every instance (too many instances; `FEAT-004` uses them near the eye only) and loaded `.glb` models for the procedural types (their sources stay procedural). The boat (2026-10-05) is the one model-based type: two levels simplified offline from a Tripo model, with its color map, given to the catalog through `setCatalogSources()`. An `8 × 8` view grid used about `17` MB but ghosted between its 13–26° frames; desktop used `16 × 16` (about `67` MB) until the near meshes took over the close range.
-- **Open:** density, scale (cacti read small), and palette tuning; foam or ripples around the boats (they bob and tilt with the sea waves since the moving sea, [Rendering](RENDERING.md#sea-surface)); steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
+- **Open:** density, scale (cacti read small), and palette tuning; foam or ripples around the boats (they bob and tilt with the sea waves since the moving sea, [Rendering](RENDERING.md#sea-surface), and in the airplane's wake, `FEAT-010`); steep-slope clipping (the baked depth could drive a `gl_FragDepth` correction); overdraw measurement.
 
 ### `FEAT-004`: Near Scenery Meshes
 
@@ -503,6 +504,11 @@ The features below are implemented; their behavior, parameters, and costs live i
 - **Rejected:** a deep ocean only where the sea already is (the landmass noise is CPU-only, so the shader could not tell the islets' biome); a slope straddling the border (land would cross it and need a separator line); a forest ring between the deep ocean and the ice (the ocean borders it directly); a smooth maximum between the islets (it raised a step where each islet's slope began; a `4`-norm of their heights above the bank has none); a palm leaning its crown far off its base (the sources' recentering would move the base off the instance's position).
 - **Measured:** a land chunk costs about `14%` more CPU for the deep ocean field; a chunk inside the deep ocean costs about what a land chunk did. The terrain shader's two more `snoise` per vertex left the default-scene frame time unchanged (`pnpm bench` on `seed=b7dw4ve2`, `-0.4%`).
 - **Open:** the biome's future content (ruins, sea creatures; one atlas block is free); a reference-driven palm model (the procedural one is a first version); art review of the abyss color, the banks, and the islet palette; islets shrink to blobs on the coarsest LODs; a mobile flight over an archipelago.
+
+### `FEAT-010`: Airplane Wake On The Sea And A Lower Floor Over A Calm Sea
+
+- **Measured (2026-10-16):** idle, the default flight's frame time did not change measurably and its held captures matched `HEAD`; forced to run the whole flight, a worst case, about `+1` ms at the median, fixed per stepped frame at any map size and spent in the browser's GPU process rather than in `SeaWake.update()` (about `0.03` ms of JS per frame) ([Rendering](RENDERING.md#airplane-wake)). Over the calmest regular sea the airplane now settles at Y about `3` instead of `9`; over the roughest it keeps `9`.
+- **Open:** the chase camera hardly sees the water behind the airplane at cruise, so the wake shows mostly at full boost, on mobile, when flying back over it, and in the debug pause (a camera that looks back or down when low over the sea would show it); the boats' shadow casters do not heave; the waves' speed follows the airplane's current speed, so a slowdown also slows the ripples already left behind; no wake around the boats themselves (`FEAT-003`); an art review of the V, the strokes, and the lace; a run on a real phone, whose preset skips the vertex lift.
 
 Add further features with this template:
 

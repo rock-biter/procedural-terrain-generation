@@ -6,7 +6,7 @@ import ChunkManager from './chunkManager'
 import Clouds from './clouds'
 import CloudShadows from './cloudShadows'
 import DayNight from './dayNight'
-import { getSceneryClearance } from './flightPolicy'
+import { getSceneryClearance, getSeaFlightClearance } from './flightPolicy'
 import { createBoatSources } from './impostors/boatSources'
 import { SCENERY_IMPOSTORS, setCatalogSources } from './impostors/impostorCatalogs'
 import { IMPOSTOR_TYPE } from './impostors/impostorTypes'
@@ -14,6 +14,8 @@ import Plane from './plane'
 import SceneryImpostors from './sceneryImpostors'
 import SceneryShadows from './sceneryShadows'
 import SeaFoam from './seaFoam'
+import SeaWake from './seaWake'
+import { getSeaCrestHeight, getSeaOceanMask, getSeaState } from './seaSurfacePolicy'
 import { updateBiomeOffsetUniforms, updateSeaIceNight } from './sharedUniforms'
 import SunOcclusion from './sunOcclusion'
 import TerrainSampleDebug from './terrainSampleDebug'
@@ -30,8 +32,8 @@ const flightFields = { climate: 0, ice: 0, ringDriven: false, ocean: 0 }
 // so the loading screen already has its colors), then, once the startup
 // assets have loaded (init()), the airplane, scenery impostors (with the boat
 // model's sources) and shadows, the sea foam around the sea rocks, clouds,
-// the low-sun terrain occlusion, terrain chunks, the aurora over the ice, and
-// the debug helpers. It owns the
+// the low-sun terrain occlusion, the airplane's wake on the sea, terrain
+// chunks, the aurora over the ice, and the debug helpers. It owns the
 // frame loop and its update order, the world seed, and the runtime terrain
 // and aurora actions the ?gui=1 panel calls.
 //
@@ -46,6 +48,7 @@ export default class World {
 	sceneryImpostors = null
 	sceneryShadows = null
 	seaFoam = null
+	seaWake = null
 	clouds = null
 	cloudShadows = null
 	sunOcclusion = null
@@ -164,6 +167,14 @@ export default class World {
 		}
 		// The relief hiding a low sun from the terrain, where the shadows fade out.
 		this.sunOcclusion = new SunOcclusion({ renderer, uniforms, settings: params.sunOcclusion })
+		// The airplane's wake on the sea while it flies low. The terrain under it
+		// comes from the chunk manager, created below.
+		this.seaWake = new SeaWake({
+			renderer,
+			uniforms,
+			settings: params.seaWake,
+			sampleHeight: (x, z) => this.sampleHeight(x, z),
+		})
 
 		// Terrain. Every chunk draws its scenery instances with the impostor
 		// materials.
@@ -181,7 +192,10 @@ export default class World {
 			this.seed,
 			{ isMobile },
 		)
-		this.plane.setTerrainSampler((x, z) => this.sampleFlightHeight(x, z))
+		this.plane.setTerrainSampler(
+			(x, z) => this.sampleFlightHeight(x, z),
+			(x, z, height) => this.sampleFlightClearance(x, z, height),
+		)
 
 		if (this.features.aurora) {
 			// The ice field with the live biome offset, which a new seed replaces.
@@ -244,6 +258,28 @@ export default class World {
 		return height + getSceneryClearance(height, forest, deepOcean)
 	}
 
+	// The clearance the airplane keeps over flight height `height` at (x, z),
+	// right after sampleFlightHeight() there, whose deep ocean field it reuses:
+	// the terrain's over land, lower over a calmer sea, with its local wave
+	// level (getSeaFlightClearance()) in the sea state the shader draws.
+	sampleFlightClearance(x, z, height) {
+		const { seaFlight, seaSurface } = this.params
+		const depth = -height
+		if (!seaFlight.enabled || depth <= 0) return getSeaFlightClearance(depth, 0, 0, 0, seaFlight)
+		const state = getSeaState(
+			x,
+			z,
+			seaSurface.regions,
+			this.chunkManager.biomeOffset,
+			this.elapsedTime,
+		)
+		const oceanMask = getSeaOceanMask(flightFields.ocean, seaSurface)
+		const crest = getSeaCrestHeight(seaSurface, depth, oceanMask, state)
+		const calmCrest = getSeaCrestHeight(seaSurface, Infinity, oceanMask, 0)
+		const roughCrest = getSeaCrestHeight(seaSurface, Infinity, oceanMask, 1)
+		return getSeaFlightClearance(depth, crest, calmCrest, roughCrest, seaFlight)
+	}
+
 	getSpawnAltitude(x, z) {
 		return Math.max(this.sampleHeight(x, z), 0) + SPAWN_CLEARANCE
 	}
@@ -292,6 +328,7 @@ export default class World {
 		if (!plane) return
 		const offset = plane.position.clone()
 		plane.teleport(x, this.getSpawnAltitude(x, z), z)
+		this.seaWake?.reset()
 		this.flightPause?.moveBy(offset.subVectors(plane.position, offset))
 	}
 
@@ -312,7 +349,8 @@ export default class World {
 	// near scenery and cloud meshes stay hidden until something enters their
 	// band, cloud shadows render only while a light is up, the low-sun height
 	// map only while the sun is low, and the lens flare's occlusion only while
-	// the sun is in view. Program variants
+	// the sun is in view, and the wake's step only while the airplane flies
+	// low over the sea. Program variants
 	// depend on the bound render target, so the scene compiles against the
 	// offscreen buffer PostProcessing renders it into. With
 	// KHR_parallel_shader_compile the driver links them in the background.
@@ -324,6 +362,7 @@ export default class World {
 		if (this.cloudShadows) compiles.push(this.cloudShadows.compileAsync())
 		if (this.seaFoam) compiles.push(this.seaFoam.compileAsync())
 		if (this.sunOcclusion) compiles.push(this.sunOcclusion.compileAsync())
+		if (this.seaWake) compiles.push(this.seaWake.compileAsync())
 		compiles.push(postProcessing.compileAsync())
 		renderer.setRenderTarget(target)
 		return Promise.all(compiles)
@@ -342,9 +381,10 @@ export default class World {
 
 		// The debug pause freezes only the flight; global time keeps advancing.
 		const isFlightPaused = this.flightPause?.paused ?? false
-		if (isFlightPaused) this.flightPause.update()
 		// The timer's first delta after the tab is shown again can be negative.
-		else plane.update(MathUtils.clamp(deltaTime, 0, 0.016))
+		const flightDelta = MathUtils.clamp(deltaTime, 0, 0.016)
+		if (isFlightPaused) this.flightPause.update()
+		else plane.update(flightDelta)
 		this.terrainSampleDebug?.update(plane.flightCorridor?.samples)
 		frameStats.mark('flight')
 
@@ -377,6 +417,10 @@ export default class World {
 		// this frame's chunk commits.
 		this.sunOcclusion.update(this.chunkManager.chunks, CHUNK_SIZE, plane, dayNightState)
 		frameStats.mark('shadows')
+		// The wake follows the flight's own time, so its waves keep pace with the
+		// airplane, and freezes with it in the debug pause.
+		this.seaWake.update(plane, flightDelta, isFlightPaused)
+		frameStats.mark('wake')
 
 		// The GUI speedEffect slider holds post-processing at least at that level,
 		// even while the flight is paused.
@@ -408,6 +452,7 @@ export default class World {
 			getSunOcclusionStats: () => this.sunOcclusion?.getStats() ?? null,
 			getAuroraStats: () => this.aurora?.getStats() ?? null,
 			getSeaFoamStats: () => this.seaFoam?.getStats() ?? null,
+			getSeaWakeStats: () => this.seaWake?.getStats() ?? null,
 			getRenderStats: () => this.setup.getStats(),
 		})
 	}

@@ -68,6 +68,7 @@ export default class Plane extends Object3D {
 	verticalVelocity = 0
 	actualVerticalSpeed = 0
 	terrainSampler = null
+	clearanceSampler = null
 	flightCorridor = null
 	smoothedMinimumAltitude = null
 	terrainSlowdown = 0
@@ -160,8 +161,12 @@ export default class Plane extends Object3D {
 			: this.acceleration
 	}
 
-	setTerrainSampler(sampleHeight) {
+	// `sampleHeight(x, z)` is the ground the airplane must clear;
+	// `sampleClearance(x, z, height)`, called right after it at the same point,
+	// the clearance it keeps there (getFlightCorridor()), lower over a calm sea.
+	setTerrainSampler(sampleHeight, sampleClearance = null) {
 		this.terrainSampler = sampleHeight
+		this.clearanceSampler = sampleClearance
 	}
 
 	// Forgets the smoothed terrain corridor after the terrain changes under the
@@ -215,6 +220,7 @@ export default class Plane extends Object3D {
 				speed: this.speed,
 				baseSpeed: this.baseSpeed,
 				sampleHeight: this.terrainSampler,
+				sampleClearance: this.clearanceSampler,
 			},
 			this.flightCorridor ?? undefined,
 		)

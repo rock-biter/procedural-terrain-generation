@@ -174,12 +174,19 @@ if (seaIce > 0.5) terrainBand = TERRAIN_BAND_SNOW;
 // even in calm water, never on the ice. The deep ocean's settings take over
 // inside its border. Every foam thins away with the distance and is skipped
 // once gone (getSeaFoamFade()); the waves still shade the sea to the horizon.
+// The airplane's wake adds its slopes to the waves' and its trail foam and
+// crest strokes to theirs.
 float seaState = vSeaState;
 float seaOceanMask = getSeaOceanMask(oceanValue);
 SeaWaves seaWaves = SeaWaves(vec3(0.0), vec2(0.0), vec4(0.0), vec3(0.0), 0.0, vec4(0.0), 0.0, 0.0);
+// The airplane's wake (sea-wake-pars.glsl), stilled with the waves under the
+// frozen sea's sheet; `seaWakeFade` is 0 wherever it is not looked up.
+vec4 seaWake = vec4(0.0);
+float seaWakeFade = 0.0;
 if (wPosition.y < 0.0) {
 	float seaStill = iceValue > 0.0 ? getSeaIceStill(wPosition.y, iceValue) : 0.0;
 	seaWaves = getSeaWaves(wPosition.xz, -wPosition.y, seaOceanMask, seaState, seaStill, groundPixel, vSeaWaveNoise);
+	seaWake = getSeaWake(wPosition.xz, -wPosition.y, seaWakeFade) * (1.0 - seaStill);
 	// Taken where it is used, from the distance that stays live anyway, so no
 	// extra value is held through the waves.
 	vec2 seaFoamFade = getSeaFoamFade(distanceFromCamera);
@@ -187,10 +194,14 @@ if (wPosition.y < 0.0) {
 		int crestFoamStyle = int(uSeaCrestFoam + 0.5);
 		float crestFoam = crestFoamStyle != 1 ? getSeaCrestLine(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel, seaFoamFade) : 0.0;
 		if (crestFoamStyle > 0) crestFoam = max(crestFoam, getSeaBreakingFoam(seaWaves, wPosition.xz, seaOceanMask, seaState, groundPixel, seaFoamFade.x));
+		crestFoam = max(crestFoam, getSeaWakeFoam(seaWake, seaWakeFade, wPosition.xz, groundPixel, seaFoamFade));
 		diffuseColor.rgb = mix(diffuseColor.rgb, uSeaFoamColor, crestFoam * (1.0 - seaIce));
 	}
+	seaWaves.slope += seaWake.xy * uSeaWakeShape.y;
 }
 vec3 seaWaveNormal = getSeaWaveNormal(seaWaves);
+// The waves' or the wake's normal tilts the maps' (normal-fragment-map.glsl).
+bool seaWaveTilt = seaWaves.amount > 0.0 || seaWakeFade > 0.0;
 
 // Foam lines (sea-ripple-pars-fragment.glsl) on one sea height: the raw
 // height fused with the sea rocks' virtual height from the foam map, whose
@@ -208,7 +219,9 @@ if (seaFoamNear) {
 
 int seaDebugView = int(uSeaSurface.w + 0.5);
 if (seaDebugView > 0 && wPosition.y < 0.0) {
-	diffuseColor.rgb = getSeaSurfaceDebug(seaDebugView, seaState, seaOceanMask, seaWaves);
+	diffuseColor.rgb = seaDebugView == SEA_WAKE_DEBUG_VIEW
+		? getSeaWakeDebug(wPosition.xz, seaWake)
+		: getSeaSurfaceDebug(seaDebugView, seaState, seaOceanMask, seaWaves);
 }
 
 // Distant terrain is capped by the day/night atmosphere color.

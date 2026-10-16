@@ -1,3 +1,6 @@
+import { clamp01, lerp, smoothstep } from './math.js'
+import { snoise } from './noise.js'
+
 // Pure rules of the moving sea surface (three-free): the waves, the ripples
 // of the sea's normal map, the crest lines, and the coast's foam lines, drawn by
 // the terrain shader (sea-surface-pars.glsl, sea-ripple-pars-fragment.glsl,
@@ -113,6 +116,9 @@ export const SEA_SURFACE_DEBUG_VIEWS = Object.freeze({
 	oceanMask: 2,
 	waveAmount: 3,
 	crestSqueeze: 4,
+	// The airplane's wake (src/seaWake.js): crests red, troughs blue, foam
+	// green, the map and its occupied rectangle gray.
+	wake: 5,
 })
 
 export const SEA_SURFACE_DEFAULTS = Object.freeze({
@@ -349,4 +355,46 @@ export function getSeaWaveBound(settings) {
 // Drift of the regions in world units per second, along x and z.
 export function getSeaRegionDrift({ drift, direction }) {
 	return [Math.cos(direction * degrees) * drift, Math.sin(direction * degrees) * drift]
+}
+
+// SEA_SURFACE_REGION_OFFSET in sea-surface-pars.glsl: decorrelates the regions
+// from the climate, which shares the biome offset.
+export const SEA_REGION_OFFSET = Object.freeze([-4137.2, 2291.7])
+
+// CPU twin of getSeaState() in sea-surface-pars.glsl: the sea state at world
+// (x, z), 0 in the calmest regions and 1 in the roughest, `time` seconds into
+// the flight (uTime), with the seeded `biomeOffset` (createBiomeOffset()).
+export function getSeaState(x, z, regions, biomeOffset, time) {
+	const frequency = 1 / Math.max(regions.scale, 1)
+	const angle = regions.direction * degrees
+	const px =
+		(x + biomeOffset[0] + SEA_REGION_OFFSET[0] - Math.cos(angle) * regions.drift * time) * frequency
+	const pz =
+		(z + biomeOffset[1] + SEA_REGION_OFFSET[1] - Math.sin(angle) * regions.drift * time) * frequency
+	const noise = snoise(px, pz) * 0.7 + snoise(px * 2.3 + 17, pz * 2.3 + 17) * 0.3
+	return clamp01(0.5 + 0.5 * noise * regions.contrast)
+}
+
+// Share of the deep ocean's settings at deep ocean field value `oceanValue`,
+// as getSeaOceanMask() in sea-surface-pars.glsl.
+export function getSeaOceanMask(oceanValue, settings) {
+	return smoothstep(0, Math.max(settings.oceanBlend, 1e-6), oceanValue)
+}
+
+// The highest the waves of sea type `type` can lift the drawn sea at a point
+// `depth` world units deep (the raw height's opposite) in sea state `state`:
+// the vertical bound of getSeaWaveBound() for that state, calmed toward the
+// coast as the shader calms them (uSeaWaveShape).
+function getSeaTypeCrestHeight({ waves, coast }, depth, state) {
+	const start = Math.max(coast.start, 0)
+	const amount = smoothstep(start, Math.max(coast.full, start + 0.01), depth)
+	const scale = lerp(Math.max(waves.calm, 0), Math.max(waves.rough, 0), clamp01(state))
+	return Math.max(waves.amplitude, 0) * scale * getSeaWaveGroupGain(waves) * amount
+}
+
+// The same over both types, blended by `oceanMask` (getSeaOceanMask()).
+export function getSeaCrestHeight(settings, depth, oceanMask, state) {
+	const sea = getSeaTypeCrestHeight(settings.sea, depth, state)
+	if (oceanMask <= 0) return sea
+	return lerp(sea, getSeaTypeCrestHeight(settings.ocean, depth, state), clamp01(oceanMask))
 }
