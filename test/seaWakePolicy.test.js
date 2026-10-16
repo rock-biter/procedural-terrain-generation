@@ -17,7 +17,10 @@ import {
 	getSeaWakeOccupiedRect,
 	getSeaWakePulse,
 	getSeaWakePulsePhase,
+	getSeaWakeRollBoost,
 	getSeaWakeSettleTime,
+	getSeaWakeSpeedWidth,
+	getSeaWakeStampGains,
 	getSeaWakeSteps,
 	getSeaWakeStrength,
 	getSeaWakeTexel,
@@ -55,6 +58,8 @@ test('creates fresh nested settings', () => {
 		'foam',
 		'lines',
 		'shading',
+		'roll',
+		'speed',
 		'occupancy',
 	]) {
 		assert.notEqual(a[key], b[key], key)
@@ -293,4 +298,39 @@ test('advances at most at the step rate, every 60 Hz frame and every other 120 H
 	// Rate 0 advances every frame.
 	const everyFrame = { ...settings, steps: { ...settings.steps, rate: 0 } }
 	assert.equal(isSeaWakeStepDue(1 / 240, everyFrame), true)
+})
+
+test('an aileron roll boosts the stamp with its speed and the boost fades after it', () => {
+	const settings = createSeaWakeSettings()
+	const { fullRate, halfLife } = settings.roll
+	assert.equal(getSeaWakeRollBoost(0, 0, 1 / 60, settings), 0)
+	assert.equal(getSeaWakeRollBoost(0, fullRate, 1 / 60, settings), 1)
+	assert.equal(getSeaWakeRollBoost(0, -fullRate * 2, 1 / 60, settings), 1)
+	const half = getSeaWakeRollBoost(0, fullRate / 2, 1 / 60, settings)
+	assert.ok(half > 0 && half < 1)
+	// Once the roll slows, it halves every half-life instead of dropping.
+	assert.ok(Math.abs(getSeaWakeRollBoost(1, 0, halfLife, settings) - 0.5) < 1e-12)
+	let boost = 1
+	for (let frame = 0; frame < 60; frame++) boost = getSeaWakeRollBoost(boost, 0, 1 / 60, settings)
+	assert.ok(boost < 0.1)
+	// Without a roll the stamp keeps its gains; a full roll scales all three.
+	const plain = getSeaWakeStampGains(0, settings.speed.slow, settings)
+	assert.deepEqual(plain, { width: 1, foam: 1, kick: 1 })
+	const rolled = getSeaWakeStampGains(1, settings.speed.slow, settings)
+	assert.equal(rolled.width, settings.roll.width)
+	assert.equal(rolled.foam, settings.roll.foam)
+	assert.equal(rolled.kick, settings.roll.kick)
+})
+
+test('the trail widens with the speed, from cruise to a full boost', () => {
+	const settings = createSeaWakeSettings()
+	const { slow, fast, width } = settings.speed
+	assert.equal(getSeaWakeSpeedWidth(0, settings), 1)
+	assert.equal(getSeaWakeSpeedWidth(slow, settings), 1)
+	assert.equal(getSeaWakeSpeedWidth(fast, settings), width)
+	assert.equal(getSeaWakeSpeedWidth(fast * 2, settings), width)
+	assert.ok(Math.abs(getSeaWakeSpeedWidth((slow + fast) / 2, settings) - (1 + width) / 2) < 1e-12)
+	// The roll's width multiplies the speed's.
+	const both = getSeaWakeStampGains(1, fast, settings)
+	assert.ok(Math.abs(both.width - width * settings.roll.width) < 1e-12)
 })

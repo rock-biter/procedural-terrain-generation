@@ -34,7 +34,7 @@ const degrees = Math.PI / 180
 // reach (world units, never under 1.5 texels). The kick pulses every
 // `pulseSpacing` world units flown: `pulseMix` 0 is a steady downwash trough,
 // 1 a pure oscillation. `foam` (0 to 1) is the trail's fresh foam within
-// `foamRadius` world units of the track.
+// `foamRadius` world units of the track (never under 1 texel).
 //
 // waves: they run at sin(`angle`) times the airplane's speed, never slower
 // than `minSpeed` (world units per second), so the V keeps `angle` degrees
@@ -59,6 +59,16 @@ const degrees = Math.PI / 180
 // `fadeStart` to `fadeEnd` (shares of the half-size). `boatHeave` (world
 // units per height unit) lifts the boats, `boatTilt` scales their tilt.
 //
+// roll: an aileron roll (never a barrel roll) stirs more air: at `fullRate`
+// radians per second of roll the stamp is `width` times as wide, lays `foam`
+// times the foam (which then stays solid longer), and kicks `kick` times as
+// hard, for larger ripples; the boost follows the roll's speed up at once and
+// halves every `halfLife` seconds once it slows (getSeaWakeRollBoost()).
+//
+// speed: the trail widens with the airplane's measured speed, linearly from
+// `slow` (world units per second, the cruise) to `width` times as wide at
+// `fast` (a full boost) and beyond (getSeaWakeSpeedWidth()).
+//
 // occupancy: the CPU tracks a conservative rectangle of where the wake can
 // be non-zero (getSeaWakeOccupiedRect()), in boxes opened every `interval`
 // seconds and grown at the waves' speed, plus `marginTexels`; outside it the
@@ -75,7 +85,7 @@ export const SEA_WAKE_DEFAULTS = Object.freeze({
 		pulseSpacing: 24,
 		pulseMix: 0.75,
 		foam: 1,
-		foamRadius: 1.5,
+		foamRadius: 0.75,
 	}),
 	waves: Object.freeze({
 		angle: 20,
@@ -85,7 +95,13 @@ export const SEA_WAKE_DEFAULTS = Object.freeze({
 		spongeWidth: 0.3,
 		spongeRate: 10,
 	}),
-	foam: Object.freeze({ halfLife: 2.85, spread: 3.8, intensity: 1.8, laceScale: 0.33, fray: 0.35 }),
+	foam: Object.freeze({
+		halfLife: 2.85,
+		spread: 0.95,
+		intensity: 1.8,
+		laceScale: 0.33,
+		fray: 0.35,
+	}),
 	lines: Object.freeze({ threshold: 0.3, softness: 0.246, halfWidth: 0.52, intensity: 1 }),
 	shading: Object.freeze({
 		vertexAmplitude: 0.8,
@@ -95,6 +111,8 @@ export const SEA_WAKE_DEFAULTS = Object.freeze({
 		boatHeave: 0.6,
 		boatTilt: 1,
 	}),
+	roll: Object.freeze({ width: 1.5, foam: 1.6, kick: 1.8, fullRate: 12, halfLife: 0.3 }),
+	speed: Object.freeze({ slow: 55, fast: 165, width: 1.6 }),
 	occupancy: Object.freeze({ interval: 0.25, settleThreshold: 0.03, marginTexels: 3 }),
 })
 
@@ -273,6 +291,36 @@ export function getSeaWakeSettleTime(settings) {
 	const halfLife = Math.max(settings.waves.halfLife, settings.foam.halfLife, 0)
 	const threshold = Math.min(Math.max(settings.occupancy.settleThreshold, 1e-4), 0.99)
 	return halfLife * Math.log2(1 / threshold)
+}
+
+// The aileron roll's boost of the stamp (0 to 1) after `time` seconds more,
+// from `previous` and the roll's speed `rate` (radians per second, 0 outside
+// an aileron roll): it rises with the speed at once and halves every
+// roll.halfLife seconds once the roll slows.
+export function getSeaWakeRollBoost(previous, rate, time, settings) {
+	const { fullRate, halfLife } = settings.roll
+	const target = smoothstep(0, Math.max(fullRate, 1e-3), Math.abs(rate))
+	if (target >= previous) return target
+	return Math.max(target, previous * getSeaWakeDecay(halfLife, time))
+}
+
+// How many times wider than at cruise the trail is at the airplane's `speed`.
+export function getSeaWakeSpeedWidth(speed, settings) {
+	const { slow, fast, width } = settings.speed
+	const share = fast > slow ? clamp01((Math.abs(speed) - slow) / (fast - slow)) : 0
+	return lerp(1, Math.max(width, 0), share)
+}
+
+// The stamp's gains for an aileron roll boost `rollBoost` at the airplane's
+// `speed`: `width` scales the kick's and the foam's radii, `foam` the foam
+// laid, `kick` the kick.
+export function getSeaWakeStampGains(rollBoost, speed, settings, target = {}) {
+	const { roll } = settings
+	const boost = clamp01(rollBoost)
+	target.width = getSeaWakeSpeedWidth(speed, settings) * lerp(1, Math.max(roll.width, 0), boost)
+	target.foam = lerp(1, Math.max(roll.foam, 0), boost)
+	target.kick = lerp(1, Math.max(roll.kick, 0), boost)
+	return target
 }
 
 // How far the wake moves the sea's vertices up or down, for the terrain's

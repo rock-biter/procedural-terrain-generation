@@ -17,6 +17,7 @@ import {
 } from 'three'
 import fullscreenVertexShader from './shaders/fullscreen-vertex.glsl'
 import simFragmentShader from './shaders/sea-wake-sim-fragment.glsl'
+import { MANEUVER, wrapAngle } from './maneuverPolicy'
 import { clamp01 } from './math'
 import {
 	addSeaWakeStamp,
@@ -30,7 +31,9 @@ import {
 	getSeaWakeLineWavenumber,
 	getSeaWakeOccupiedRect,
 	getSeaWakePulsePhase,
+	getSeaWakeRollBoost,
 	getSeaWakeSettleTime,
+	getSeaWakeStampGains,
 	getSeaWakeSteps,
 	getSeaWakeStrength,
 	getSeaWakeTexel,
@@ -43,9 +46,12 @@ import {
 // A jump of the airplane longer than this share of the map's half-size
 // (a teleport) starts the wake over instead of stamping across it.
 const JUMP_SHARE = 0.5
-// The smallest stamp radius, in texels, so the stamp never aliases as it
-// slides across the texels.
-const MIN_STAMP_TEXELS = 1.5
+// The smallest radius, in texels, of the kick and of the foam, so neither
+// aliases as it slides across the texels: the kick's keeps the ripples
+// smooth, the foam's, smaller, lets the trail stay thin, which its lace and
+// the readers' bilinear lookup keep from beading.
+const MIN_KICK_TEXELS = 1.5
+const MIN_FOAM_TEXELS = 1
 // Response (per second) of the measured speed the waves follow.
 const SPEED_RESPONSE = 8
 
@@ -118,6 +124,11 @@ export default class SeaWake {
 		this.pendingTime = 0
 		this.speed = 0
 		this.strength = 0
+		// The aileron roll's boost of the stamp (getSeaWakeRollBoost()), from
+		// the roll angle of the last frame, and the stamp's gains.
+		this.rollBoost = 0
+		this.lastRoll = 0
+		this.gains = { width: 1, foam: 1, kick: 1 }
 		this.totalSteps = 0
 		this.lastSteps = 0
 		this.resets = 0
@@ -253,6 +264,15 @@ export default class SeaWake {
 		const startTime = performance.now()
 
 		const { point, stamp } = this
+		// An aileron roll's speed, from the model's roll angle (the steering
+		// bank kept apart); a barrel roll never boosts the stamp.
+		const frameTime = Math.max(deltaTime, 0)
+		const roll = plane.roll ?? 0
+		const rolling = plane.maneuver?.type === MANEUVER.AILERON_ROLL && frameTime > 0
+		const rollRate = rolling ? wrapAngle(roll - this.lastRoll) / frameTime : 0
+		this.lastRoll = roll
+		this.rollBoost = getSeaWakeRollBoost(this.rollBoost, rollRate, frameTime, settings)
+
 		// The airplane itself, off the rig during the maneuvers.
 		plane.model.getWorldPosition(point)
 		const altitude = getSeaWakeAltitude(point.y)
@@ -352,16 +372,18 @@ export default class SeaWake {
 		const b = getSeaWakeTexelPoint(bx, bz, window, this.texelB)
 		uniforms.uStampSegment.value.set(a.x, a.y, b.x, b.y)
 		const length = Math.hypot(bx - ax, bz - az)
-		const radius = Math.max(trail.radius, MIN_STAMP_TEXELS * texel)
-		const foamRadius = Math.max(trail.foamRadius, MIN_STAMP_TEXELS * texel)
+		// Wider with the speed, and wider, foamier, and harder in an aileron roll.
+		const gains = getSeaWakeStampGains(this.rollBoost, this.speed, settings, this.gains)
+		const radius = Math.max(trail.radius * gains.width, MIN_KICK_TEXELS * texel)
+		const foamRadius = Math.max(trail.foamRadius * gains.width, MIN_FOAM_TEXELS * texel)
 		// Scaled by the step's length, so the kicks a point gets as the track
 		// passes add up the same at any frame rate and speed.
-		const kick = trail.impulse * strength * Math.min(length / radius, 2)
+		const kick = trail.impulse * gains.kick * strength * Math.min(length / radius, 2)
 		uniforms.uStamp.value.set(
 			radius / texel,
 			kick,
 			foamRadius / texel,
-			clamp01(trail.foam) * strength,
+			clamp01(trail.foam) * gains.foam * strength,
 		)
 		const phase = getSeaWakePulsePhase(this.pulseDistance, settings)
 		uniforms.uStampPulse.value.set(
@@ -422,6 +444,8 @@ export default class SeaWake {
 			texel: window?.texel ?? getSeaWakeTexel(this.settings),
 			center: window ? [window.x, window.z] : null,
 			speed: this.speed,
+			rollBoost: this.rollBoost,
+			width: this.gains.width,
 			waveSpeed: this.waves.speed,
 			courant: this.waves.courant,
 			clamped: this.waves.clamped,

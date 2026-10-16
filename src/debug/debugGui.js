@@ -1456,6 +1456,18 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		lines.add(settings.lines, 'halfWidth', 0, 2, 0.01).name('Half-width (units)').onChange(apply)
 		lines.add(settings.lines, 'intensity', 0, 1, 0.01).name('Intensity').onChange(apply)
 
+		const roll = folder.addFolder('Aileron roll')
+		roll.add(settings.roll, 'width', 1, 4, 0.05).name('Wider ×')
+		roll.add(settings.roll, 'foam', 1, 4, 0.05).name('Foam ×')
+		roll.add(settings.roll, 'kick', 1, 4, 0.05).name('Kick ×')
+		roll.add(settings.roll, 'fullRate', 1, 40, 0.5).name('Full at roll (rad/s)')
+		roll.add(settings.roll, 'halfLife', 0.02, 2, 0.01).name('Fade half-life (s)')
+
+		const speed = folder.addFolder('Speed')
+		speed.add(settings.speed, 'slow', 0, 200, 1).name('Cruise (units/s)')
+		speed.add(settings.speed, 'fast', 1, 300, 1).name('Full boost (units/s)')
+		speed.add(settings.speed, 'width', 0.2, 4, 0.05).name('Wider × at full boost')
+
 		const shading = folder.addFolder('Shading')
 		shading
 			.add(settings.shading, 'vertexAmplitude', 0, 2, 0.01)
@@ -1482,6 +1494,11 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 				if (!stats?.active) return '-'
 				return `${stats.waveSpeed.toFixed(1)} u/s, ${stats.courant.toFixed(2)} texel/step, ${stats.steps} steps`
 			},
+			get stamp() {
+				const stats = world.seaWake?.getStats()
+				if (!stats?.active) return '-'
+				return `${stats.width.toFixed(2)}× wide, roll ${stats.rollBoost.toFixed(2)}`
+			},
 			get cost() {
 				const stats = world.seaWake?.getStats()
 				return stats ? `${stats.updateMs.toFixed(2)} ms CPU, ${stats.boxes} boxes` : '-'
@@ -1489,6 +1506,7 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		}
 		folder.add(status, 'state').name('State').listen().disable()
 		folder.add(status, 'waves').name('Waves').listen().disable()
+		folder.add(status, 'stamp').name('Stamp').listen().disable()
 		folder.add(status, 'cost').name('Update').listen().disable()
 		const presets = {
 			copy() {
