@@ -61,7 +61,7 @@ Modules marked _pure_ import no three.js objects and no browser state; Node test
 | [`src/maneuverPolicy.js`](../src/maneuverPolicy.js) | _Pure._ The maneuvers: which a click (by its place) or the wheel starts, the aileron roll's ease, the barrel roll's cylinder and radius, the loop's pose and rig speed, the Immelmann's path (solved to end at its starting height), pace, rig, and pose, the camera framing, the smoke, the radius under the top altitude, and angle wrapping. |
 | [`src/airplaneModels.js`](../src/airplaneModels.js)                                                    | Per-model data (path, load transform, trail anchor, propeller) and the `?plane=` choice.                                                        |
 | [`src/flightPauseDebug.js`](../src/flightPauseDebug.js), [`src/debugPolicy.js`](../src/debugPolicy.js) | With `?debug=1`, a flight-only pause on **P** that hands the camera to `OrbitControls`; _pure_ flag and shortcut rules.                         |
-| [`src/terrainSampleDebug.js`](../src/terrainSampleDebug.js)                                            | With `?debug=1`, markers on the four terrain points the flight corridor samples.                                                                |
+| [`src/terrainSampleDebug.js`](../src/terrainSampleDebug.js)                                            | With `?debug=1` or `?gui=1`, markers on the four terrain points the flight corridor samples, hidden until `params.terrainSamples.visible` (**Airplane > Show terrain samples**).                                                                |
 
 ### Rendering systems
 

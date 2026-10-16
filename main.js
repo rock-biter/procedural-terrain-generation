@@ -59,7 +59,7 @@ const world = new World({
 	airplaneModel,
 	features: WORLD_FEATURES,
 	isMobile,
-	terrainSamples: debug,
+	terrainSamples: debugMode,
 	FlightPauseDebug,
 	holdUntilPlay: debugMode,
 })

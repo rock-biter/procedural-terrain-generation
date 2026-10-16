@@ -2,10 +2,11 @@ import { DoubleSide, Group, Mesh, MeshBasicMaterial, Shape, ShapeGeometry } from
 import { replaceChunks } from './shaderChunks.js'
 import curvatureDrop from './shaders/curvature-drop.glsl'
 
-// The ?debug=1 terrain corridor markers: a white cross at each of the four
-// points the flight samples under and ahead of the airplane
-// (getFlightCorridor() in src/flightPolicy.js), on top of everything and
-// dropped by the world curvature like the terrain.
+// The debug terrain corridor markers (?debug=1 or ?gui=1, shown with
+// Airplane > Show terrain samples): a white cross at each of the four points
+// the flight samples under and ahead of the airplane (getFlightCorridor() in
+// src/flightPolicy.js), on top of everything and dropped by the world
+// curvature like the terrain.
 
 const MARKER_COLOR = 0xffffff
 
@@ -81,6 +82,7 @@ export default class TerrainSampleDebug extends Group {
 		})
 	}
 
+	// Hidden without the four samples (null while the markers are off).
 	update(samples) {
 		const hasAllSamples = samples?.length === this.markers.length
 		this.visible = hasAllSamples

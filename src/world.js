@@ -39,8 +39,9 @@ const flightFields = { climate: 0, ice: 0, ringDriven: false, ocean: 0 }
 //
 // `setup` is the RenderSetup, `params` createAppParams(), `uniforms`
 // createSharedUniforms(). `airplaneModel` is the AIRPLANE_MODELS entry,
-// `features` WORLD_FEATURES. `terrainSamples` shows the ?debug=1 corridor
-// markers; `FlightPauseDebug` is the lazily loaded ?debug=1 pause class.
+// `features` WORLD_FEATURES. `terrainSamples` creates the corridor markers
+// (either debug flag), shown while params.terrainSamples.visible is set;
+// `FlightPauseDebug` is the lazily loaded ?debug=1 pause class.
 // `holdUntilPlay` keeps the airplane still until Play (releasePlane()).
 export default class World {
 	plane = null
@@ -385,7 +386,9 @@ export default class World {
 		const flightDelta = MathUtils.clamp(deltaTime, 0, 0.016)
 		if (isFlightPaused) this.flightPause.update()
 		else plane.update(flightDelta)
-		this.terrainSampleDebug?.update(plane.flightCorridor?.samples)
+		this.terrainSampleDebug?.update(
+			this.params.terrainSamples.visible ? plane.flightCorridor?.samples : null,
+		)
 		frameStats.mark('flight')
 
 		uniforms.uTime.value = this.elapsedTime

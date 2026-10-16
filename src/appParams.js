@@ -139,6 +139,10 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// Debug overlay outlining scenery triangles in one color per level of
 		// detail: LOD 0 mesh, LOD 1 mesh, impostor quad.
 		sceneryWireframe: createSceneryWireframeSettings(),
+		// Debug overlay (?debug=1 or ?gui=1): the crosses on the four terrain
+		// points the flight corridor samples (src/terrainSampleDebug.js), hidden
+		// until Airplane > Show terrain samples turns them on.
+		terrainSamples: { visible: false },
 		// Soft shadows of scenery and the airplane on terrain and scenery, in two
 		// cascades that fade out with distance; see createSceneryShadowSettings().
 		shadows: createSceneryShadowSettings({ isMobile }),

@@ -1225,6 +1225,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 
 	const airplaneFolder = gui.addFolder('Airplane')
 	airplaneFolder.add(params.propeller, 'speed', 0, 20, 0.1).name('Propeller speed (turns/s)')
+	// Live: the crosses on the flight corridor's terrain samples (src/terrainSampleDebug.js).
+	airplaneFolder.add(params.terrainSamples, 'visible').name('Show terrain samples')
 	// Live: the floor over the sea follows its waves (getSeaFlightClearance()).
 	const seaFlightFolder = airplaneFolder.addFolder('Low over the sea')
 	seaFlightFolder.add(params.seaFlight, 'enabled').name('Lower over a calm sea')
