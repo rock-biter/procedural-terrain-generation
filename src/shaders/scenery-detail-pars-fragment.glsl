@@ -9,7 +9,7 @@ vec3 sampleDetail(vec3 position, vec3 normal, float scale) {
 	vec3 weights = pow(abs(normal), vec3(4.0));
 	weights /= weights.x + weights.y + weights.z;
 	// The texture grain runs along V. Side projections map U to height, so the
-	// grain runs horizontally: around trunks and across the clouds' flat faces.
+	// grain runs horizontally: around trunks.
 	vec3 side = texture(uDetail, position.yz * scale).rgb;
 	vec3 top = texture(uDetail, position.xz * scale).rgb;
 	vec3 front = texture(uDetail, position.yx * scale).rgb;
@@ -20,7 +20,7 @@ vec3 sampleDetail(vec3 position, vec3 normal, float scale) {
 // per unit, y: strength, 0 keeps the vertex color and 1 multiplies it by the
 // texture, z: normalized when above 0.5). Normalized detail is divided by the
 // texture's mean color (its smallest mip), so it adds grain without darkening
-// or tinting the vertex color (clouds, and the trees' neutral bake).
+// or tinting the vertex color (the trees' neutral bake).
 vec3 applyDetail(vec3 color, vec3 position, vec3 normal, vec3 settings) {
 	vec3 detail = sampleDetail(position, normal, settings.x);
 	if (settings.z > 0.5) {

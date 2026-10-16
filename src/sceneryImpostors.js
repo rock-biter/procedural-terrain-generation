@@ -17,7 +17,7 @@ import { setSceneryWireframe } from './impostors/sceneryWireframe'
 import { getSceneryPaletteLayout } from './sceneryPalettePolicy'
 import { SCENERY_TYPE_KEYS } from './sceneryPlacement'
 
-// The scenery's impostors and near meshes, as Clouds owns the cloud field's:
+// The scenery's impostors and near meshes:
 // the atlas bake with the wood detail, the impostor material and its
 // wireframe twin (every chunk draws its instances with them, src/chunk.js),
 // the near meshes (SceneryMeshes, a child), and the live variation, palette,

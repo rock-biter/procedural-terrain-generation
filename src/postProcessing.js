@@ -26,6 +26,8 @@ import {
 	Vector3,
 } from 'three'
 import LensFlareEffect from './lensFlareEffect'
+import { getApparentElevation } from './dayNightPolicy'
+import { getHorizonCloudCoverageUniforms } from './horizonClouds'
 import { getSunDiscVisibility } from './lensFlarePolicy'
 import SpeedEffect from './speedEffect'
 import filmGrainFragmentShader from './shaders/film-grain-fragment.glsl'
@@ -82,18 +84,25 @@ class FilmGrainEffect extends Effect {
 // Every frame renders the scene offscreen and composites it to the canvas in
 // one effect pass: the speed effect (edge blur and chromatic aberration, at
 // least at the idle level), the sun's lens flare, tone mapping when enabled,
-// and film grain.
+// and film grain. `uniforms` (createSharedUniforms()) holds the horizon
+// clouds' coverage uniforms, which the flare's occlusion reads.
 export default class PostProcessing {
-	constructor(renderer, scene, camera, params) {
+	constructor(renderer, scene, camera, params, uniforms = {}) {
 		this.renderer = renderer
 		this.scene = scene
 		this.camera = camera
 		this.params = params
+		this.cloudUniforms = getHorizonCloudCoverageUniforms(uniforms)
 		this.composer = null
 		this.toneMappingEffect = null
 		// The sun the lens flare follows, written by setSun(); kept across
-		// composer rebuilds.
-		this.sun = { direction: new Vector3(0, 1, 0), color: new Color(), discVisibility: 0 }
+		// composer rebuilds. `elevation` is above the visible edge.
+		this.sun = {
+			direction: new Vector3(0, 1, 0),
+			color: new Color(),
+			discVisibility: 0,
+			elevation: Math.PI / 2,
+		}
 		this.updateToneMapping()
 	}
 
@@ -144,7 +153,12 @@ export default class PostProcessing {
 
 		this.renderPass = new RenderPass(this.scene, this.camera)
 		this.speedEffect = new SpeedEffect(this.params)
-		this.lensFlareEffect = new LensFlareEffect(this.camera, this.params.lensFlare, this.sun)
+		this.lensFlareEffect = new LensFlareEffect(
+			this.camera,
+			this.params.lensFlare,
+			this.sun,
+			this.cloudUniforms,
+		)
 		this.toneMappingEffect = toneMapped ? new ToneMappingEffect() : null
 		this.grainEffect = new FilmGrainEffect()
 		// The flare adds to the linear scene color after the speed effect's blur
@@ -172,12 +186,14 @@ export default class PostProcessing {
 	}
 
 	// The sun of the lens flare, from the DayNight state: its direction, color
-	// (sRGB), and the sky disc's visibility at the current horizon dip.
+	// (sRGB), the sky disc's visibility at the current horizon dip, and its
+	// elevation above the visible edge.
 	setSun({ sunDirection, sunColor, horizonDip }) {
 		const { sun } = this
 		sun.direction.fromArray(sunDirection)
 		sun.color.setRGB(sunColor[0], sunColor[1], sunColor[2], SRGBColorSpace)
 		sun.discVisibility = getSunDiscVisibility(sunDirection[1], horizonDip)
+		sun.elevation = getApparentElevation(sunDirection[1], horizonDip)
 	}
 
 	// Compiles the programs the composer draws only on demand (the lens

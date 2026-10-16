@@ -73,9 +73,8 @@ function getResolvePass() {
 // `paint` attribute with SCENERY_PALETTE, 0 otherwise, premultiplied by
 // coverage). A source with `userData.map` (a model's color map, see
 // setCatalogSources()) multiplies its vertex color by the map at its uv.
-// Without `views`, the layout is a frames x frames hemi-octahedral grid of the
-// catalog's hemisphere. `detail` optionally multiplies the albedo by a tileable color
-// texture: { texture, types }, where types[type] is that type's { scale
+// Without `views`, the layout is a frames x frames hemi-octahedral grid.
+// `detail` optionally multiplies the albedo by a tileable color texture: { texture, types }, where types[type] is that type's { scale
 // (repeats per unit), color (strength), normalized } (see applyDetail() in
 // scenery-detail-pars-fragment.glsl). `frameSize` shrinks when the atlas
 // would exceed the GPU limit.
@@ -84,7 +83,7 @@ export function bakeImpostorAtlas(
 	{
 		catalog = SCENERY_IMPOSTORS,
 		frames = IMPOSTOR_FRAMES_DESKTOP,
-		views = createHemiOctViews(frames, catalog.hemisphere),
+		views = createHemiOctViews(frames),
 		frameSize: requestedFrameSize = 64,
 		detail = null,
 	} = {},

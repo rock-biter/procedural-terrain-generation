@@ -7,9 +7,10 @@ export const CURVATURE = 3000
 // Side of a terrain chunk in world units.
 export const CHUNK_SIZE = 256
 
-// Runtime switches for the world's optional layers (the boats are scenery).
+// Runtime switches for the world's optional layers (the boats are scenery;
+// the horizon clouds are part of the sky).
 export const WORLD_FEATURES = Object.freeze({
 	scenery: true,
-	clouds: true,
+	horizonClouds: true,
 	aurora: true,
 })

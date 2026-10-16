@@ -1,5 +1,5 @@
-// Deterministic randomness shared by scenery and cloud placement (three-free,
-// so it also runs in the chunk workers).
+// Deterministic randomness shared by scenery placement and the procedural
+// timelines (three-free, so it also runs in the chunk workers).
 
 // FNV-1a hash of a seed string.
 export function hashSeed(seed) {

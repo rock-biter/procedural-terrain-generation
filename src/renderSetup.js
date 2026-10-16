@@ -19,9 +19,11 @@ const CAMERA_TARGET = new Vector3(0, 6.9, 0)
 // The renderer and what every frame renders through: scene, lights, fog,
 // camera, the post-processing chain, the frame telemetry, and the adaptive
 // pixel ratio, kept in step with the window size. `params` is
-// createAppParams(); `urlParams` supplies ?dpr=.
+// createAppParams(); `urlParams` supplies ?dpr=; `uniforms`
+// (createSharedUniforms()) holds the horizon clouds' uniforms, which the lens
+// flare's occlusion reads.
 export default class RenderSetup {
-	constructor({ params, urlParams, isMobile = false }) {
+	constructor({ params, urlParams, uniforms = {}, isMobile = false }) {
 		// The scene always renders through PostProcessing's offscreen chain, whose
 		// 2x MSAA buffer is the only antialiasing. The canvas only receives the
 		// finished full-screen composite, so it needs neither MSAA nor depth. It is
@@ -70,6 +72,7 @@ export default class RenderSetup {
 			this.scene,
 			this.camera,
 			params.postProcessing,
+			uniforms,
 		)
 		// Frame time, stage time, draw counters, and GPU time for getRenderStats().
 		this.frameStats = new FrameStats(this.renderer)

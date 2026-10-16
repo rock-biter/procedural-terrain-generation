@@ -25,6 +25,7 @@ import {
 	startAuroraEvent,
 	stepAurora,
 } from './auroraPolicy'
+import { HORIZON_CLOUD_SHADER_DEFINES } from './horizonCloudsPolicy'
 import auroraVertex from './shaders/aurora.vert.glsl'
 import auroraFragment from './shaders/aurora.frag.glsl'
 
@@ -90,7 +91,7 @@ function createMaskTexture(columns, rows) {
 // rolls, places, and times it), drawn as a single mesh of curtains in a
 // window around the airplane, masked to the event's ice region. Unlit and
 // fog-free like the sky, added onto the scene behind it with the depth test
-// on, so terrain, scenery, and clouds hide it.
+// on, so terrain and scenery hide it.
 //
 // Ownership: this mesh owns its geometry, material, region mask texture, and
 // its uniforms; `uniforms` is the shared object (src/sharedUniforms.js),
@@ -131,6 +132,8 @@ export default class Aurora extends Mesh {
 			new BufferGeometry(),
 			new ShaderMaterial({
 				uniforms: auroraUniforms,
+				// The horizon clouds' coverage (horizon-clouds-pars.glsl).
+				defines: { ...HORIZON_CLOUD_SHADER_DEFINES },
 				vertexShader: auroraVertex,
 				fragmentShader: auroraFragment,
 				transparent: true,

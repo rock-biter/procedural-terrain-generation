@@ -2,29 +2,25 @@ import { ACESFilmicToneMapping } from 'three'
 import { createAdaptivePixelRatioSettings, parsePixelRatio } from './adaptivePixelRatio'
 import { createAuroraSettings, parseAuroraChance } from './auroraPolicy'
 import { createTerrainSettings } from './chunkGeometry'
-import { createCloudSettings } from './cloudPlacement'
 import { createDayNightPalette, DAY_NIGHT_DEFAULTS, getStartTimeOfDay } from './dayNightPolicy'
+import { createHorizonCloudSettings, parseHorizonCloudCoverage } from './horizonCloudsPolicy'
 import { createSeaFlightSettings } from './flightPolicy'
 import { createLensFlareSettings } from './lensFlarePolicy'
-import {
-	createCloudMeshSettings,
-	createSceneryMeshSettings,
-	createSceneryWireframeSettings,
-} from './sceneryMeshPolicy'
-import { createCloudPaletteSettings, createSceneryPaletteSettings } from './sceneryPalettePolicy'
+import { createSceneryMeshSettings, createSceneryWireframeSettings } from './sceneryMeshPolicy'
+import { createSceneryPaletteSettings } from './sceneryPalettePolicy'
 import { createScenerySettings, SCENERY_TYPE_KEYS } from './sceneryPlacement'
 import { createSeaFoamSettings } from './seaFoamPolicy'
 import { createSeaIceSettings } from './seaIcePolicy'
 import { createSeaSurfaceSettings } from './seaSurfacePolicy'
 import { createSeaWakeSettings } from './seaWakePolicy'
-import { createCloudShadowSettings, createSceneryShadowSettings } from './shadowPolicy'
+import { createSceneryShadowSettings } from './shadowPolicy'
 import { createSunOcclusionSettings } from './sunOcclusionPolicy'
 import { createTerrainNormalSettings } from './terrainNormals'
 import { createTerrainPaletteSettings } from './terrainPalettePolicy'
 
 // The mutable parameters of the app, edited live by the ?gui=1 debug panel
 // (src/debug/debugGui.js) and read by every system. `urlParams` supplies
-// ?time=, ?dpr=, and ?aurora=; `isMobile` picks the mobile presets; `debug`
+// ?time=, ?dpr=, ?aurora=, and ?clouds=; `isMobile` picks the mobile presets; `debug`
 // (either debug flag) starts the day at a fixed time.
 export function createAppParams({ urlParams, isMobile, debug = false }) {
 	return {
@@ -111,9 +107,9 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 		// Wood color baked into every impostor, per type (keyed like
 		// SCENERY_TYPE_KEYS): repeats per object unit, color strength (0 = vertex
 		// color only, 1 = vertex color × texture), and `normalized`, which divides
-		// the grain by the texture's mean color so it keeps the base color (as on
-		// the clouds). The trees get the clouds' strong, normalized grain at about
-		// one repeat per tree; the boat keeps its model's colors, without grain.
+		// the grain by the texture's mean color so it keeps the base color. The
+		// trees get a strong, normalized grain at about one repeat per tree; the
+		// boat keeps its model's colors, without grain.
 		// Changing them re-bakes the atlas.
 		impostorDetail: {
 			roundTree: { scale: 0.15, color: 0.6, normalized: true },
@@ -180,33 +176,13 @@ export function createAppParams({ urlParams, isMobile, debug = false }) {
 				boat: 0,
 			},
 		},
-		// World-level cloud field (src/clouds.js): deterministic placement (see
-		// createCloudSettings()), near-mesh bands like sceneryMeshes, the wood
-		// detail baked into the cloud atlas (changing it re-bakes), the ambient
-		// light multiplier that keeps the undersides bright, the brightness
-		// variation per type, the palette that colors them, applied live (see
-		// createCloudPaletteSettings()), the light they carry through toward the
-		// eye, and the cloud shadows on terrain and scenery (see
-		// createCloudShadowSettings()).
-		clouds: {
-			placement: createCloudSettings({ isMobile }),
-			meshes: createCloudMeshSettings({ isMobile }),
-			detail: { scale: 0.012, color: 0.6 },
-			ambient: 2.72,
-			variation: {
-				frequency: 0.0405,
-				// Keyed like CLOUD_TYPE_KEYS.
-				amount: { bank: 0.99, heap: 1.26, puff: 0.99, tower: 1.1 },
-			},
-			palette: createCloudPaletteSettings(),
-			// Light carried through the clouds, applied live: `strength` (1 = a
-			// face lit head-on), `focus` (power of the lobe around the light
-			// behind the cloud), `body` (glow away from the rims, as a share of
-			// theirs), `rim` (power; higher keeps it to the thinnest edges), the
-			// moon's share of the sun's, and the tint (sRGB).
-			translucency: { strength: 1.2, focus: 4, body: 0.35, rim: 2, moon: 0.5, color: '#ffe6c8' },
-			shadows: createCloudShadowSettings({ isMobile }),
-		},
+		// The horizon clouds (src/horizonClouds.js): their shape, motion, weather
+		// (?clouds= fixes the coverage), light, and look, applied live; see
+		// createHorizonCloudSettings(). Their colors are in the day/night palette.
+		horizonClouds: createHorizonCloudSettings({
+			isMobile,
+			fixedCoverage: parseHorizonCloudCoverage(urlParams),
+		}),
 		// The aurora over the ice biome (src/aurora.js): its chance (?aurora=
 		// overrides it), night window, curtains, motion, and look; see
 		// createAuroraSettings().

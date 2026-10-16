@@ -114,3 +114,20 @@ export function getLensFlareGate({ enabled, intensity }, discVisibility, screen,
 	if (!enabled || !(intensity > 0) || !screen.inFront) return 0
 	return clamp01(discVisibility) * clamp01(edgeFade)
 }
+
+// Whether the occlusion must test the horizon clouds (horizon-clouds-pars.glsl)
+// over the sun's disc: only while they show (`frame` is their
+// uHorizonCloudFrame value, [dip, band bottom, band top, on]) and the disc,
+// `sunElevation` above the visible edge with a radius of `radiusDegrees`,
+// reaches into their band. Most of the day the sun is far above it.
+export function shouldTestHorizonClouds(sunElevation, radiusDegrees, frame) {
+	if (!frame || !(frame[3] > 0.5)) return false
+	const radius = (Math.max(radiusDegrees, 0) * Math.PI) / 180
+	return sunElevation - radius < frame[2] && sunElevation + radius > frame[1]
+}
+
+// Angle between neighbouring occlusion taps over a disc of `radiusDegrees`,
+// in radians: the footprint the horizon clouds are sampled with there.
+export function getOcclusionTapFootprint(radiusDegrees, taps = LENS_FLARE_TAPS) {
+	return (2 * Math.max(radiusDegrees, 0) * Math.PI) / 180 / Math.sqrt(Math.max(taps, 1))
+}

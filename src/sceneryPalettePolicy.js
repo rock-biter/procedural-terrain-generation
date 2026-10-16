@@ -1,4 +1,4 @@
-import { CLOUD_TYPE_COUNT, IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
+import { IMPOSTOR_TYPE } from './impostors/impostorTypes.js'
 import { BIOME } from './terrainBands.js'
 
 // Color palettes of the painted scenery types: the trees' and palms' crowns,
@@ -7,11 +7,9 @@ import { BIOME } from './terrainBands.js'
 // (src/impostors/impostorArchetypes.js), and the shaders pick one palette
 // color per instance from world-space noise (getSceneryPaletteTints() in
 // scenery-instance-pars-vertex.glsl): every slot has its own noise field, and
-// its weight sets its share. A tree's trunk keeps one color per type. The
-// clouds, painted whole, share one palette of their own
-// (createCloudPaletteSettings(), src/impostors/cloudArchetypes.js).
-// Everything here is applied live through uniforms (src/sceneryImpostors.js,
-// src/clouds.js): no re-bake and no placement job.
+// its weight sets its share. A tree's trunk keeps one color per type.
+// Everything here is applied live through uniforms (src/sceneryImpostors.js):
+// no re-bake and no placement job.
 
 // Slots per palette. The shader packs the weights of a type in one vec4, so
 // this cannot exceed 4; it reaches GLSL as a catalog define.
@@ -58,10 +56,6 @@ export const SCENERY_BIOME_SLOTS = Object.freeze({
 export const SCENERY_PALETTE_KEYS = Object.freeze([
 	...new Set(Object.values(SCENERY_PALETTE_TYPES).map(({ palette }) => palette)),
 ])
-
-// Noise field index of the cloud palette, well past the scenery palettes'
-// (SCENERY_PALETTE_KEYS) so new ones never share its fields.
-export const CLOUD_PALETTE_INDEX = 16
 
 // Settings edited by the debug GUI. `noise` holds, per group, the patch noise
 // `frequency` per world unit and `mix`, the share of a random pick per
@@ -161,23 +155,6 @@ export function createSceneryPaletteSettings() {
 	}
 }
 
-// The clouds' palette, shared by every cloud type and edited by the debug GUI
-// like a scenery palette: `frequency` and `mix` distribute its colors (as a
-// noise group does), and `colors` holds up to SCENERY_PALETTE_SIZE entries.
-// Clouds are painted whole, so it has no trunk.
-export function createCloudPaletteSettings() {
-	return {
-		frequency: 0.002,
-		mix: 0.5,
-		colors: [
-			{ label: 'White wood', color: '#ffffff', weight: 1 },
-			{ label: 'Cyan wood', color: '#61fcff', weight: 1 },
-			{ label: 'Slate blue wood', color: '#5e68b0', weight: 1 },
-			{ label: 'Azure wood', color: '#009dff', weight: 1 },
-		],
-	}
-}
-
 // Empty shader layout for `typeCount` types (see getSceneryPaletteLayout()).
 function createPaletteLayout(typeCount) {
 	return {
@@ -233,22 +210,5 @@ export function getSceneryPaletteLayout(settings, typeCount) {
 		setPaletteType(layout, type, palette, noise, SCENERY_PALETTE_KEYS.indexOf(key))
 	}
 
-	return layout
-}
-
-// The cloud palette `settings` (createCloudPaletteSettings()) in the same
-// layout, for every cloud type: they all share its colors and noise fields
-// (CLOUD_PALETTE_INDEX). Missing colors and noise fall back to the defaults.
-export function getCloudPaletteLayout(settings, typeCount = CLOUD_TYPE_COUNT) {
-	const layout = createPaletteLayout(typeCount)
-	const defaults = createCloudPaletteSettings()
-	const palette = settings?.colors ? settings : defaults
-	const noise = {
-		frequency: settings?.frequency ?? defaults.frequency,
-		mix: settings?.mix ?? defaults.mix,
-	}
-	for (let type = 0; type < typeCount; type++) {
-		setPaletteType(layout, type, palette, noise, CLOUD_PALETTE_INDEX)
-	}
 	return layout
 }

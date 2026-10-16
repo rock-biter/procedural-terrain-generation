@@ -6,8 +6,7 @@ import { getCatalogDefines } from './impostors/impostorCatalogs'
 import { getViewDefines } from './impostors/octahedral'
 import { snapToTexel } from './shadowPolicy'
 
-// Light-space helpers shared by the scenery shadow cascades
-// (src/sceneryShadows.js) and the cloud shadow map (src/cloudShadows.js).
+// Light-space helpers of the scenery shadow cascades (src/sceneryShadows.js).
 
 // Maps clip space [-1, 1] to map UV and depth [0, 1].
 const CLIP_TO_TEXTURE = new Matrix4().set(

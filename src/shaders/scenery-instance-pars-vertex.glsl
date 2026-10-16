@@ -3,8 +3,8 @@
 // xyz: base position (chunk space for impostors, world space for meshes),
 // w: scale.
 attribute vec4 aInstanceA;
-// x: yaw (also the dither seed; only the seed with SCENERY_FACE_AIRPLANE), y:
-// type index, z: packed RGB tint, w: vertical stretch.
+// x: yaw (also the dither seed), y: type index, z: packed RGB tint, w:
+// vertical stretch.
 attribute vec4 aInstanceB;
 // Position-based brightness variation: amount per type and a shared world
 // frequency for the noise that drives it.
@@ -24,7 +24,6 @@ varying vec3 vShadowPosition;
 varying float vShadowSelfBias;
 
 #include ./rotate-yaw.glsl
-#include ./scenery-facing.glsl
 #include ./curvature-bend.glsl
 
 #ifdef SCENERY_SEA_WAVES

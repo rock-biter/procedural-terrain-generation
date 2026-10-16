@@ -34,8 +34,5 @@ diffuseColor.a = impostorAlbedo.a;
 float impostorDepth = impostorDepthSum / impostorCoverage * 2.0 - 1.0;
 vec3 impostorShadowPosition = vShadowPosition + normalize(vShadowView) * impostorDepth * vShadowDepthScale;
 
-// Atmosphere clamp shared with the terrain. Clouds skip it: clamping their
-// light albedo to the atmosphere color would tint them; only fog fades them.
-#ifndef SCENERY_NO_ATMOSPHERE_CLAMP
+// Atmosphere clamp shared with the terrain.
 diffuseColor.rgb = mix(min(uAtmosphere, diffuseColor.rgb), diffuseColor.rgb, smoothstep(700.0, 400.0, distanceFromCamera));
-#endif

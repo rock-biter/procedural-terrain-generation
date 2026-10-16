@@ -9,8 +9,8 @@ import {
 	ReinhardToneMapping,
 } from 'three'
 import { copyAuroraSettings, createAuroraSettings } from '../auroraPolicy'
-import { CLOUD_TYPE_KEYS } from '../cloudPlacement'
 import { copyKeyframe, DAY_NIGHT_DEFAULTS } from '../dayNightPolicy'
+import { copyHorizonCloudSettings, createHorizonCloudSettings } from '../horizonCloudsPolicy'
 import { ISLET_HEIGHT_CAP } from '../deepOcean'
 import { SCENERY_BIOME_SLOTS, SCENERY_PALETTE_TYPES } from '../sceneryPalettePolicy'
 import {
@@ -43,9 +43,9 @@ import BiomeMap from './biomeMap'
 // The ?gui=1 tuning panel (lil-gui), loaded only behind that flag so the
 // default bundle does not carry it. Every control edits `params`
 // (createAppParams()) or a shared uniform, then calls the owner that applies
-// the change: `world` (src/world.js) for the seed, terrain, scenery, clouds,
-// shadows, and aurora, `setup` (src/renderSetup.js) for tone mapping and
-// post-processing. It is created before the startup assets load, so a
+// the change: `world` (src/world.js) for the seed, terrain, scenery,
+// shadows, horizon clouds, and aurora, `setup` (src/renderSetup.js) for tone
+// mapping and post-processing. It is created before the startup assets load, so a
 // world system may not exist yet: its controls then only edit `params`,
 // which the system reads when it is created. It also owns the biome map
 // (src/debug/biomeMap.js) and renders it again after every change it shows.
@@ -217,6 +217,8 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 		moonColor: 'Moon',
 		ambientColor: 'Ambient',
 		trailTint: 'Trail tint',
+		cloudLit: 'Clouds lit',
+		cloudShade: 'Clouds in shade',
 	}
 	const paletteScalars = {
 		sunIntensity: ['Sun intensity', 2],
@@ -257,7 +259,110 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			folder.add(keyframe, field, 0, max, 0.01).name(label)
 		}
 	}
+	addHorizonCloudControls(skyFolder)
 	addAuroraControls(skyFolder)
+
+	// The horizon clouds (src/horizonClouds.js), applied live: HorizonClouds
+	// writes its uniforms from these settings every frame. Their colors are in
+	// the palette above (Clouds lit, Clouds in shade). Angles in degrees.
+	function addHorizonCloudControls(parent) {
+		const settings = params.horizonClouds
+		const folder = parent.addFolder('Clouds')
+		folder.add(settings, 'enabled').name('Enabled')
+		folder.add(settings, 'brightness', 0.2, 3, 0.01).name('Brightness')
+
+		const debugFolder = folder.addFolder('Debug')
+		debugFolder.add(settings, 'paused').name('Freeze (wind, morph, weather)')
+		const readStats = () => world.horizonClouds?.getStats() ?? null
+		const status = {
+			get coverage() {
+				const stats = readStats()
+				return stats ? `${Math.round(stats.coverage * 100)}%` : '-'
+			},
+			get light() {
+				const stats = readStats()
+				return stats ? `${stats.light}, contrast ${stats.contrast.toFixed(2)}` : '-'
+			},
+			get band() {
+				const band = readStats()?.band
+				return band ? `${band[0].toFixed(1)}° to ${band[1].toFixed(1)}°` : '-'
+			},
+		}
+		const statusLabels = { coverage: 'Coverage', light: 'Light', band: 'Band above the edge' }
+		for (const [key, label] of Object.entries(statusLabels)) {
+			debugFolder.add(status, key).name(label).listen().disable()
+		}
+
+		const coverageFolder = folder.addFolder('Coverage (weather)')
+		coverageFolder.add(settings.coverage, 'min', 0, 1, 0.01).name('Least')
+		coverageFolder.add(settings.coverage, 'max', 0, 1, 0.01).name('Most')
+		coverageFolder.add(settings.coverage, 'period', 10, 1200, 5).name('Period (s)')
+
+		const shapeFolder = folder.addFolder('Shape')
+		shapeFolder.add(settings.repeats, 'bank', 2, 40, 0.5).name('Bank cells per turn')
+		shapeFolder.add(settings.shape, 'rise', 0.05, 1.5, 0.01).name('Rise to full height')
+		shapeFolder.add(settings.shape, 'minTop', 0, 20, 0.1).name('Lowest top (°)')
+		shapeFolder.add(settings.shape, 'maxTop', 0, 25, 0.1).name('Highest top (°)')
+		shapeFolder.add(settings.shape, 'baseDepth', 0, 3, 0.05).name('Base below the edge (°)')
+
+		const billowFolder = folder.addFolder('Billows')
+		billowFolder.add(settings.billows, 'amplitude', 0, 8, 0.05).name('Lobe height (°)')
+		billowFolder.add(settings.billows, 'gain', 0, 1, 0.01).name('Octave gain')
+		billowFolder.add(settings.billows, 'topEmphasis', 0, 1, 0.01).name('Smaller at the base')
+		settings.repeats.billows.forEach((_, index) => {
+			billowFolder
+				.add(settings.repeats.billows, index, 1, 48, 1)
+				.name(`Octave ${index + 1} tiles per turn`)
+		})
+		billowFolder.add(settings.quality, 'octaves', 1, 3, 1).name('Octaves')
+		billowFolder.add(settings.quality, 'lightOctaves', 0, 3, 1).name('Octaves in the light')
+
+		const motionFolder = folder.addFolder('Motion')
+		motionFolder.add(settings.motion, 'wind', -2, 2, 0.01).name('Wind (°/s)')
+		motionFolder.add(settings.motion, 'rise', -0.5, 0.5, 0.005).name('Billow rise (°/s)')
+		motionFolder.add(settings.motion, 'bankMorph', 0, 0.2, 0.001).name('Bank morph (rad/s)')
+		motionFolder.add(settings.motion, 'billowMorph', 0, 0.3, 0.001).name('Billow morph (rad/s)')
+
+		const edgeFolder = folder.addFolder('Edges')
+		edgeFolder.add(settings.edges, 'softness', 0, 1, 0.01).name('Softness (°)')
+		edgeFolder.add(settings.edges, 'lostEdges', 0, 5, 0.05).name('Lost edges (× softness)')
+		edgeFolder.add(settings.edges, 'dryBrush', 0, 0.5, 0.005).name('Dry brush (°)')
+		edgeFolder.add(settings.edges, 'antialias', 0, 4, 0.1).name('Antialias (px)')
+
+		const lightFolder = folder.addFolder('Light')
+		lightFolder.add(settings.light.bands, 0, 0, 1, 0.01).name('Shade band below')
+		lightFolder.add(settings.light.bands, 1, 0, 1, 0.01).name('Lit band above')
+		lightFolder.add(settings.light, 'bandSoftness', 0, 0.5, 0.005).name('Band softness')
+		lightFolder.add(settings.light, 'offset', 0.05, 8, 0.05).name('Step toward the light (°)')
+		lightFolder.add(settings.light, 'depth', 0.05, 8, 0.05).name('Full shade depth (°)')
+		lightFolder.add(settings.light, 'frontLift', 0, 1, 0.01).name('Front-lit lift')
+		lightFolder.add(settings.light, 'backDarken', 0, 1, 0.01).name('Backlit darkening')
+		lightFolder.add(settings.light, 'topBias', 0, 1, 0.01).name('Lighter tops')
+
+		const rimFolder = folder.addFolder('Silver lining and pigment')
+		rimFolder.add(settings.rim, 'strength', 0, 5, 0.05).name('Silver lining')
+		rimFolder.add(settings.rim, 'focus', 1, 64, 0.5).name('Focus around the light')
+		rimFolder.add(settings.rim, 'width', 0.01, 3, 0.01).name('Edge width (°)')
+		rimFolder.add(settings.rim, 'darkening', 0, 0.5, 0.005).name('Pigment at the edge')
+
+		const hazeFolder = folder.addFolder('Haze')
+		hazeFolder.add(settings.haze, 'height', 0.01, 10, 0.05).name('Hazed height (°)')
+		hazeFolder.add(settings.haze, 'base', 0, 1, 0.01).name('At the base')
+		hazeFolder.add(settings.haze, 'overall', 0, 1, 0.01).name('Overall')
+		hazeFolder.add(settings.haze, 'wash', 0, 0.5, 0.005).name('Wash')
+
+		const actions = {
+			reset() {
+				const { fixed } = settings.coverage
+				copyHorizonCloudSettings(
+					createHorizonCloudSettings({ isMobile: world.isMobile, fixedCoverage: fixed }),
+					settings,
+				)
+				for (const controller of folder.controllersRecursive()) controller.updateDisplay()
+			},
+		}
+		folder.add(actions, 'reset').name('Reset clouds')
+	}
 
 	// The aurora (src/aurora.js). Debug spawns one over the airplane at once
 	// and reads its state; the shape, motion, and look apply live to the
@@ -991,150 +1096,6 @@ export function createDebugGui({ params, uniforms, setup, world }) {
 			folder.addColor(params.seaIce.colors, key).name(label).onChange(updateSeaIce)
 		}
 	}
-
-	const cloudSettings = params.clouds
-	const cloudsFolder = gui.addFolder('Clouds')
-	// Placement changes re-place the field when a control is released.
-	const updateClouds = () => world.clouds?.applySettings()
-	const placement = cloudSettings.placement
-	cloudsFolder.add(placement, 'density', 0, 1, 0.01).name('Density').onFinishChange(updateClouds)
-	cloudsFolder
-		.add(placement, 'coverage', 0, 1, 0.01)
-		.name('Sky coverage')
-		.onFinishChange(updateClouds)
-	cloudsFolder
-		.add(placement.altitude, 'min', 110, 300, 1)
-		.name('Lowest base (Y)')
-		.onFinishChange(updateClouds)
-	cloudsFolder
-		.add(placement.altitude, 'range', 0, 150, 1)
-		.name('Base spread (units)')
-		.onFinishChange(updateClouds)
-	cloudsFolder
-		.add(placement, 'radius', 400, 2000, 10)
-		.name('Field radius (units)')
-		.onFinishChange(updateClouds)
-	for (const key of Object.values(CLOUD_TYPE_KEYS)) {
-		cloudsFolder
-			.add(placement.size, key, 0.2, 3, 0.01)
-			.name(`${key} size`)
-			.onFinishChange(updateClouds)
-	}
-	// Smooth changes of density, coverage, and size across the world; altitude
-	// and radius never vary.
-	const regionalFolder = cloudsFolder.addFolder('Regional variation')
-	regionalFolder
-		.add(placement.regional, 'scale', 500, 12000, 50)
-		.name('Region size (units)')
-		.onFinishChange(updateClouds)
-	regionalFolder
-		.add(placement.regional, 'density', 0, 1, 0.01)
-		.name('Density (±share)')
-		.onFinishChange(updateClouds)
-	regionalFolder
-		.add(placement.regional, 'coverage', 0, 0.6, 0.01)
-		.name('Coverage (±)')
-		.onFinishChange(updateClouds)
-	regionalFolder
-		.add(placement.regional, 'size', 0, 1.5, 0.01)
-		.name('Size (±stops)')
-		.onFinishChange(updateClouds)
-	// Live: ambient boost and brightness variation uniforms.
-	const updateCloudAppearance = () => world.clouds?.applyAppearance()
-	cloudsFolder
-		.add(cloudSettings, 'ambient', 0, 4, 0.01)
-		.name('Ambient boost')
-		.onChange(updateCloudAppearance)
-	cloudsFolder
-		.add(cloudSettings.variation, 'frequency', 0.0005, 0.05, 0.0005)
-		.name('Variation frequency')
-		.onChange(updateCloudAppearance)
-	for (const key of Object.values(CLOUD_TYPE_KEYS)) {
-		cloudsFolder
-			.add(cloudSettings.variation.amount, key, 0, 2, 0.01)
-			.name(`${key} variation`)
-			.onChange(updateCloudAppearance)
-	}
-	// Live: the colors every cloud type picks from, like a scenery palette.
-	const updateCloudPalette = () => world.clouds?.applyPalette()
-	const cloudPaletteFolder = cloudsFolder.addFolder('Palette')
-	cloudPaletteFolder
-		.add(cloudSettings.palette, 'frequency', 0.0001, 0.01, 0.0001)
-		.name('Patch frequency')
-		.onChange(updateCloudPalette)
-	cloudPaletteFolder
-		.add(cloudSettings.palette, 'mix', 0, 1, 0.01)
-		.name('Random mix')
-		.onChange(updateCloudPalette)
-	addPaletteColors(cloudPaletteFolder, cloudSettings.palette, updateCloudPalette)
-	const rebakeClouds = () => world.clouds?.rebake()
-	const cloudDetailFolder = cloudsFolder.addFolder('Wood detail')
-	cloudDetailFolder
-		.add(cloudSettings.detail, 'scale', 0.002, 0.2, 0.001)
-		.name('Repeats per unit')
-		.onFinishChange(rebakeClouds)
-	cloudDetailFolder
-		.add(cloudSettings.detail, 'color', 0, 1, 0.01)
-		.name('Color strength')
-		.onFinishChange(rebakeClouds)
-	// Live: only the shader band and the CPU selection radius change.
-	const updateCloudMeshes = () => world.clouds?.applyMeshSettings()
-	const cloudMeshFolder = cloudsFolder.addFolder('Near meshes')
-	cloudMeshFolder.add(cloudSettings.meshes, 'enabled').name('Enabled').onChange(updateCloudMeshes)
-	cloudMeshFolder
-		.add(cloudSettings.meshes, 'lodStart', 0, 800, 1)
-		.name('Full detail until (units)')
-		.onChange(updateCloudMeshes)
-	cloudMeshFolder
-		.add(cloudSettings.meshes, 'lodEnd', 1, 900, 1)
-		.name('Reduced detail from (units)')
-		.onChange(updateCloudMeshes)
-	cloudMeshFolder
-		.add(cloudSettings.meshes, 'start', 0, 1400, 1)
-		.name('Mesh until (units)')
-		.onChange(updateCloudMeshes)
-	cloudMeshFolder
-		.add(cloudSettings.meshes, 'end', 1, 1500, 1)
-		.name('Impostor from (units)')
-		.onChange(updateCloudMeshes)
-	// Live: the light the clouds carry through toward the eye.
-	const translucencyFolder = cloudsFolder.addFolder('Translucency')
-	const translucency = cloudSettings.translucency
-	translucencyFolder
-		.add(translucency, 'strength', 0, 3, 0.01)
-		.name('Strength')
-		.onChange(updateCloudAppearance)
-	translucencyFolder
-		.add(translucency, 'focus', 0.5, 32, 0.1)
-		.name('Focus around the light')
-		.onChange(updateCloudAppearance)
-	translucencyFolder
-		.add(translucency, 'body', 0, 1, 0.01)
-		.name('Body glow (share)')
-		.onChange(updateCloudAppearance)
-	translucencyFolder
-		.add(translucency, 'rim', 0.1, 8, 0.05)
-		.name('Rim power')
-		.onChange(updateCloudAppearance)
-	translucencyFolder
-		.add(translucency, 'moon', 0, 1, 0.01)
-		.name('Moon share')
-		.onChange(updateCloudAppearance)
-	translucencyFolder.addColor(translucency, 'color').name('Tint').onChange(updateCloudAppearance)
-	// Strength applies live; the rest renders the map again.
-	const updateCloudShadows = () => world.cloudShadows?.applySettings()
-	const cloudShadowsFolder = cloudsFolder.addFolder('Shadows')
-	cloudShadowsFolder.add(cloudSettings.shadows, 'enabled').name('Enabled')
-	cloudShadowsFolder.add(cloudSettings.shadows, 'strength', 0, 1, 0.01).name('Strength')
-	cloudShadowsFolder.add(cloudSettings.shadows, 'specular', 0, 1, 0.01).name('Glare removed')
-	cloudShadowsFolder
-		.add(cloudSettings.shadows, 'softness', 0, 20, 0.1)
-		.name('Softness (units)')
-		.onChange(updateCloudShadows)
-	cloudShadowsFolder
-		.add(cloudSettings.shadows, 'radius', 200, 2000, 10)
-		.name('Radius (units)')
-		.onChange(updateCloudShadows)
 
 	// Live: uniforms only; cascade radii render every cascade again.
 	const updateShadows = () => world.sceneryShadows?.applySettings()

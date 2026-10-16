@@ -8,7 +8,7 @@ The first analysis focuses on terrain generation and streaming because they domi
 
 Last baseline review: **2026-09-26**. The full-project review of **2026-10-02** ([Project Review](reviews/2026-10-02-project-review.md)) lists its findings by area, a phased plan, and which items are done; promote an item into this register when it becomes part of a milestone.
 
-Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, rocks, sea rocks, and boats as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`) clouds (a world-level field with the same impostor treatment and their own shadows, `FEAT-006`), and the aurora over the ice (`FEAT-008`). The historical cost analysis of the former per-chunk clouds stays in this document for reference.
+Current implementation scope: `WORLD_FEATURES` enables scenery (trees, cacti, rocks, sea rocks, and boats as octahedral impostors, `FEAT-003`, replaced by real meshes near the eye, `FEAT-004`), the horizon clouds (painted by the sky shader at the horizon, `FEAT-006`, which replaced the carved-wood cloud field on 2026-10-16), and the aurora over the ice (`FEAT-008`). The historical cost analysis of the former per-chunk clouds and of the cloud field stays in this document for reference.
 
 Terrain geometry generation now runs in a bounded module-worker pool. This is a verified implementation slice of Phase 3, not performance acceptance: p95 frame time and first-visible-terrain latency have not been measured against a baseline.
 
@@ -70,8 +70,7 @@ World.tic() (src/world.js)
                  -> scenery placement within the radial range (transferred Float32Array)
             -> main thread: Chunk.setScenery() -> one impostor quad mesh per chunk (boats included)
   -> SceneryMeshes.update(): select near instances per level -> one instanced mesh per type and LOD
-  -> Clouds.update(): re-place the cloud field on a new cloud cell -> one impostor mesh + near cloud meshes
-  -> SceneryShadows.update() / CloudShadows.update(): depth cascades / blurred coverage map
+  -> SceneryShadows.update(): depth cascades
   -> renderer.render()
 ```
 
@@ -103,13 +102,13 @@ Height sampling and normal computation execute off the main thread. Main-thread 
 | Scenery height evaluations    |                                                       1,064,960 |                                            261,120 |
 | Former per-chunk cloud candidates |                                                   7,208,960 |                                          4,784,128 |
 | Former cloud noise evaluations |                                                     14,417,920 |                                          9,568,256 |
-| Cloud field cells per rebuild |                       625 (841 with the two-cell neighbour border) |      225 (361 with the two-cell neighbour border) |
+| Former cloud field cells per rebuild |                       625 (841 with the two-cell neighbour border) |      225 (361 with the two-cell neighbour border) |
 
 Terrain startup performed about **1.91 million** noise evaluations on desktop and **400 thousand** on mobile at the 2026-09-26 baseline. The shorter desktop LOD look-ahead (2026-10-12, [Terrain](TERRAIN.md#level-of-detail)) brings the desktop window to the **1.35 million** of the table (five evaluations per vertex), and shared normal samples at desktop LOD 0 lower it further; that has not been recounted. They are distributed across up to four desktop workers or one mobile worker.
 
 Scenery placement also runs in those workers. With the default `params.scenery`, it uses one candidate per `4`-unit cell on desktop and per `8`-unit cell on mobile. Each candidate costs five height evaluations, which also give its biome fields. Temperate land candidates add two cluster simplex samples, and density-accepted candidates add four more height samples for the slope.
 
-The former tree path would have needed 1.15 million main-thread evaluations on desktop. With the default settings, the new path measured about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node, with at most about 550 and 120 instances per chunk. The former per-chunk clouds would have added about **14.4 million** desktop and **9.6 million** mobile main-thread evaluations. The world-level cloud field (`FEAT-006`) evaluates one coverage noise and a few hashes per cell, at most 484 cells per rebuild on desktop, once per `160` units of travel: about `0.3` ms on desktop and `0.1` ms on mobile in Node.
+The former tree path would have needed 1.15 million main-thread evaluations on desktop. With the default settings, the new path measured about `1.35` ms per chunk on desktop and `0.32` ms on mobile in Node, with at most about 550 and 120 instances per chunk. The former per-chunk clouds would have added about **14.4 million** desktop and **9.6 million** mobile main-thread evaluations. The world-level cloud field that followed (`FEAT-006`, removed on 2026-10-16) evaluated one coverage noise and a few hashes per cell, at most 484 cells per rebuild on desktop, once per `160` units of travel: about `0.3` ms on desktop and `0.1` ms on mobile in Node. The horizon clouds that replaced it place nothing on the CPU.
 
 ### Terrain Cost Per Chunk
 
@@ -138,7 +137,7 @@ vertices = triangles * 3
 
 The removed tree path used detail `5`: 720 triangles and 2,160 vertices per tree. Scenery impostors now cost 4 vertices and 2 triangles per instance; near the eye, `FEAT-004` draws the real source meshes instead, in two levels of detail (140 to 876 triangles per type at LOD 0, 60 to 364 at LOD 1). They share one baked atlas of about `71` MB on desktop and mobile (albedo, normal, and the paint mask of trees and cacti; `57` MB before the ice spikes' column, `43` MB before the sea rock's), and each chunk adds a quad plus 32 bytes per instance.
 
-The former clouds created new copies of that base geometry in every chunk. The current clouds (`FEAT-006`) are one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of four shared extruded sources per level: about 2,870–5,450 triangles at LOD 0 and 680–1,280 at LOD 1. A desktop flight view with the first three types drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Their frontal-view atlas takes about `13` MB on desktop (about `42` MB for three types with the former lower-hemisphere grid), plus about `3` MB for the shadow atlas.
+The former clouds created new copies of that base geometry in every chunk. The cloud field that followed (`FEAT-006`, removed on 2026-10-16) drew one impostor quad per cloud (about 95 on desktop, 55 on mobile, one draw call), and near the eye one of four shared extruded sources per level: about 2,870–5,450 triangles at LOD 0 and 680–1,280 at LOD 1. A desktop flight view with the first three types drew about 13–15 near cloud meshes for 11,000–20,000 triangles. Its frontal-view atlas took about `13` MB on desktop (about `42` MB for three types with the former lower-hemisphere grid), plus about `3` MB for the shadow atlas. The horizon clouds have no geometry, atlas, or render target: the sky shader samples the shared noise tile.
 
 ## Known Problem Register
 
@@ -147,18 +146,18 @@ The former clouds created new copies of that base geometry in every chunk. The c
 | `OBS-001`   | P0       | In progress | No repeatable performance baseline or complete streaming telemetry.                     | Since 2026-10-03 `getRenderStats()` reports frame intervals, per-stage main-thread time, whole-frame `renderer.info` counters, and GPU time where the timer extension exists; `pnpm bench` compares builds with a deterministic headless-Chrome flight and bit-identical held captures ([Quality](QUALITY.md#comparing-builds)). Remaining: target devices and budgets, and measurements on real phones. |
 | `STRM-001`  | P0       | Done        | Pending work must be keyed consistently and reject stale operations.                    | One `Map` entry per key plus desired-set revisions prevent duplicate and obsolete jobs.                                                          |
 | `STRM-002`  | P0       | Done        | Desired-set reconciliation must inspect all live chunks.                                | A pure symmetric desired set is diffed against every live and pending key on each chunk transition.                                              |
-| `PERF-001`  | P0       | Done        | Dormant cloud placement scanned all 65,536 integer positions in every chunk at every LOD. | Replaced by the world-level cloud field (`FEAT-006`): a `160`-unit grid, at most 841 cells per rebuild with the default sizes, once per cell of travel.                 |
-| `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; clouds are no longer per-chunk, and since 2026-10-05 boats are scenery instances, so no per-chunk clones remain. Stale work can still retain detached chunks. |
+| `PERF-001`  | P0       | Done        | Dormant cloud placement scanned all 65,536 integer positions in every chunk at every LOD. | Replaced by the world-level cloud field (`FEAT-006`): a `160`-unit grid, at most 841 cells per rebuild with the default sizes, once per cell of travel. The horizon clouds replaced that field on 2026-10-16 and place nothing. |
+| `LIFE-001`  | P0       | Observed    | Per-chunk GPU resource ownership and disposal are incomplete.                           | Scenery geometry is disposed by `clearScenery()`; the clouds have no geometry since 2026-10-16 (horizon clouds), and since 2026-10-05 boats are scenery instances, so no per-chunk clones remain. Stale work can still retain detached chunks. |
 | `PERF-002`  | P1       | In progress | Main-thread commits were limited by job count rather than a frame-time budget.          | Since 2026-10-02 workers take their next job on completion and results commit nearest first within `CHUNK_STREAMING.commitBytes` and `commitMs`; desktop startup converges in `0.46` s instead of `1.55` s (Apple M1). GPU upload time is still unmeasured (`OBS-001`). |
 | `PERF-003`  | P1       | In progress | Every LOD transition reallocates and fully recomputes terrain geometry.                 | Each transition still recomputes heights and normals and transfers new position, normal, and height buffers; index and uv are shared per LOD, desktop LOD 0 jobs cost half (shared normal samples), and CPU copies are freed after upload. There is no height cache. |
-| `PERF-004`  | P1       | Done        | Identical cloud base geometries were recreated per chunk.                               | Cloud sources are built once per near-mesh level and baked into one atlas; the field draws one impostor mesh (`FEAT-006`).                        |
+| `PERF-004`  | P1       | Done        | Identical cloud base geometries were recreated per chunk.                               | Cloud sources were built once per near-mesh level and baked into one atlas, and the field drew one impostor mesh (`FEAT-006`); since 2026-10-16 the horizon clouds have no geometry. |
 | `PERF-005`  | P1       | In progress | A 120 Hz display gets 70–85 fps at `2400 × 1100` on an Apple M1; the frame is GPU-bound. | 2026-10-12 ablations and four changes: float scene buffers at half the bytes, the depth resolve only with the lens flare, dark lights skipped, the desktop LOD look-ahead `2` → `0.5`, and a lighter idle speed effect; then the climate per vertex and a baked noise tile for the purely visual noise ([details](#perf-005-gpu-frame-cost-at-120-hz)). |
-| `CORR-003`  | P1       | Observed    | With the scenery shadows' `enabled` off (`params.shadows`, **Shadows > Enabled**), the terrain is not drawn. | Found by the `PERF-005` ablations: held captures show only sky, clouds, and airplane, with `57` fewer draw calls on a land seed. Cause not yet found. |
+| `CORR-003`  | P1       | Observed    | With the scenery shadows' `enabled` off (`params.shadows`, **Shadows > Enabled**), the terrain is not drawn. | Found by the `PERF-005` ablations: held captures show only sky, the former clouds, and airplane, with `57` fewer draw calls on a land seed. Cause not yet found. |
 | `STATE-001` | P1       | Done        | Chunk registries must delete historical keys and remain bounded.                        | Live and pending state use keyed `Map` instances; disposal deletes entries. Browser traversal kept `created - disposed = live`.                  |
-| `CORR-001`  | P1       | Done        | Cloud candidates were offset by a full chunk instead of half a chunk.                   | The per-chunk cloud loop was removed; the cloud field places world-space bases on its own grid (`FEAT-006`).                                     |
+| `CORR-001`  | P1       | Done        | Cloud candidates were offset by a full chunk instead of half a chunk.                   | The per-chunk cloud loop was removed; the cloud field that replaced it placed world-space bases on its own grid (`FEAT-006`), and the horizon clouds (2026-10-16) place nothing. |
 | `CORR-002`  | P1       | Done        | Boat world coordinates were assigned as local coordinates on a chunk child.             | The boat clones were removed (2026-10-05); boats are scenery instances with chunk-local bases from the worker, like every other type.            |
-| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter and GUI seed changes revision jobs, rebuild seeded noises and the biome offset, and regenerate scenery; a seed change re-places the clouds; boats are re-placed with the scenery. |
-| `DET-001`   | P1       | Done        | Dormant boat placement was not deterministic.                                           | `?seed=` drives terrain, biomes, hashed scenery placement (boats included since 2026-10-05), and the cloud field; nothing uses `Math.random()` for placement. |
+| `STATE-002` | P1       | In progress | Runtime terrain-parameter updates remain incomplete.                                    | Parameter and GUI seed changes revision jobs, rebuild seeded noises and the biome offset, and regenerate scenery; boats are re-placed with the scenery; the horizon clouds never depend on the seed. |
+| `DET-001`   | P1       | Done        | Dormant boat placement was not deterministic.                                           | `?seed=` drives terrain, biomes, and hashed scenery placement (boats included since 2026-10-05); nothing uses `Math.random()` for placement. The horizon clouds' weather has a fixed seed of its own. |
 | `TEST-001`  | P1       | In progress | Streaming and generation rules need broader automated regression coverage.              | Node tests now cover policy, deterministic buffers, topology, sea clamp, and edge continuity, and since 2026-10-04 the reconcile state machine end to end (fake workers running the real job: streaming, disposal across borders, stale results, retries) and the worker pool's restarts. GPU upload and rendering remain browser-only. |
 | `STRM-003`  | P2       | In progress | Priority is biased by heading only and LOD has no hysteresis.                           | The set and LOD follow a quantized heading with sector hysteresis; camera visibility and recent LOD state are ignored, so turns re-generate many chunks. |
 | `REND-001`  | P2       | Observed    | Shared material hooks and shared glTF resources have implicit ownership.                | Per-instance constructors overwrite callbacks on module-level or cloned shared materials.                                                        |
@@ -193,7 +192,7 @@ Verified behavior:
 
 ### `PERF-001`: Cloud Sampling Dominates Static CPU Work
 
-Resolved on 2026-10-02 by `FEAT-006`, which took the world-level option below with a jittered seeded grid. The former implementation performed `256 * 256` cloud candidates in every chunk, including distant LOD 3 chunks. Each candidate evaluated two simplex-noise functions before the random acceptance test, and the mobile/desktop density constant was unused.
+Resolved on 2026-10-02 by `FEAT-006`, which took the world-level option below with a jittered seeded grid; that cloud field was itself replaced by the horizon clouds on 2026-10-16. The former implementation performed `256 * 256` cloud candidates in every chunk, including distant LOD 3 chunks. Each candidate evaluated two simplex-noise functions before the random acceptance test, and the mobile/desktop density constant was unused.
 
 Candidate strategies considered:
 
@@ -213,7 +212,7 @@ Current ownership facts:
 
 - Terrain geometry is unique and explicitly disposed.
 - Scenery geometry (a quad plus the instance buffer) is unique per chunk and disposed by `Chunk.clearScenery()`, including from `Chunk.dispose()`.
-- Clouds are no longer per-chunk content. `Clouds` owns its atlas, materials, near meshes, and one impostor geometry, replaced and disposed on every regeneration.
+- Clouds are no longer world content: since 2026-10-16 the sky shader paints the horizon clouds, which own no GPU resource.
 - The scenery impostor material and atlas are shared resources and must not be disposed per chunk.
 - Boats are scenery instances: their source geometries and the model's color map are catalog sources kept for the page, never disposed per chunk.
 - Stale work can retain detached chunks and their children after scene removal.
@@ -251,6 +250,8 @@ Ablations on the 2026-10-12 build, default query (`HEAD` about `11` ms):
 | The ice and deep ocean noise in the terrain vertex shader | `−4%` |
 | Cloud shadows, terrain casters, frozen or redirected cascades, the scenery | within the noise |
 
+The clouds and cloud shadows of these rows were removed on 2026-10-16 (`FEAT-006`).
+
 Applied, each measured against the step before, default query and land seed:
 
 1. Tone-mapped scene buffers in `R11F_G11F_B10F` where the device multisamples it, the depth resolve only on frames with the lens flare (`LensFlareEffect.prepare()`), the pyramid levels cleared before drawing, and the dark light's `RE_Direct()` skipped ([Rendering](RENDERING.md#post-processing-pipeline)): `−17.5%` and `−14.4%`, captures within `43`–`49` dB of the former build (single pixels along alpha-to-coverage edges and the blurred border).
@@ -273,13 +274,13 @@ Feature cost, 2026-10-12: the antialiased and distance-thinned terrain ink lines
 
 Feature cost, 2026-10-12: the sea waves' irregularity ([Rendering](RENDERING.md#sea-surface)) at `2400 × 1100` on the default query (two or three rounds each; a build against itself measured `+1.3%`). The terrain's vertex shader weighs on this frame: two [noise tile](RENDERING.md#noise-tile) reads per sea vertex cost `+19%` (`+17.5%` with the reads in the fragment as well), eight `snoise` per vertex `+14%` even at zero strength, and two `vec4` varyings feeding the waves `+4.5%` with no noise at all, while the same per-component shift taken from a uniform cost `+4.7%`, within the noise. Kept: two `snoise` per sea vertex and one `vec2` varying, `+3.9%`. Untried: the fields from the chunk workers as an attribute (no vertex noise, but static, so the wave groups would not travel).
 
-Defaults tuned in the GUI, 2026-10-12: a stronger speed-effect blur mask (all four pyramid levels at rest, against two), larger clouds (about a third fewer per field), and the sea's foam lines ([Rendering](RENDERING.md#post-processing-pipeline), [Terrain](TERRAIN.md#cloud-settings)): `−1.6%` against the build before, within the noise (`2400 × 1100`, default query, three rounds).
+Defaults tuned in the GUI, 2026-10-12: a stronger speed-effect blur mask (all four pyramid levels at rest, against two), larger clouds (about a third fewer per field; that cloud field was removed on 2026-10-16), and the sea's foam lines ([Rendering](RENDERING.md#post-processing-pipeline)): `−1.6%` against the build before, within the noise (`2400 × 1100`, default query, three rounds).
 
 Feature cost, 2026-10-12: the foam's distance fade ([Rendering](RENDERING.md#sea-surface)), which thins every foam away and skips it beyond the fade, at `2400 × 1100` against the build before it (three rounds each; a build against itself measured `+0.4%` on the default query). Fading to `600`, as the ink lines, measured `+6.5%` on the default query while the fade was held as a value through `getSeaWaves()` (one more live value in the long terrain fragment shader), and `+2.2%` once taken where it is used from `distanceFromCamera`; a `1`-pixel blur or no skip at all changed little (`+5.7%`, `+4.6%`), and the curved horizon, about `600`–`750` units away, left almost nothing past `600` to skip. Fading from `100` to `400`: `−1.2%` on the default query and `−1.1%` on the land seed, within the noise. The default then became altitude-sensitive (`250` to `450` with the airplane at sea level, both `2.5` units farther per unit of altitude, so `400` to `600` on that flight at altitude `60`): medians `8.87` against `9.00` ms, with means of `−3.7%` and `+20.6%` in two runs disturbed by another app on the GPU (single rounds up to `13.4` ms), so within the noise.
 
 ### `CORR-001` And `CORR-002`: Ownership Coordinates
 
-`CORR-001` is resolved: the former cloud loop generated local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`, so most instances were owned by a neighboring spatial region. The loop was removed; the cloud field uses world-space bases on its own grid, and scenery uses a jittered grid aligned to chunk borders.
+`CORR-001` is resolved: the former cloud loop generated local values in `[-size, -1]`, while a centered terrain chunk spans approximately `[-size / 2, size / 2]`, so most instances were owned by a neighboring spatial region. The loop was removed; the cloud field that replaced it used world-space bases on its own grid (until 2026-10-16), and scenery uses a jittered grid aligned to chunk borders.
 
 `CORR-002` is resolved too: the boat clones stored world coordinates as the local transform of an object parented to the positioned chunk, so the chunk transform applied twice. They were removed (2026-10-05); boats are placed in the worker with chunk-local bases like every scenery type.
 
@@ -351,7 +352,7 @@ Acceptance criteria:
 - No callback or worker result mutates a retired chunk.
 - The adopted heading-biased shape produces 110 desktop and 73 mobile coordinates heading north (see [Terrain](TERRAIN.md#chunk-lifecycle)).
 - Repeated create/retire cycles reach a stable renderer-memory plateau.
-- Scenery, clouds, and boats remain inside their documented ownership region.
+- Scenery and boats remain inside their documented ownership region.
 
 ### Phase 2: Remove Dominant Waste
 
@@ -372,7 +373,7 @@ Acceptance criteria:
 - Cloud candidates fall by at least 90 percent from 65,536 per chunk, subject to visual approval. Met: at most 841 candidates per field rebuild with the default sizes, independent of chunks.
 - Only one base geometry per decoration type exists unless variants are justified.
 - No scheduled main-thread stage exceeds the agreed frame budget on target devices.
-- Visual comparison covers terrain seams, biome bands, scenery, clouds, boats, and distance fades.
+- Visual comparison covers terrain seams, biome bands, scenery, the horizon clouds, boats, and distance fades.
 
 ### Phase 3: Move Pure Generation Off The Main Thread
 
@@ -434,7 +435,7 @@ See the owning guides for current behavior and constraints. Promote an item into
 2. Is the target 60 FPS, 30 FPS on mobile, or an adaptive quality policy?
 3. Must revisiting coordinates reproduce identical terrain and decorations?
 4. Will future features modify terrain or persist objects at world coordinates?
-5. How dense must scenery and clouds remain to preserve the intended art direction?
+5. How dense must scenery remain, and how much of the horizon must the clouds cover, to preserve the intended art direction?
 6. Is short-term compatibility with the current world appearance more important than a clipmap migration?
 7. How much startup latency is acceptable before the play action appears?
 
@@ -449,7 +450,7 @@ The features below are implemented; their behavior, parameters, and costs live i
 | `FEAT-003` | Biome scenery with octahedral impostors                         | In progress | [Terrain](TERRAIN.md#per-chunk-scenery), [Rendering](RENDERING.md#impostor-scenery)            |
 | `FEAT-004` | Near scenery meshes                                             | In progress | [Rendering](RENDERING.md#near-scenery-meshes)                                                  |
 | `FEAT-005` | Soft scenery shadows                                            | In progress | [Rendering](RENDERING.md#scenery-shadows)                                                      |
-| `FEAT-006` | Carved-wood clouds with impostors and cloud shadows             | In progress | [Terrain](TERRAIN.md#clouds), [Rendering](RENDERING.md#clouds)                                 |
+| `FEAT-006` | Horizon clouds (replaced the carved-wood clouds, 2026-10-16)    | In progress | [Rendering](RENDERING.md#horizon-clouds)                                                       |
 | `FEAT-007` | Ice biome, frozen sea, and biome tuning tools                   | In progress | [Terrain](TERRAIN.md#biome-field), [Rendering](RENDERING.md#sea-ice), [Experience](EXPERIENCE.md#debug-biome-map) |
 | `FEAT-008` | Aurora borealis over the ice                                    | In progress | [Rendering](RENDERING.md#aurora), [Experience](EXPERIENCE.md#movement-and-camera)              |
 | `FEAT-009` | Deep ocean biome with islets and palms                          | In progress | [Terrain](TERRAIN.md#deep-ocean), [Rendering](RENDERING.md#terrain)                            |
@@ -483,10 +484,18 @@ The features below are implemented; their behavior, parameters, and costs live i
 - **Measured:** the constant PCF kernel (2026-10-03) saved about `0.5` ms per frame at `3840 × 2160` on an Apple M1; the simplified airplane caster (2026-10-04) cut the frame's triangles from about `0.99` M to `0.81` M. The terrain casters (2026-10-09, `pnpm bench --compare HEAD`, `--query "seed=s762&time=0.25"` for a low sun) cost `+0.3%` mean frame time at `3840 × 2160`, `+0.6%` at `1920 × 1080`, and `+1.0%` with the mobile preset. Selecting only the chunks within the fade and steeper than the light's elevation cut the far cascade's casters from 19–21 to 12–17 and the `3840 × 2160` frames over `35` ms from 30–37 to 21–23 of 600 (13–16 without terrain casters). A `[32, 32]` grid on desktop changed nothing measurable, so the cost is per draw, not per triangle.
 - **Open:** a shimmer review on long flights; the airplane receives no shadows. Terrain shadows are new: check on long flights at a low sun whether their tips visibly step when the light basis turns (`lightThreshold`), and whether slopes turned away from the light show blotches of the coarse grid where their normals still catch light. Measure them on a real mobile device.
 
-### `FEAT-006`: Carved-Wood Clouds With Impostors And Cloud Shadows
+### `FEAT-006`: Horizon Clouds
 
-- **Rejected:** per-chunk clouds in the worker (clouds are few, large, and must stay visible beyond the scenery range); clouds in the scenery cascades (their `450`-unit fade would cut cloud shadows near the airplane, and depth cascades need many taps, while a coverage map needs one); a full-sphere atlas and then the lower-hemisphere grid (a frontal band of 30 views replaces 144, about four times less memory; only the shadow caster keeps a small lower-hemisphere coverage atlas).
-- **Open:** tuning of density, sizes, the ambient boost, and the cloud palette.
+- **History:** until 2026-10-16 the clouds were carved-wood slabs of four shapes in a world-level field above the flight ceiling, drawn as impostors and near meshes from a frontal-view atlas, turned toward the airplane, colored from a palette of their own, carrying the light through their edges, and casting soft shadows from a blurred coverage map. They were removed with their placement, atlases, shadow pass, and the impostor features only they used (the frontal view layout, the lower hemisphere, facing the airplane, the unshadowed lighting with its ambient scale and translucency); git history keeps them. For them, per-chunk clouds in the worker (few, large, and visible beyond the scenery range), clouds in the scenery cascades (their `450`-unit fade would cut the shadows near the airplane), and a full-sphere or lower-hemisphere atlas (four times the memory of 30 frontal views) were rejected.
+- **Now:** banks of toon cumulus painted by the sky shader per view direction on the curved world's visible edge, with no geometry ([Rendering](RENDERING.md#horizon-clouds)).
+- **Measured (2026-10-16):** `pnpm bench --compare HEAD` at `2400 × 1100`, DPR 1, against the former clouds: `−5.1%` mean frame time on the default query (`15.95` against `16.81` ms, two rounds) and `−8.1%` on the land seed `b7dw4ve2` at `time=0.35` (`14.14` against `15.39` ms, p95 `22.1` against `25.2`, faster in all four rounds). A first two-round land run was too noisy to read (`HEAD` moved from `10.7` to `16.1` ms between rounds). Not measured: the clouds alone against no clouds.
+- **Open:** an art review of the palette, the shape, and the motion; a run on a real phone.
+- **Future work (not decided):**
+  - Dim the sun's light on the world while it sets behind a bank, from a CPU twin of the clouds' density along the sun's direction.
+  - An optional world-anchored bank layer, for parallax while flying (the ring is now a fixed backdrop that turns with the wind).
+  - An exact edge for the camera's offset from the airplane, around which the terrain bends (the analytic edge uses the camera height; the bases' depth and haze hide the difference today).
+  - Cloud reflections on the sea, which needs an environment map.
+  - A glow of the aurora on the clouds: declined for now.
 
 ### `FEAT-007`: Ice Biome, Frozen Sea, And Biome Tuning Tools
 

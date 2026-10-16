@@ -1,21 +1,14 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import { IMPOSTOR_TYPE, IMPOSTOR_TYPE_COUNT } from '../src/impostors/impostorTypes.js'
 import {
-	CLOUD_TYPE_COUNT,
-	IMPOSTOR_TYPE,
-	IMPOSTOR_TYPE_COUNT,
-} from '../src/impostors/impostorTypes.js'
-import {
-	CLOUD_PALETTE_INDEX,
 	SCENERY_BIOME_SLOTS,
 	SCENERY_PAINT_BASE,
 	SCENERY_PAINTED_TYPES,
 	SCENERY_PALETTE_KEYS,
 	SCENERY_PALETTE_SIZE,
 	SCENERY_PALETTE_TYPES,
-	createCloudPaletteSettings,
 	createSceneryPaletteSettings,
-	getCloudPaletteLayout,
 	getSceneryPaletteLayout,
 } from '../src/sceneryPalettePolicy.js'
 import { SCENERY_CATEGORIES } from '../src/sceneryPlacement.js'
@@ -193,56 +186,4 @@ test('missing settings fall back to the defaults and the noise is clamped', () =
 	settings.noise.cacti = { frequency: -1, mix: 3 }
 	const clamped = layout(settings)
 	assert.deepEqual(clamped.noise[CACTUS_ONE_ARM].slice(0, 2), [0, 1])
-})
-
-test('the cloud palette: white, cyan, slate blue, and azure, every slot in use', () => {
-	const settings = createCloudPaletteSettings()
-	assert.deepEqual(
-		settings.colors.map(({ color }) => color),
-		['#ffffff', '#61fcff', '#5e68b0', '#009dff'],
-	)
-	for (const { label, color } of settings.colors) {
-		assert.ok(label)
-		assert.match(color, HEX)
-	}
-	assert.equal(settings.colors.length, SCENERY_PALETTE_SIZE)
-	for (const { weight } of settings.colors) assert.ok(weight > 0)
-	assert.ok(settings.frequency > 0)
-	assert.ok(settings.mix >= 0 && settings.mix <= 1)
-	assert.notEqual(createCloudPaletteSettings().colors, settings.colors, 'fresh copies')
-})
-
-test('every cloud type shares the cloud palette and its own noise fields', () => {
-	const settings = createCloudPaletteSettings()
-	settings.frequency = 0.004
-	settings.mix = 0.3
-	const { colors, weights, trunks, noise } = getCloudPaletteLayout(settings)
-	assert.equal(colors.length, CLOUD_TYPE_COUNT * SCENERY_PALETTE_SIZE)
-	for (let type = 0; type < CLOUD_TYPE_COUNT; type++) {
-		assert.deepEqual(
-			slots(colors, type),
-			settings.colors.map(({ color }) => color),
-		)
-		assert.deepEqual(
-			slots(weights, type),
-			settings.colors.map(({ weight }) => weight),
-		)
-		// Painted whole, by noise.
-		assert.equal(trunks[type], null)
-		assert.deepEqual(noise[type], [0.004, 0.3, CLOUD_PALETTE_INDEX, 0])
-	}
-	// Never the fields of a scenery palette.
-	assert.ok(CLOUD_PALETTE_INDEX >= SCENERY_PALETTE_KEYS.length)
-})
-
-test('the cloud palette keeps one slot and falls back to the defaults', () => {
-	const settings = createCloudPaletteSettings()
-	settings.colors.forEach((entry) => (entry.weight = 0))
-	settings.mix = 4
-	const { weights, noise } = getCloudPaletteLayout(settings)
-	assert.deepEqual(slots(weights, 0), [1, 0, 0, 0])
-	assert.equal(noise[0][1], 1)
-	const defaults = getCloudPaletteLayout(createCloudPaletteSettings())
-	assert.deepEqual(getCloudPaletteLayout({}), defaults)
-	assert.deepEqual(getCloudPaletteLayout(undefined), defaults)
 })

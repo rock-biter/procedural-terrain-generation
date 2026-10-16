@@ -449,6 +449,8 @@ try {
 			'--disable-gpu-vsync',
 			'--disable-frame-rate-limit',
 			'--autoplay-policy=no-user-gesture-required',
+			// Play starts the soundtrack; a benchmark stays silent.
+			'--mute-audio',
 			`--window-size=${viewport.width},${viewport.height}`,
 			'--no-first-run',
 			'--no-default-browser-check',

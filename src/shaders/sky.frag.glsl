@@ -13,6 +13,13 @@ uniform float uHorizonDipAngle;
 uniform float uGradientHeight;
 varying vec3 vDirection;
 
+// The horizon clouds (src/horizonClouds.js), in front of the sun, the moon,
+// and the stars.
+#ifdef HORIZON_CLOUDS
+#include ./horizon-clouds-shading.glsl
+#include ./interleaved-gradient-noise.glsl
+#endif
+
 float hash(vec3 p) {
 	p = fract(p * 0.3183099 + 0.1);
 	p *= 17.0;
@@ -21,15 +28,23 @@ float hash(vec3 p) {
 
 void main() {
 	vec3 direction = normalize(vDirection);
+#ifdef HORIZON_CLOUDS
+	// The angle a pixel spans, taken while control flow is still uniform.
+	float pixelAngle = max(length(dFdx(direction)), length(dFdy(direction)));
+#endif
 
 	// The gradient is a function of the elevation above the curved world's
 	// visible edge. Below the edge it stays at the horizon color, which fog
 	// also fades terrain into. An exponential falloff concentrates the change
 	// near the edge, where lines of equal elevation still follow its arc on
 	// screen; a wide gradient would read as flat horizontal bands.
-	float aboveEdge = max(asin(clamp(direction.y, -1.0, 1.0)) + uHorizonDipAngle, 0.0);
+	float elevation = asin(clamp(direction.y, -1.0, 1.0)) + uHorizonDipAngle;
+	float aboveEdge = max(elevation, 0.0);
 	float height = 1.0 - exp(-aboveEdge / uGradientHeight);
 	vec3 color = mix(uHorizon, uZenith, height);
+#ifdef HORIZON_CLOUDS
+	vec3 gradient = color;
+#endif
 
 	// Discs fade with their elevation above the dipped horizon; terrain covers
 	// anything below it.
@@ -62,6 +77,13 @@ void main() {
 		float horizonFade = smoothstep(0.0, 0.1, aboveEdge);
 		color += vec3(star * shape * twinkle * horizonFade * uStarVisibility);
 	}
+
+#ifdef HORIZON_CLOUDS
+	vec4 cloud = shadeHorizonCloud(direction, elevation, pixelAngle, gradient);
+	color = mix(color, cloud.rgb, cloud.a);
+	// Half a step of dither against banding in the float scene buffer.
+	color *= 1.0 + (interleavedGradientNoise(gl_FragCoord.xy) - 0.5) * 0.03 * cloud.a;
+#endif
 
 	gl_FragColor = vec4(color, 1.0);
 

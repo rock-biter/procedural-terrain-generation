@@ -6,7 +6,7 @@ import {
 	getBiomeGradientBounds,
 	getOceanNoiseOffset,
 } from './biome'
-import { createCloudShadowUniforms } from './cloudShadows'
+import { createHorizonCloudUniforms } from './horizonClouds'
 import { createNoiseTexture } from './noiseTexture'
 import { createSceneryShadowUniforms } from './sceneryShadows'
 import { createSeaFoamUniforms } from './seaFoam'
@@ -37,7 +37,7 @@ const PALETTE_SIZE = BIOME_COUNT * TERRAIN_PALETTE_BANDS.length
 
 const perSeaType = (create) => SEA_TYPES.map(() => create())
 
-// Uniforms shared by the terrain, scenery, clouds, and debug materials: one
+// Uniforms shared by the terrain, scenery, sky, and debug materials: one
 // object whose entries every material references, so a write reaches them
 // all. `params` is createAppParams(); `seed` sets the biome offset.
 export function createSharedUniforms(params, seed) {
@@ -83,8 +83,10 @@ export function createSharedUniforms(params, seed) {
 		uSceneryMeshRange: { value: new Vector2(-2, -1) },
 		// Shadow maps, matrices, and fades; written by SceneryShadows.
 		...createSceneryShadowUniforms(params.shadows),
-		// Cloud shadow map, matrix, and strength; written by CloudShadows.
-		...createCloudShadowUniforms(),
+		// The horizon clouds' shape, motion, light, and palette (the sky, the
+		// aurora, and the lens flare's occlusion read them); written by
+		// HorizonClouds.
+		...createHorizonCloudUniforms(),
 		// Sea rock distance map and ripple shape; written by SeaFoam.
 		...createSeaFoamUniforms(),
 		// The airplane's wake map, window, occupied rectangle, and shading; written

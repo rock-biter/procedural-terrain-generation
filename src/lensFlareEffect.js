@@ -3,11 +3,13 @@ import {
 	Color,
 	DataUtils,
 	HalfFloatType,
+	Matrix4,
 	NearestFilter,
 	NoBlending,
 	ShaderMaterial,
 	Uniform,
 	UnsignedByteType,
+	Vector2,
 	Vector3,
 	Vector4,
 	WebGLRenderTarget,
@@ -19,33 +21,43 @@ import {
 	LENS_FLARE_TAPS,
 	getLensFlareGate,
 	getOcclusionRadiusUv,
+	getOcclusionTapFootprint,
 	getScreenEdgeFade,
 	getSunScreenPosition,
 	getTemporalBlend,
+	shouldTestHorizonClouds,
 } from './lensFlarePolicy'
+import { HORIZON_CLOUD_SHADER_DEFINES } from './horizonCloudsPolicy'
 
 // getStats() reads the occlusion back at most this often, and only while
 // someone asks for it (the ?gui=1 readouts, the stats API).
 const READBACK_INTERVAL_MS = 250
 const READBACK_IDLE_MS = 2000
-// Scratch array for the sun's direction.
+// Scratch arrays for the sun's direction and the clouds' frame.
 const SUN_DIRECTION = [0, 1, 0]
+const CLOUD_FRAME = [0, 0, 0, 0]
 
 // The share of the sun's disc the scene leaves on the sky, in one texel of a
 // ping-pong pair: each frame blends the new count with the other texel's, so
 // the flare eases in and out (lens-flare-visibility-fragment.glsl).
+// `cloudUniforms` are the horizon clouds' coverage uniforms
+// (getHorizonCloudCoverageUniforms(), src/horizonClouds.js).
 class VisibilityPass extends Pass {
-	constructor(sunScreen) {
+	constructor(sunScreen, cloudUniforms) {
 		super('LensFlareVisibility')
 		this.needsSwap = false
 		this.fullscreenMaterial = new ShaderMaterial({
 			name: 'LensFlareVisibilityMaterial',
-			defines: { LENS_FLARE_TAPS: String(LENS_FLARE_TAPS) },
+			defines: { LENS_FLARE_TAPS: String(LENS_FLARE_TAPS), ...HORIZON_CLOUD_SHADER_DEFINES },
 			uniforms: {
+				...cloudUniforms,
 				depthBuffer: new Uniform(null),
 				previousVisibility: new Uniform(null),
 				sunScreen,
 				history: new Uniform(0),
+				cameraWorld: new Uniform(new Matrix4()),
+				projectionInverse: new Uniform(new Matrix4()),
+				cloudTest: new Uniform(new Vector2()),
 			},
 			vertexShader: fullscreenVertexShader,
 			fragmentShader: visibilityFragmentShader,
@@ -108,13 +120,15 @@ class VisibilityPass extends Pass {
 //
 // `camera` renders the scene, `settings` is params.postProcessing.lensFlare
 // (createLensFlareSettings()), and `sun` is PostProcessing's { direction,
-// color (linear), discVisibility }, written every frame. prepare() runs before
+// color (linear), discVisibility, elevation }, written every frame.
+// `cloudUniforms` (getHorizonCloudCoverageUniforms()) let the horizon clouds
+// hide the sun too. prepare() runs before
 // the scene renders and update() after. update() needs a depth texture on the
 // input buffer (PostProcessing.createComposer()). The depth
 // texture lives only in uniforms: Effect.dispose() would dispose a texture
 // property, and the composer owns it.
 export default class LensFlareEffect extends Effect {
-	constructor(camera, settings, sun) {
+	constructor(camera, settings, sun, cloudUniforms = {}) {
 		const sunScreen = new Uniform(new Vector4(0.5, 0.5, 0, 0))
 		super('LensFlareEffect', fragmentShader, {
 			defines: new Map([['LENS_FLARE_TAPS', String(LENS_FLARE_TAPS)]]),
@@ -135,7 +149,9 @@ export default class LensFlareEffect extends Effect {
 		this.camera = camera
 		this.settings = settings
 		this.sun = sun
-		this.visibilityPass = new VisibilityPass(sunScreen)
+		this.visibilityPass = new VisibilityPass(sunScreen, cloudUniforms)
+		this.cloudFrame = cloudUniforms.uHorizonCloudFrame ?? null
+		this.cloudTest = false
 		// False until a frame with the flare on, so it never eases in from a
 		// stale texel.
 		this.historyValid = false
@@ -192,6 +208,7 @@ export default class LensFlareEffect extends Effect {
 		}
 
 		uniforms.get('sunScreen').value.set(screen.u, screen.v, radius.u, radius.v)
+		this.updateCloudTest()
 		const history = this.historyValid ? getTemporalBlend(deltaTime, settings.smoothing) : 0
 		const target = this.visibilityPass.renderVisibility(renderer, depthTexture, history)
 		this.historyValid = true
@@ -219,6 +236,25 @@ export default class LensFlareEffect extends Effect {
 		uniforms.get('haloParams').value.set(halo.intensity, halo.radius, Math.max(halo.width, 1e-3))
 		uniforms.get('debugTaps').value = settings.debug.showTaps ? 1 : 0
 		this.readVisibility(renderer, target)
+	}
+
+	// The horizon clouds' share of the occlusion: tested only while the sun's
+	// disc reaches into their band, with the camera of this frame.
+	updateCloudTest() {
+		const { camera, settings, sun, cloudFrame } = this
+		const { uniforms } = this.visibilityPass.fullscreenMaterial
+		this.cloudTest = shouldTestHorizonClouds(
+			sun.elevation,
+			settings.occlusionRadius,
+			cloudFrame?.value.toArray(CLOUD_FRAME),
+		)
+		uniforms.cloudTest.value.set(
+			this.cloudTest ? 1 : 0,
+			getOcclusionTapFootprint(settings.occlusionRadius),
+		)
+		if (!this.cloudTest) return
+		uniforms.cameraWorld.value.copy(camera.matrixWorld)
+		uniforms.projectionInverse.value.copy(camera.projectionMatrixInverse)
 	}
 
 	// Reads the occlusion texel back without stalling, for getStats().
@@ -272,6 +308,8 @@ export default class LensFlareEffect extends Effect {
 			screen: [this.screen.u, this.screen.v],
 			discVisibility: this.sun.discVisibility,
 			edgeFade: this.edgeFade,
+			// Whether the horizon clouds were tested over the disc.
+			cloudTest: this.cloudTest,
 			// Visible share of the sun's disc, read back a few times a second.
 			visibility: this.gate > 0 ? this.visibility : 0,
 			taps: LENS_FLARE_TAPS,

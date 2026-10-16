@@ -64,9 +64,9 @@ export function loadStartupAssets({
 		.setMeshoptDecoder(MeshoptDecoder)
 		.setKTX2Loader(ktx2Loader)
 
-	if (features.scenery || features.clouds) {
+	if (features.scenery) {
 		// White oak veneer color map (KTX2, sRGB), baked into every impostor's
-		// albedo and sampled by the near scenery and cloud meshes. The white
+		// albedo and sampled by the near scenery meshes. The white
 		// placeholder stays if it fails: the detail then leaves colors unchanged.
 		assets.woodTexture = createWhiteTexture()
 		loadKTX2Texture(woodGrainSrc, (texture) => {
@@ -75,9 +75,6 @@ export function loadStartupAssets({
 			texture.wrapT = RepeatWrapping
 			assets.woodTexture = texture
 		})
-	}
-
-	if (features.scenery) {
 		// The boat's two near-mesh levels and color map (meshopt, KTX2), turned
 		// into scenery sources by World.init() (src/impostors/boatSources.js).
 		// Without it the stand-in boat of impostorArchetypes.js is baked.

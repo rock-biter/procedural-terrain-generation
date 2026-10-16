@@ -206,9 +206,8 @@ export default class SceneryShadows {
 			this.light ?? undefined,
 		)
 		this.light = light
-		// Receivers dim only this light, for the cloud shadows too
-		// (src/cloudShadows.js), so it stays current even without scenery
-		// shadows.
+		// Receivers dim only this light, so it stays current even while the
+		// shadows are off.
 		uniforms.uSceneryShadowLight.value.fromArray(light.direction).normalize()
 		const strength = getShadowStrength(settings, light.strength)
 		uniforms.uSceneryShadowStrength.value = strength

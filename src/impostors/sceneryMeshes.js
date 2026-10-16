@@ -53,24 +53,20 @@ const CULL_RADIUS_OFFSET = 0.5
 // within that level's distance window, frustum-culls them, and draws them with
 // one instanced mesh per type and level. The impostor and mesh shaders share
 // the fades and the dither, so each pixel shows exactly one of LOD 0, LOD 1,
-// or the impostor. `catalog` (impostorCatalogs.js) picks the family: scenery
-// (the default), read from the live chunks by update(), or clouds, fed by
-// src/clouds.js through beginUpdate(), appendInstances(), and endUpdate().
+// or the impostor. `catalog` (impostorCatalogs.js) picks the family, scenery
+// by default, read from the live chunks by update().
 //
 // Ownership: this object owns its source geometries, instance buffers,
 // materials, and the LOD range uniform. `uniforms` (shared with the terrain and
 // impostors) must include uCamera, uCurvature, uAtmosphere, and
-// uSceneryMeshRange, plus, with `receiveShadows`, the scenery and cloud shadow
-// uniforms; this object writes uSceneryMeshRange. `variation`, `detail` ({
+// uSceneryMeshRange, plus the scenery shadow uniforms; this object writes
+// uSceneryMeshRange. `variation`, `detail` ({
 // uDetail, uSceneryDetail: one Vector3 of wood settings per type, see
 // applyDetail()}), and `palette` (createSceneryPaletteUniforms(), for a
 // SCENERY_PALETTE catalog; neutral ones without it) are uniform objects owned
 // by the caller and shared with the impostor material and bake settings.
 // `shadowTaps` is the PCF sample count of the scenery
-// shadow lookup. Without `receiveShadows`, lighting has no shadow,
-// `ambientScale` (a float uniform) scales the ambient light, and `translucent`
-// adds the clouds' carried light, whose uniforms `uniforms` must hold
-// (cloud-translucency-pars-fragment.glsl). `wireframe`
+// shadow lookup. `wireframe`
 // (createSceneryWireframeSettings()) drives the debug overlay, one wireframe
 // twin per mesh in its level's color (sceneryWireframe.js).
 export default class SceneryMeshes extends Group {
@@ -83,9 +79,6 @@ export default class SceneryMeshes extends Group {
 		wireframe,
 		shadowTaps = 4,
 		catalog = SCENERY_IMPOSTORS,
-		receiveShadows = true,
-		ambientScale = null,
-		translucent = false,
 	}) {
 		super()
 		this.name = `${catalog.name}-meshes`
@@ -95,9 +88,6 @@ export default class SceneryMeshes extends Group {
 		this.shadowTaps = shadowTaps
 		this.catalog = catalog
 		this.typeCount = catalog.typeCount
-		this.receiveShadows = receiveShadows
-		this.ambientScale = ambientScale
-		this.translucent = translucent
 		this.palette = palette ?? createSceneryPaletteUniforms(this.typeCount)
 		this.lodRange = { value: new Vector2() }
 		// Filled below from each type's LOD 0 bounds.
@@ -195,18 +185,13 @@ export default class SceneryMeshes extends Group {
 			...getCatalogDefines(this.catalog),
 			SCENERY_MESH_LOD: lod,
 		}
-		// Its defines keep the unshadowed program apart from the shadowed one.
-		const lighting = createSceneryLighting(
-			this.receiveShadows
-				? {
-						shadows: {
-							taps: [this.shadowTaps, this.shadowTaps],
-							position: 'vShadowPosition',
-							selfBias: 'vShadowSelfBias',
-						},
-					}
-				: { ambientScale: this.ambientScale, translucent: this.translucent },
-		)
+		const lighting = createSceneryLighting({
+			shadows: {
+				taps: [this.shadowTaps, this.shadowTaps],
+				position: 'vShadowPosition',
+				selfBias: 'vShadowSelfBias',
+			},
+		})
 		Object.assign(material.defines, lighting.defines)
 		material.onBeforeCompile = (shader) => {
 			shader.uniforms = {

@@ -3,10 +3,9 @@ import Aurora from './aurora'
 import { createBiomeOffset, getIceValue } from './biome'
 import { getDeepOceanWeight, getDesertWeight, getHeight, getIceWeight } from './chunkGeometry'
 import ChunkManager from './chunkManager'
-import Clouds from './clouds'
-import CloudShadows from './cloudShadows'
 import DayNight from './dayNight'
 import { getSceneryClearance, getSeaFlightClearance } from './flightPolicy'
+import HorizonClouds from './horizonClouds'
 import { createBoatSources } from './impostors/boatSources'
 import { SCENERY_IMPOSTORS, setCatalogSources } from './impostors/impostorCatalogs'
 import { IMPOSTOR_TYPE } from './impostors/impostorTypes'
@@ -28,11 +27,12 @@ const SPAWN_CLEARANCE = 60
 // The biome fields getHeight() writes for sampleFlightHeight().
 const flightFields = { climate: 0, ice: 0, ringDriven: false, ocean: 0 }
 
-// Everything the frame loop updates: the day/night cycle (from construction,
-// so the loading screen already has its colors), then, once the startup
+// Everything the frame loop updates: the day/night cycle and the horizon
+// clouds in its sky (from construction, so the loading screen already has its
+// colors), then, once the startup
 // assets have loaded (init()), the airplane, scenery impostors (with the boat
-// model's sources) and shadows, the sea foam around the sea rocks, clouds,
-// the low-sun terrain occlusion, the airplane's wake on the sea, terrain
+// model's sources) and shadows, the sea foam around the sea rocks, the
+// low-sun terrain occlusion, the airplane's wake on the sea, terrain
 // chunks, the aurora over the ice, and the debug helpers. It owns the
 // frame loop and its update order, the world seed, and the runtime terrain
 // and aurora actions the ?gui=1 panel calls.
@@ -50,8 +50,6 @@ export default class World {
 	sceneryShadows = null
 	seaFoam = null
 	seaWake = null
-	clouds = null
-	cloudShadows = null
 	sunOcclusion = null
 	aurora = null
 	terrainSampleDebug = null
@@ -82,6 +80,10 @@ export default class World {
 		this.FlightPauseDebug = FlightPauseDebug
 		this.holdUntilPlay = holdUntilPlay
 
+		// Before DayNight, whose sky program draws them with their defines.
+		this.horizonClouds = features.horizonClouds
+			? new HorizonClouds({ uniforms, settings: params.horizonClouds })
+			: null
 		this.dayNight = new DayNight({
 			renderer: setup.renderer,
 			scene: setup.scene,
@@ -91,6 +93,7 @@ export default class World {
 			moonLight: setup.moonLight,
 			uniforms,
 			params,
+			skyDefines: this.horizonClouds?.defines,
 		})
 
 		this.timer = new Timer()
@@ -147,25 +150,6 @@ export default class World {
 		})
 		this.sceneryShadows.setAirplane(this.plane.model, assets.planeShadowGeometry)
 
-		if (this.features.clouds) {
-			this.clouds = new Clouds({
-				renderer,
-				uniforms,
-				settings: params.clouds,
-				wireframe: params.sceneryWireframe,
-				woodTexture: assets.woodTexture,
-				seed: this.seed,
-				isMobile,
-			})
-			scene.add(this.clouds)
-			this.cloudShadows = new CloudShadows({
-				renderer,
-				uniforms,
-				settings: params.clouds.shadows,
-				shadowSettings: params.shadows,
-				clouds: this.clouds,
-			})
-		}
 		// The relief hiding a low sun from the terrain, where the shadows fade out.
 		this.sunOcclusion = new SunOcclusion({ renderer, uniforms, settings: params.sunOcclusion })
 		// The airplane's wake on the sea while it flies low. The terrain under it
@@ -286,14 +270,12 @@ export default class World {
 	}
 
 	// Switches the world to a new seed: terrain noise, biomes (CPU and shader),
-	// scenery, and clouds regenerate around the airplane, and the aurora, whose
-	// ice region moved, is removed. Before init() only the seed and the biome
-	// uniform change; ChunkManager and Clouds are then created with the new
-	// seed.
+	// and scenery regenerate around the airplane, and the aurora, whose ice
+	// region moved, is removed. Before init() only the seed and the biome
+	// uniform change; ChunkManager is then created with the new seed.
 	applyWorldSeed(seed) {
 		if (seed === this.seed) return
 		this.seed = seed
-		this.clouds?.setSeed(seed)
 		this.aurora?.reset()
 
 		if (!this.chunkManager) {
@@ -322,8 +304,8 @@ export default class World {
 	}
 
 	// Moves the airplane to world point (x, z), SPAWN_CLEARANCE above the
-	// ground, for the ?gui=1 biome map's double click. The chunks, scenery, and
-	// clouds stream in around it as after a long flight. Ignored before init().
+	// ground, for the ?gui=1 biome map's double click. The chunks and scenery
+	// stream in around it as after a long flight. Ignored before init().
 	teleportPlane(x, z) {
 		const { plane } = this
 		if (!plane) return
@@ -343,13 +325,11 @@ export default class World {
 	// Shows or recolors the debug wireframe on the near meshes and impostors.
 	applySceneryWireframe() {
 		this.sceneryImpostors?.applyWireframe()
-		this.clouds?.applyWireframe()
 	}
 
 	// Compiles the programs that would otherwise compile on first use in flight:
-	// near scenery and cloud meshes stay hidden until something enters their
-	// band, cloud shadows render only while a light is up, the low-sun height
-	// map only while the sun is low, and the lens flare's occlusion only while
+	// near scenery meshes stay hidden until something enters their band, the
+	// low-sun height map renders only while the sun is low, and the lens flare's occlusion only while
 	// the sun is in view, and the wake's step only while the airplane flies
 	// low over the sea. Program variants
 	// depend on the bound render target, so the scene compiles against the
@@ -360,7 +340,6 @@ export default class World {
 		const target = renderer.getRenderTarget()
 		renderer.setRenderTarget(postProcessing.composer.inputBuffer)
 		const compiles = [renderer.compileAsync(scene, this.camera)]
-		if (this.cloudShadows) compiles.push(this.cloudShadows.compileAsync())
 		if (this.seaFoam) compiles.push(this.seaFoam.compileAsync())
 		if (this.sunOcclusion) compiles.push(this.sunOcclusion.compileAsync())
 		if (this.seaWake) compiles.push(this.seaWake.compileAsync())
@@ -395,6 +374,8 @@ export default class World {
 		uniforms.uCamera.value.copy(plane.position)
 
 		const dayNightState = this.dayNight.update(deltaTime)
+		// The timer's first delta after the tab is shown again can be negative.
+		this.horizonClouds?.update(Math.max(deltaTime, 0), dayNightState)
 		plane.setDayNight(dayNightState)
 		// The frozen sea and its floes grow through the night and melt back by noon.
 		updateSeaIceNight(uniforms, this.params.seaIce, dayNightState.timeOfDay)
@@ -410,12 +391,8 @@ export default class World {
 		// The sea rock map, with this frame's scenery, before the main pass.
 		this.seaFoam?.update(this.chunkManager.chunks, CHUNK_SIZE, plane)
 		frameStats.mark('scenery')
-		this.clouds?.update(plane.position, this.camera)
-		frameStats.mark('clouds')
 		// Shadow maps for this frame's scenery and airplane pose, before the main pass.
 		this.sceneryShadows.update(this.chunkManager.chunks, CHUNK_SIZE, plane, dayNightState)
-		// After SceneryShadows picked the shadowing light.
-		this.cloudShadows?.update(this.sceneryShadows.light, plane)
 		// The terrain heights around the airplane while the sun is low, after
 		// this frame's chunk commits.
 		this.sunOcclusion.update(this.chunkManager.chunks, CHUNK_SIZE, plane, dayNightState)
@@ -448,10 +425,9 @@ export default class World {
 			getPostProcessingStats: () => this.setup.postProcessing.getStats(),
 			getDebugStats: () => this.flightPause?.getStats() ?? null,
 			getDayNightStats: () => this.dayNight.getStats(),
+			getHorizonCloudStats: () => this.horizonClouds?.getStats() ?? null,
 			getSceneryMeshStats: () => this.sceneryImpostors?.getStats() ?? null,
 			getShadowStats: () => this.sceneryShadows?.getStats() ?? null,
-			getCloudStats: () => this.clouds?.getStats() ?? null,
-			getCloudShadowStats: () => this.cloudShadows?.getStats() ?? null,
 			getSunOcclusionStats: () => this.sunOcclusion?.getStats() ?? null,
 			getAuroraStats: () => this.aurora?.getStats() ?? null,
 			getSeaFoamStats: () => this.seaFoam?.getStats() ?? null,

@@ -5,13 +5,17 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
+	AmbientLight,
 	BackSide,
 	BoxGeometry,
 	BufferGeometry,
 	Color,
+	DirectionalLight,
+	Fog,
 	Mesh,
 	MeshStandardMaterial,
 	PerspectiveCamera,
+	Scene,
 	ShaderLib,
 	Vector2,
 	Vector3,
@@ -20,6 +24,17 @@ import {
 import Aurora from '../src/aurora.js'
 import { createAuroraSettings } from '../src/auroraPolicy.js'
 import Chunk from '../src/chunk.js'
+import DayNight from '../src/dayNight.js'
+import {
+	createDayNightPalette,
+	DAY_NIGHT_DEFAULTS,
+	getDayNightState,
+} from '../src/dayNightPolicy.js'
+import HorizonClouds, {
+	createHorizonCloudUniforms,
+	getHorizonCloudCoverageUniforms,
+} from '../src/horizonClouds.js'
+import { createHorizonCloudSettings } from '../src/horizonCloudsPolicy.js'
 import LensFlareEffect from '../src/lensFlareEffect.js'
 import { createLensFlareSettings } from '../src/lensFlarePolicy.js'
 import SunOcclusion, { createSunOcclusionUniforms } from '../src/sunOcclusion.js'
@@ -33,7 +48,6 @@ import { replaceChunks } from '../src/shaderChunks.js'
 import { createSceneryShadowSettings } from '../src/shadowPolicy.js'
 import { createTerrainCasterMaterial } from '../src/lightSpace.js'
 import {
-	createCloudMeshSettings,
 	createSceneryMeshSettings,
 	createSceneryWireframeSettings,
 } from '../src/sceneryMeshPolicy.js'
@@ -42,9 +56,9 @@ import {
 	createImpostorMaterial,
 	createImpostorWireframeMaterial,
 } from '../src/impostors/impostorMaterial.js'
-import { CLOUD_IMPOSTORS, SCENERY_IMPOSTORS } from '../src/impostors/impostorCatalogs.js'
+import { SCENERY_IMPOSTORS } from '../src/impostors/impostorCatalogs.js'
 import { createHemiOctViews } from '../src/impostors/octahedral.js'
-import { CLOUD_IMPOSTOR_VIEWS, IMPOSTOR_FRAMES_DESKTOP } from '../src/impostors/impostorTypes.js'
+import { IMPOSTOR_FRAMES_DESKTOP } from '../src/impostors/impostorTypes.js'
 
 // The source three passes to onBeforeCompile: ShaderLib with its includes
 // still unresolved.
@@ -71,6 +85,18 @@ function fakeAtlas(catalog, views) {
 		paint: null,
 		types: Array.from({ length: catalog.typeCount }, () => ({ frameRadius: 1, centerY: 0 })),
 	}
+}
+
+// The horizon clouds' shared uniforms and the noise tile they sample.
+function cloudUniforms() {
+	return { ...createHorizonCloudUniforms(), uNoiseTexture: { value: null } }
+}
+
+function dayNightStateAt(params, timeOfDay) {
+	return getDayNightState(timeOfDay, {
+		...DAY_NIGHT_DEFAULTS,
+		keyframes: params.dayNight.keyframes,
+	})
 }
 
 test('replaceChunks replaces includes and throws on a missing one', () => {
@@ -216,9 +242,9 @@ test('the terrain shadow caster draws back faces only and flattens onto the near
 	assert.match(material.vertexShader, /gl_Position\.z = max\(gl_Position\.z, -gl_Position\.w\);/)
 })
 
-test('the scenery and cloud impostor patches fit the standard material', () => {
+test('the scenery impostor patches fit the standard material', () => {
 	const scenery = createImpostorMaterial(
-		fakeAtlas(SCENERY_IMPOSTORS, createHemiOctViews(IMPOSTOR_FRAMES_DESKTOP, 1)),
+		fakeAtlas(SCENERY_IMPOSTORS, createHemiOctViews(IMPOSTOR_FRAMES_DESKTOP)),
 		uniforms,
 	)
 	const sceneryShader = patch(scenery, 'physical')
@@ -231,7 +257,7 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 	assert.ok('SCENERY_PALETTE' in scenery.defines)
 	assert.match(sceneryShader.vertexShader, /getSceneryPaletteTints\(/)
 	assert.match(sceneryShader.fragmentShader, /uImpostorPaint/)
-	// The boats bob with the sea waves; the clouds never compile them.
+	// The boats bob with the sea waves.
 	assert.ok('SCENERY_SEA_WAVES' in scenery.defines)
 	assert.match(
 		sceneryShader.vertexShader,
@@ -249,36 +275,9 @@ test('the scenery and cloud impostor patches fit the standard material', () => {
 	const wireframeShader = patch(wireframe, 'physical')
 	assert.match(wireframeShader.fragmentShader, /uSceneryWireframeColor/)
 	assert.ok('uSceneryTrunkColors' in wireframeShader.uniforms)
-
-	const clouds = createImpostorMaterial(
-		fakeAtlas(CLOUD_IMPOSTORS, CLOUD_IMPOSTOR_VIEWS),
-		uniforms,
-		{
-			receiveShadows: false,
-			ambientScale: { value: 1 },
-			translucent: true,
-		},
-	)
-	// Unshadowed: the lighting never calls the shadow lookup.
-	const cloudShader = patch(clouds, 'physical')
-	assert.doesNotMatch(cloudShader.fragmentShader, /getSceneryShadow\(impostorShadowPosition/)
-	// The clouds are painted whole from their own palette.
-	assert.ok('SCENERY_PALETTE' in clouds.defines)
-	assert.match(cloudShader.vertexShader, /getSceneryPaletteTints\(/)
-	assert.match(cloudShader.fragmentShader, /uImpostorPaint/)
-	for (const name of ['uImpostorPaint', 'uSceneryPaletteColors', 'uSceneryPaletteNoise']) {
-		assert.ok(name in cloudShader.uniforms, name)
-	}
-	assert.ok(!('SCENERY_SEA_WAVES' in clouds.defines))
-	// The clouds carry the light shining through them, and so does their
-	// wireframe twin.
-	assert.ok('CLOUD_TRANSLUCENCY' in clouds.defines)
-	assert.match(cloudShader.fragmentShader, /getCloudTranslucency\(directLight\.color/)
-	assert.ok('CLOUD_TRANSLUCENCY' in createImpostorWireframeMaterial(clouds, 0xffffff).defines)
-	assert.ok(!('CLOUD_TRANSLUCENCY' in scenery.defines))
 })
 
-test('the near scenery and cloud mesh patches fit the standard material', () => {
+test('the near scenery mesh patches fit the standard material', () => {
 	const shared = {
 		uniforms: { ...uniforms, uSceneryMeshRange: { value: new Vector2() } },
 		variation: { amount: { value: [0, 0, 0, 0, 0, 0] }, frequency: { value: 1 } },
@@ -286,40 +285,20 @@ test('the near scenery and cloud mesh patches fit the standard material', () => 
 		wireframe: createSceneryWireframeSettings(),
 	}
 	const scenery = new SceneryMeshes({ ...shared, settings: createSceneryMeshSettings() })
-	const clouds = new SceneryMeshes({
-		...shared,
-		settings: createCloudMeshSettings(),
-		catalog: CLOUD_IMPOSTORS,
-		receiveShadows: false,
-		ambientScale: { value: 1 },
-		translucent: true,
-	})
-	assert.ok('CLOUD_TRANSLUCENCY' in clouds.levels[0].material.defines)
-	assert.ok(!('CLOUD_TRANSLUCENCY' in scenery.levels[0].material.defines))
-	for (const meshes of [scenery, clouds]) {
-		for (const level of meshes.levels) {
-			const shader = patch(level.material, 'physical')
-			assert.ok('uSceneryDetail' in shader.uniforms)
-			assert.ok('uSceneryPaletteNoise' in shader.uniforms)
-			assert.match(shader.vertexShader, /getSceneryPaletteTints\(sceneryTint, aInstanceB\.z/)
-			// The rocks read their biome from the instance tint: no per-vertex field.
-			if (meshes === scenery) {
-				assert.doesNotMatch(shader.vertexShader, /getIceValue|getClimateNoise/)
-				// Boats float and tilt with the waves.
-				assert.match(
-					shader.vertexShader,
-					/getSceneryFloat\(sceneryType, sceneryBase, aInstanceB\.z/,
-				)
-			}
-			patch(level.wireframeMaterial, 'physical')
-		}
+	for (const level of scenery.levels) {
+		const shader = patch(level.material, 'physical')
+		assert.ok('uSceneryDetail' in shader.uniforms)
+		assert.ok('uSceneryPaletteNoise' in shader.uniforms)
+		assert.match(shader.vertexShader, /getSceneryPaletteTints\(sceneryTint, aInstanceB\.z/)
+		// The rocks read their biome from the instance tint: no per-vertex field.
+		assert.doesNotMatch(shader.vertexShader, /getIceValue|getClimateNoise/)
+		// Boats float and tilt with the waves.
+		assert.match(shader.vertexShader, /getSceneryFloat\(sceneryType, sceneryBase, aInstanceB\.z/)
+		patch(level.wireframeMaterial, 'physical')
 	}
-	// The paint mask reaches the scenery and cloud meshes alike.
+	// The paint mask reaches the scenery meshes.
 	assert.ok(scenery.levels[0].types[0].geometry.getAttribute('paint'))
-	assert.ok(clouds.levels[0].types[0].geometry.getAttribute('paint'))
-	for (const meshes of [scenery, clouds]) {
-		assert.match(patch(meshes.levels[0].material, 'physical').vertexShader, /vSceneryPaint = paint/)
-	}
+	assert.match(patch(scenery.levels[0].material, 'physical').vertexShader, /vSceneryPaint = paint/)
 })
 
 test('the trail, propeller, and debug marker patches fit their materials', () => {
@@ -350,6 +329,7 @@ test('the trail, propeller, and debug marker patches fit their materials', () =>
 test('the aurora material supplies every uniform its shaders declare', () => {
 	const shared = {
 		...uniforms,
+		...cloudUniforms(),
 		uTime: { value: 0 },
 		uAtmosphere: { value: new Color() },
 		uBiomeOffset: { value: new Vector4() },
@@ -367,6 +347,12 @@ test('the aurora material supplies every uniform its shaders declare', () => {
 	}
 	assert.match(material.vertexShader, /getCurvatureBend\(vec3\(groundXZ/)
 	assert.ok(material.transparent && !material.depthWrite && !material.fog)
+	// Only where the horizon clouds leave the sky open.
+	assert.match(
+		material.fragmentShader,
+		/\(1\.0 - getHorizonCloudCoverage\(direction, pixelAngle\)\)/,
+	)
+	assert.ok('HORIZON_CLOUD_ABS_MEAN' in material.defines)
 	aurora.dispose()
 })
 
@@ -396,7 +382,12 @@ function assertDeclaredUniforms(sources, supplied) {
 
 test('the lens flare composite and its occlusion pass supply every uniform they declare', () => {
 	const sun = { direction: new Vector3(0, 1, 0), color: new Color(), discVisibility: 0 }
-	const effect = new LensFlareEffect(new PerspectiveCamera(), createLensFlareSettings(), sun)
+	const effect = new LensFlareEffect(
+		new PerspectiveCamera(),
+		createLensFlareSettings(),
+		sun,
+		getHorizonCloudCoverageUniforms(cloudUniforms()),
+	)
 	assertDeclaredUniforms([effect.getFragmentShader()], effect.uniforms)
 	assert.equal(effect.defines.get('LENS_FLARE_TAPS'), '32')
 	const { fullscreenMaterial } = effect.visibilityPass
@@ -406,7 +397,72 @@ test('the lens flare composite and its occlusion pass supply every uniform they 
 	)
 	// The occlusion pass and the composite share the sun's screen position.
 	assert.equal(fullscreenMaterial.uniforms.sunScreen, effect.uniforms.get('sunScreen'))
+	// The horizon clouds hide the sun too, over each tap's view direction.
+	assert.ok('HORIZON_CLOUD_ABS_MEAN' in fullscreenMaterial.defines)
+	assert.match(
+		fullscreenMaterial.fragmentShader,
+		/sky \*= 1\.0 - getHorizonCloudCoverage\(getTapDirection\(uv\), cloudTest\.y\);/,
+	)
 	effect.dispose()
+})
+
+test('the sky supplies every uniform it declares, with and without the horizon clouds', () => {
+	const shared = {
+		...cloudUniforms(),
+		uTime: { value: 0 },
+		uSunDirection: { value: new Vector3() },
+		uAtmosphere: { value: new Color() },
+	}
+	const scene = new Scene()
+	scene.fog = new Fog(0xffffff, 1, 2)
+	scene.background = new Color()
+	const params = {
+		dayNight: {
+			timeOfDay: 0.35,
+			cycleDuration: DAY_NIGHT_DEFAULTS.cycleDuration,
+			paused: true,
+			keyframes: createDayNightPalette(),
+			skyGradientHeight: DAY_NIGHT_DEFAULTS.skyGradientHeight,
+		},
+		fog: { near: 200, far: 2100 },
+		directionalLight: 4,
+		moonLight: 1.2,
+		ambientLight: 1.5,
+		toneMapping: { exposure: 1, nightExposure: 1.3 },
+	}
+	const clouds = new HorizonClouds({ uniforms: shared, settings: createHorizonCloudSettings() })
+	const cloudDefines = clouds.defines
+	for (const skyDefines of [{}, cloudDefines]) {
+		const dayNight = new DayNight({
+			renderer: { toneMappingExposure: 1 },
+			scene,
+			camera: new PerspectiveCamera(),
+			ambientLight: new AmbientLight(),
+			sunLight: new DirectionalLight(),
+			moonLight: new DirectionalLight(),
+			uniforms: shared,
+			params,
+			skyDefines,
+		})
+		const { material } = dayNight.sky
+		assertDeclaredUniforms(
+			[material.vertexShader, material.fragmentShader],
+			new Map(Object.entries(material.uniforms)),
+		)
+		assert.equal('HORIZON_CLOUDS' in material.defines, skyDefines === cloudDefines)
+		assert.equal('HORIZON_CLOUD_ABS_MEAN' in material.defines, skyDefines === cloudDefines)
+		scene.remove(dayNight.sky)
+	}
+	// In front of the sun, the moon, and the stars: composited after them.
+	const fragment = readFileSync(new URL('../src/shaders/sky.frag.glsl', import.meta.url), 'utf8')
+	assert.ok(
+		fragment.indexOf('shadeHorizonCloud(') > fragment.indexOf('uStarVisibility > 0.001'),
+		'clouds after the stars',
+	)
+	// The day/night state feeds the clouds' palette, light, and dip.
+	clouds.update(1 / 60, dayNightStateAt(params, 0.5))
+	assert.equal(shared.uHorizonCloudFrame.value.w, 1)
+	assert.ok(shared.uHorizonCloudLit.value.r > shared.uHorizonCloudShade.value.r)
 })
 
 test('the wake step supplies every uniform it declares and writes the readers map', () => {

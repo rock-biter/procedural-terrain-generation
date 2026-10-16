@@ -1,8 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
-	VIEW_LAYOUT,
-	createFrontalViews,
 	createHemiOctViews,
 	decodeHemiOct,
 	decodeView,
@@ -19,10 +17,6 @@ import {
 	isSameViews,
 } from '../src/impostors/octahedral.js'
 import {
-	CLOUD_ATLAS_COLUMNS,
-	CLOUD_ATLAS_ROWS,
-	CLOUD_IMPOSTOR_VIEWS,
-	CLOUD_TYPE_COUNT,
 	IMPOSTOR_ATLAS_COLUMNS,
 	IMPOSTOR_ATLAS_ROWS,
 	IMPOSTOR_TYPE_COUNT,
@@ -117,139 +111,36 @@ test('selects a single frame when the view matches it', () => {
 	}
 })
 
-test('round-trips lower-hemisphere directions', () => {
-	for (let i = 0; i < 500; i++) {
-		const azimuth = (i * 2.399) % (Math.PI * 2)
-		const elevation = -((i * 0.618) % 1) * (Math.PI / 2)
-		const direction = [
-			Math.cos(elevation) * Math.cos(azimuth),
-			Math.sin(elevation),
-			Math.cos(elevation) * Math.sin(azimuth),
-		]
-		const [u, v] = encodeHemiOct(...direction, -1)
-		assert.ok(Math.abs(u) <= 1 + 1e-9 && Math.abs(v) <= 1 + 1e-9)
-		const decoded = decodeHemiOct(u, v, -1)
-		decoded.forEach((value, axis) => assert.ok(close(value, direction[axis])))
-	}
-})
-
-test('mirrors the upper mapping for the lower hemisphere', () => {
-	for (const frames of FRAME_COUNTS) {
-		for (let x = 0; x < frames; x++) {
-			for (let y = 0; y < frames; y++) {
-				const upper = getFrameDirection(x, y, frames)
-				const lower = getFrameDirection(x, y, frames, -1)
-				assert.ok(lower[1] <= 1e-9, 'lower frames look from below')
-				assert.ok(close(lower[0], upper[0]))
-				assert.ok(close(lower[1], -upper[1]))
-				assert.ok(close(lower[2], upper[2]))
-				// The bake keeps world up on screen from below too.
-				assert.ok(getFrameBasis(lower).up[1] >= -1e-9)
-			}
-		}
-		const direction = getFrameDirection(2, 7, frames, -1)
-		const blend = getFrameBlend(...direction, frames, -1)
-		const dominant = blend.weights.indexOf(Math.max(...blend.weights))
-		assert.deepEqual(blend.frames[dominant], [2, 7])
-	}
-})
-
-test('clamps views from the other hemisphere to the horizon ring', () => {
-	const [u, v] = encodeHemiOct(0.3, 0.8, 0.5, -1)
+test('clamps views from below to the horizon ring', () => {
+	const [u, v] = encodeHemiOct(0.3, -0.8, 0.5)
 	assert.ok(close(Math.abs((u + v) / 2) + Math.abs((u - v) / 2), 1))
 })
 
-const CLOUD_VIEWS = createFrontalViews(CLOUD_IMPOSTOR_VIEWS)
-const CLOUD_ATLAS = { columns: CLOUD_ATLAS_COLUMNS, rows: CLOUD_ATLAS_ROWS }
-
-function frontalDirection(azimuth, elevation) {
-	return [
-		Math.cos(elevation) * Math.sin(azimuth),
-		-Math.sin(elevation),
-		-Math.cos(elevation) * Math.cos(azimuth),
-	]
-}
-
-test('validates view layouts', () => {
+test('validates and compares view layouts', () => {
 	assert.throws(() => createHemiOctViews(7))
-	assert.throws(() => createFrontalViews({ ...CLOUD_IMPOSTOR_VIEWS, framesX: 1 }))
-	assert.throws(() => createFrontalViews({ ...CLOUD_IMPOSTOR_VIEWS, elevation: Math.PI / 2 }))
-	assert.equal(CLOUD_VIEWS.layout, VIEW_LAYOUT.FRONTAL)
-	assert.ok(isSameViews(CLOUD_VIEWS, createFrontalViews(CLOUD_IMPOSTOR_VIEWS)))
-	assert.ok(!isSameViews(CLOUD_VIEWS, createHemiOctViews(12, -1)))
-	assert.ok(!isSameViews(createHemiOctViews(12, 1), createHemiOctViews(12, -1)))
+	assert.ok(isSameViews(createHemiOctViews(12), createHemiOctViews(12)))
+	assert.ok(!isSameViews(createHemiOctViews(12), createHemiOctViews(8)))
 })
 
-test('round-trips directions inside the frontal band', () => {
-	const { azimuth, elevation } = CLOUD_IMPOSTOR_VIEWS
-	for (let i = 0; i < 300; i++) {
-		const direction = frontalDirection(
-			(((i * 0.618) % 1) * 2 - 1) * azimuth,
-			((i * 0.377) % 1) * elevation,
-		)
-		const [gx, gy] = encodeView(...direction, CLOUD_VIEWS)
+test('the layout functions match the hemi-octahedral grid', () => {
+	const views = createHemiOctViews(12)
+	for (let i = 0; i < 100; i++) {
+		const direction = normalize([
+			Math.sin(i * 1.3),
+			Math.abs(Math.cos(i * 0.7)) + 0.01,
+			Math.cos(i),
+		])
+		const [gx, gy] = encodeView(...direction)
 		assert.ok(gx >= 0 && gx <= 1 && gy >= 0 && gy <= 1)
-		decodeView(gx, gy, CLOUD_VIEWS).forEach((value, axis) =>
-			assert.ok(close(value, direction[axis])),
-		)
+		decodeView(gx, gy).forEach((value, axis) => assert.ok(close(value, direction[axis])))
+		assert.deepEqual(getViewFrameBlend(...direction, views), getFrameBlend(...direction, 12))
 	}
+	getViewFrameDirection(3, 5, views).forEach((value, axis) =>
+		assert.ok(close(value, getFrameDirection(3, 5, 12)[axis])),
+	)
 })
 
-test('bakes the front, the band edges, and only views from below', () => {
-	const { framesX, framesY, azimuth, elevation } = CLOUD_IMPOSTOR_VIEWS
-	const middle = (framesX - 1) / 2
-	frontalDirection(0, 0).forEach((value, axis) =>
-		assert.ok(close(getViewFrameDirection(middle, 0, CLOUD_VIEWS)[axis], value)),
-	)
-	frontalDirection(azimuth, elevation).forEach((value, axis) =>
-		assert.ok(close(getViewFrameDirection(framesX - 1, framesY - 1, CLOUD_VIEWS)[axis], value)),
-	)
-	const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
-	for (let x = 0; x < framesX; x++) {
-		for (let y = 0; y < framesY; y++) {
-			const direction = getViewFrameDirection(x, y, CLOUD_VIEWS)
-			assert.ok(direction[1] <= 1e-9, 'clouds are seen from below')
-			assert.ok(direction[2] < 0, 'and from the front')
-			const { right, up } = getFrameBasis(direction)
-			assert.ok(close(dot(right, up), 0) && close(dot(right, direction), 0))
-			assert.ok(up[1] > 0, 'the bake keeps world up on screen')
-		}
-	}
-})
-
-test('blends neighbouring frontal frames and clamps views outside the band', () => {
-	const { framesX, framesY, azimuth, elevation } = CLOUD_IMPOSTOR_VIEWS
-	for (let i = 0; i < 300; i++) {
-		const direction = frontalDirection(
-			(((i * 0.618) % 1) * 2.4 - 1.2) * azimuth,
-			(((i * 0.377) % 1) * 1.2 - 0.1) * elevation,
-		)
-		const { frames, weights } = getViewFrameBlend(...direction, CLOUD_VIEWS)
-		assert.ok(close(weights[0] + weights[1] + weights[2], 1))
-		for (const weight of weights) assert.ok(weight >= -1e-9)
-		for (const [x, y] of frames) assert.ok(x >= 0 && x < framesX && y >= 0 && y < framesY)
-	}
-	const exact = getViewFrameBlend(...getViewFrameDirection(2, 6, CLOUD_VIEWS), CLOUD_VIEWS)
-	assert.deepEqual(exact.frames[exact.weights.indexOf(Math.max(...exact.weights))], [2, 6])
-	// From above, from the side, and from behind: clamped to the band edges.
-	assert.deepEqual(
-		encodeView(0, 1, -0.2, CLOUD_VIEWS).map((value) => value + 0),
-		[0.5, 0],
-	)
-	assert.equal(encodeView(...frontalDirection(Math.PI / 2, 0.3), CLOUD_VIEWS)[0], 1)
-	assert.equal(encodeView(...frontalDirection(-Math.PI / 2, 0.3), CLOUD_VIEWS)[0], 0)
-	assert.equal(encodeView(0, -1, 0, CLOUD_VIEWS)[1], 1)
-})
-
-test('sizes atlases per layout and fits the texture limit', () => {
-	// The cloud atlas: four types in one row of blocks.
-	assert.ok(CLOUD_ATLAS_COLUMNS * CLOUD_ATLAS_ROWS >= CLOUD_TYPE_COUNT)
-	assert.deepEqual(getAtlasLayout(CLOUD_VIEWS, CLOUD_ATLAS, 96), {
-		blockWidth: 288,
-		blockHeight: 960,
-		width: 1152,
-		height: 960,
-	})
+test('sizes atlases and fits the texture limit', () => {
 	// The scenery atlas: eleven types in 4 x 3 blocks.
 	const SCENERY_ATLAS = { columns: IMPOSTOR_ATLAS_COLUMNS, rows: IMPOSTOR_ATLAS_ROWS }
 	assert.ok(IMPOSTOR_ATLAS_COLUMNS * IMPOSTOR_ATLAS_ROWS >= IMPOSTOR_TYPE_COUNT)
@@ -259,22 +150,12 @@ test('sizes atlases per layout and fits the texture limit', () => {
 		width: 3072,
 		height: 2304,
 	})
-	// The supersampled bake block of the tall frontal grid is the limit here.
-	assert.equal(getMaxImpostorFrameSize(2048, CLOUD_VIEWS, CLOUD_ATLAS, 2), 102)
 	// 64 px frames fit a 4096 texture limit; a 2048 one shrinks them.
 	assert.equal(getMaxImpostorFrameSize(4096, createHemiOctViews(12), SCENERY_ATLAS, 2), 85)
 	assert.equal(getMaxImpostorFrameSize(2048, createHemiOctViews(12), SCENERY_ATLAS, 2), 42)
 })
 
 test('turns layouts into shader defines', () => {
-	const frontal = getViewDefines(CLOUD_VIEWS)
-	assert.equal(frontal.IMPOSTOR_FRAMES_X, CLOUD_IMPOSTOR_VIEWS.framesX)
-	assert.equal(frontal.IMPOSTOR_FRAMES_Y, CLOUD_IMPOSTOR_VIEWS.framesY)
-	assert.ok('IMPOSTOR_FRONTAL_VIEWS' in frontal)
-	assert.match(frontal.IMPOSTOR_FRONTAL_AZIMUTH, /^\d+\.\d+$/)
-	assert.match(frontal.IMPOSTOR_FRONTAL_ELEVATION, /^\d+\.\d+$/)
-	assert.ok(!('IMPOSTOR_LOWER_HEMISPHERE' in frontal))
-	assert.ok('IMPOSTOR_LOWER_HEMISPHERE' in getViewDefines(createHemiOctViews(8, -1)))
 	assert.deepEqual(getViewDefines(createHemiOctViews(12)), {
 		IMPOSTOR_FRAMES_X: 12,
 		IMPOSTOR_FRAMES_Y: 12,

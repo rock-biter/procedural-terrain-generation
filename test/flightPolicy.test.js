@@ -370,7 +370,7 @@ test('smooths the minimum altitude faster upward than downward', () => {
 	assert.equal(collisionLimited, 18)
 })
 
-test('keeps the terrain corridor below the cloud-layer cap', () => {
+test('keeps the terrain corridor below the altitude cap', () => {
 	const corridor = getFlightCorridor({
 		x: 0,
 		z: 0,

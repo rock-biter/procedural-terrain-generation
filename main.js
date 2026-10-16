@@ -36,7 +36,7 @@ const debugGui = showGui ? await import('./src/debug/debugGui') : null
 const params = createAppParams({ urlParams, isMobile, debug: debugMode })
 const seed = parseWorldSeed(urlParams) ?? pickCuratedSeed()
 const uniforms = createSharedUniforms(params, seed)
-const setup = new RenderSetup({ params, urlParams, isMobile })
+const setup = new RenderSetup({ params, urlParams, uniforms, isMobile })
 
 // Streamed when Play is pressed instead of being loaded with the startup
 // assets, so it never delays the first frame. The ?gui=1 tuning mode never

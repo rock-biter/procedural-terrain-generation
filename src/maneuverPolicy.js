@@ -22,9 +22,9 @@ export const MANEUVER_LIMITS = Object.freeze({
 	aileronRollTurns: 2,
 	maximumAileronRollSettle: 0.9,
 	// The loop and the Immelmann climb 2 radii above the rig. The top stays
-	// below `maximumTopAltitude`, so the airplane and the eye stay well under
-	// the cloud bases (Y 197 at the lowest); the radius shrinks near it, and
-	// the maneuver does not start without room for `minimumRadius`.
+	// below `maximumTopAltitude`, so the eye keeps the world in view and the
+	// horizon close; the radius shrinks near it, and the maneuver does not
+	// start without room for `minimumRadius`.
 	maximumTopAltitude: 170,
 	minimumRadius: 12,
 	// Up to this speed effect the airplane cruises: the wheel back turns

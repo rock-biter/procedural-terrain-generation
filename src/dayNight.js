@@ -30,11 +30,39 @@ function setSRGB(color, [r, g, b]) {
 	return color.setRGB(r, g, b, SRGBColorSpace)
 }
 
+// The sky dome's material: unlit and fog-free, like the aurora's
+// (src/aurora.js). It is drawn after every opaque mesh, on the far plane
+// (sky.vert.glsl) with the depth test on, so only the pixels the scene leaves
+// empty run its shader. Samples that alpha-to-coverage impostors leave
+// uncovered keep the cleared depth, so the sky still fills them. `defines`
+// with HORIZON_CLOUDS draw the horizon clouds (src/horizonClouds.js).
+export function createSkyMaterial({ uniforms, defines = {} }) {
+	return new ShaderMaterial({
+		uniforms,
+		defines,
+		vertexShader: skyVertex,
+		fragmentShader: skyFragment,
+		side: BackSide,
+		depthWrite: false,
+		fog: false,
+	})
+}
+
 export default class DayNight {
 	state = createDayNightState()
 	cameraPosition = new Vector3()
 
-	constructor({ renderer, scene, camera, ambientLight, sunLight, moonLight, uniforms, params }) {
+	constructor({
+		renderer,
+		scene,
+		camera,
+		ambientLight,
+		sunLight,
+		moonLight,
+		uniforms,
+		params,
+		skyDefines = {},
+	}) {
 		this.renderer = renderer
 		this.scene = scene
 		this.camera = camera
@@ -50,13 +78,13 @@ export default class DayNight {
 			keyframes: settings.keyframes,
 		}
 
+		// The shared ones (the time, the sun's direction, the horizon clouds')
+		// plus the sky's own.
 		this.skyUniforms = {
-			uTime: uniforms.uTime,
+			...uniforms,
 			uZenith: { value: new Color() },
 			uHorizon: { value: new Color() },
 			uSunColor: { value: new Color() },
-			// The shared wrapper: the terrain and the clouds read the sun too.
-			uSunDirection: uniforms.uSunDirection,
 			uMoonDirection: { value: new Vector3() },
 			uStarVisibility: { value: 0 },
 			uHorizonDip: { value: 0 },
@@ -64,21 +92,9 @@ export default class DayNight {
 			uGradientHeight: { value: settings.skyGradientHeight },
 		}
 
-		// A ShaderMaterial, like the aurora's (src/aurora.js): the sky is unlit
-		// and ignores fog. It is drawn after every opaque mesh, on the far plane (sky.vert.glsl)
-		// with the depth test on, so only the pixels the scene leaves empty run
-		// its shader. Samples that alpha-to-coverage impostors leave uncovered
-		// keep the cleared depth, so the sky still fills them.
 		this.sky = new Mesh(
 			new SphereGeometry(SKY_RADIUS, 32, 16),
-			new ShaderMaterial({
-				uniforms: this.skyUniforms,
-				vertexShader: skyVertex,
-				fragmentShader: skyFragment,
-				side: BackSide,
-				depthWrite: false,
-				fog: false,
-			}),
+			createSkyMaterial({ uniforms: this.skyUniforms, defines: skyDefines }),
 		)
 		this.sky.renderOrder = SKY_RENDER_ORDER
 		this.sky.frustumCulled = false

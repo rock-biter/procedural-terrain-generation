@@ -226,3 +226,25 @@ test('starts at ?time=, else the fixed debug time, else the local clock', () => 
 	assert.equal(start('time=0.6', true), 0.6)
 	assert.equal(start('time=noon', true), 0.3)
 })
+
+test('every keyframe colors the horizon clouds, lit above their shade', () => {
+	for (const keyframe of DAY_NIGHT_DEFAULTS.keyframes) {
+		for (const field of ['cloudLit', 'cloudShade']) {
+			assert.equal(keyframe[field].length, 3, `${keyframe.name} ${field}`)
+			for (const channel of keyframe[field]) assert.ok(channel >= 0 && channel <= 1)
+		}
+		const luminance = ([r, g, b]) => 0.2126 * r + 0.7152 * g + 0.0722 * b
+		assert.ok(luminance(keyframe.cloudLit) > luminance(keyframe.cloudShade), keyframe.name)
+	}
+	// Blended like the sky's colors, and copied with the palette.
+	const state = getDayNightState(0.43)
+	const morning = DAY_NIGHT_DEFAULTS.keyframes.find(({ name }) => name === 'Morning')
+	const noon = DAY_NIGHT_DEFAULTS.keyframes.find(({ name }) => name === 'Noon')
+	for (let channel = 0; channel < 3; channel++) {
+		const [low, high] = [morning, noon]
+			.map(({ cloudShade }) => cloudShade[channel])
+			.sort((a, b) => a - b)
+		assert.ok(state.cloudShade[channel] >= low - 1e-9 && state.cloudShade[channel] <= high + 1e-9)
+	}
+	assert.deepEqual(createDayNightPalette()[0].cloudLit, DAY_NIGHT_DEFAULTS.keyframes[0].cloudLit)
+})

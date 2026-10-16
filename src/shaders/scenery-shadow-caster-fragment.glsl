@@ -1,7 +1,5 @@
 // Impostor shadow caster: keeps the texels the baked silhouette covers. Only
-// depth is written (colorWrite is off), or, with SHADOW_CASTER_COVERAGE
-// (cloud shadows), the fractional coverage in the red channel, combined with
-// max blending.
+// depth is written (colorWrite is off).
 uniform sampler2D uImpostorAlbedo;
 varying vec4 vFrame0;
 varying vec4 vFrame1;
@@ -30,10 +28,6 @@ void main() {
 		+ getFrameCoverage(vFrame1) * vFrameWeights.y
 		+ getFrameCoverage(vFrame2) * vFrameWeights.z;
 #endif
-#ifdef SHADOW_CASTER_COVERAGE
-	gl_FragColor = vec4(coverage, 0.0, 0.0, 1.0);
-#else
 	if (coverage < 0.5) discard;
 	gl_FragColor = vec4(1.0);
-#endif
 }

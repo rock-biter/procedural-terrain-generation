@@ -7,7 +7,11 @@
 #ifndef NOISE_TEXTURE
 #define NOISE_TEXTURE
 
+// Guarded apart: horizon-clouds-pars.glsl declares it too.
+#ifndef NOISE_TEXTURE_SAMPLER
+#define NOISE_TEXTURE_SAMPLER
 uniform sampler2D uNoiseTexture;
+#endif
 
 // The four fields at `p`, in snoise() units, about [-1, 1]. `footprint` is the
 // pixel's size in the same units, which picks the mip level: the callers sit

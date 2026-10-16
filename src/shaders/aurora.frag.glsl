@@ -3,6 +3,7 @@
 // brightness waves running along the curtains. Unlit and fog-free, like the
 // sky; it fades into the curved horizon instead.
 #include ./common.glsl
+#include ./horizon-clouds-pars.glsl
 
 // Base, middle, and top colors, linear (Aurora.applySettings() converts the
 // sRGB settings).
@@ -49,13 +50,17 @@ void main() {
 
 	// Elevation above the curved world's visible edge, as in sky.frag.glsl.
 	vec3 direction = normalize(wPosition - cameraPosition);
+	// The angle a pixel spans, taken while control flow is still uniform.
+	float pixelAngle = max(length(dFdx(direction)), length(dFdy(direction)));
 	float elevation = asin(clamp(direction.y, -1.0, 1.0)) + uHorizonDipAngle;
 	float horizon = smoothstep(0.0, max(uAuroraFade.z, 1e-4), elevation);
 	// Edge-on, a curtain thins to a flickering line.
 	float edge = smoothstep(0.0, max(uAuroraFade.w, 1e-4), vAuroraFacing);
 
+	// The aurora glows high above the horizon clouds (horizon-clouds-pars.glsl):
+	// added after the sky, it shows only where they leave the sky uncovered.
 	float strength = profile * rayBrightness * pulse * vAurora.w * horizon * edge
-		* uAuroraIntensity * uAuroraVisibility;
+		* uAuroraIntensity * uAuroraVisibility * (1.0 - getHorizonCloudCoverage(direction, pixelAngle));
 	gl_FragColor = vec4(color * strength, 1.0);
 
 	#include <tonemapping_fragment>

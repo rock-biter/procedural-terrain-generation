@@ -10,7 +10,9 @@ import {
 	getScreenEdgeFade,
 	getSunDiscVisibility,
 	getSunScreenPosition,
+	getOcclusionTapFootprint,
 	getTemporalBlend,
+	shouldTestHorizonClouds,
 } from '../src/lensFlarePolicy.js'
 import { smoothstep } from '../src/math.js'
 
@@ -114,4 +116,18 @@ test('the gate closes behind the camera, when off, and at night', () => {
 	assert.equal(getLensFlareGate({ ...settings, intensity: 0 }, 1, front, 1), 0)
 	assert.equal(getLensFlareGate(settings, 1, { inFront: false }, 1), 0)
 	assert.equal(getLensFlareGate(settings, getSunDiscVisibility(-0.9, 0.2), front, 1), 0)
+})
+
+test('the occlusion tests the horizon clouds only while the disc reaches their band', () => {
+	const degree = Math.PI / 180
+	// [dip, band bottom, band top, on]
+	const frame = [0.2, -1 * degree, 14 * degree, 1]
+	assert.equal(shouldTestHorizonClouds(5 * degree, 1.3, frame), true)
+	assert.equal(shouldTestHorizonClouds(14.5 * degree, 1.3, frame), true)
+	assert.equal(shouldTestHorizonClouds(40 * degree, 1.3, frame), false)
+	assert.equal(shouldTestHorizonClouds(-3 * degree, 1.3, frame), false)
+	assert.equal(shouldTestHorizonClouds(5 * degree, 1.3, [0.2, -0.02, 0.24, 0]), false)
+	assert.equal(shouldTestHorizonClouds(5 * degree, 1.3, null), false)
+	// About the spacing of 32 taps over the disc.
+	assertClose(getOcclusionTapFootprint(1.3, 32), (2.6 * degree) / Math.sqrt(32))
 })

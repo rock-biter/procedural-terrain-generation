@@ -2,16 +2,10 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import test from 'node:test'
 import {
-	CLOUD_SHADOW_DEFAULTS,
-	CLOUD_SHADOW_PRESETS,
 	SCENERY_SHADOW_CASCADE_COUNT,
 	SCENERY_SHADOW_MAX_TAPS,
 	SCENERY_SHADOW_PRESETS,
-	createCloudShadowSettings,
 	createSceneryShadowSettings,
-	getCloudShadowBlurTexels,
-	getCloudShadowSphere,
-	shouldRenderCloudShadow,
 	getCascadeDepthRange,
 	getCascadeSphere,
 	getLightAngle,
@@ -277,47 +271,8 @@ test('the GLSL PCF kernel is the golden-angle spiral', () => {
 	})
 })
 
-test('cloud shadow settings are fresh copies of the device preset', () => {
-	const desktop = createCloudShadowSettings()
-	const mobile = createCloudShadowSettings({ isMobile: true })
-	assert.equal(desktop.radius, CLOUD_SHADOW_PRESETS.desktop.radius)
-	assert.equal(desktop.mapSize, CLOUD_SHADOW_PRESETS.desktop.mapSize)
-	assert.equal(mobile.mapSize, CLOUD_SHADOW_PRESETS.mobile.mapSize)
-	desktop.heightRange.max = 999
-	assert.equal(createCloudShadowSettings().heightRange.max, CLOUD_SHADOW_DEFAULTS.heightRange.max)
-})
-
-test('the cloud shadow disk is centered on the plane and covers the receivers', () => {
-	const settings = createCloudShadowSettings()
-	const sphere = getCloudShadowSphere(120, -40, settings)
-	assert.equal(sphere.x, 120)
-	assert.equal(sphere.z, -40)
-	assert.equal(sphere.diskRadius, settings.radius)
-	const halfHeight = (settings.heightRange.max - settings.heightRange.min) / 2
-	assert.ok(sphere.sphereRadius >= Math.hypot(settings.radius, halfHeight) - 1e-9)
-})
-
-test('the cloud shadow map renders only when needed', () => {
-	const base = { center: [0, 0], x: 0, z: 0, recenterDistance: 100 }
-	assert.equal(shouldRenderCloudShadow({ ...base, center: null }), true)
-	assert.equal(shouldRenderCloudShadow(base), false)
-	assert.equal(shouldRenderCloudShadow({ ...base, x: 99 }), false)
-	assert.equal(shouldRenderCloudShadow({ ...base, x: 80, z: 80 }), true)
-	assert.equal(shouldRenderCloudShadow({ ...base, lightChanged: true }), true)
-	assert.equal(shouldRenderCloudShadow({ ...base, revisionChanged: true }), true)
-	assert.equal(shouldRenderCloudShadow({ ...base, forced: true }), true)
-})
-
-test('the cloud shadow blur follows the softness and stays bounded', () => {
-	assert.equal(getCloudShadowBlurTexels(6, 2), 3)
-	assert.equal(getCloudShadowBlurTexels(0, 2), 0)
-	assert.equal(getCloudShadowBlurTexels(100, 1), CLOUD_SHADOW_DEFAULTS.maxBlurTexels)
-	assert.equal(getCloudShadowBlurTexels(6, 0), 0)
-})
-
 test('the specular share turns a capped lookup into the shadow of the glare', () => {
 	assert.equal(createSceneryShadowSettings().specular, 1)
-	assert.equal(createCloudShadowSettings().specular, 1)
 	assert.equal(getSpecularShadowScale({ enabled: false, strength: 0.8, specular: 1 }), 0)
 	assert.equal(getSpecularShadowScale({ enabled: true, strength: 0, specular: 1 }), 0)
 	assert.equal(getSpecularShadowScale({ enabled: true, strength: 0.8, specular: 0 }), 0)

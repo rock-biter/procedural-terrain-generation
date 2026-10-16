@@ -16,7 +16,10 @@ const TWO_PI = Math.PI * 2
 // relative to params.moonLight. At night the moon stays at full strength and
 // ambient light is kept very low so directional moonlight reveals the relief.
 // Trail tints color the unlit wing trails: pink at dawn, orange at sunset, and
-// blue at night, bright enough to stay readable against the sky.
+// blue at night, bright enough to stay readable against the sky. The horizon
+// clouds (src/horizonClouds.js) take their lit and shade colors as they are,
+// already dimmed for the hour: cream and lilac by day, peach and mauve at the
+// ends of the day, moonlit blue-gray at night.
 const DAY_NIGHT_KEYFRAMES = Object.freeze([
 	Object.freeze({
 		name: 'Midnight',
@@ -31,6 +34,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 0.06,
 		atmosphere: [0.1, 0.11, 0.2],
 		trailTint: [0.45, 0.6, 1],
+		cloudLit: [0.2, 0.24, 0.36],
+		cloudShade: [0.05, 0.06, 0.13],
 		stars: 1,
 		night: 1,
 	}),
@@ -47,6 +52,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 0.12,
 		atmosphere: [0.3, 0.22, 0.34],
 		trailTint: [0.75, 0.6, 0.95],
+		cloudLit: [0.52, 0.42, 0.56],
+		cloudShade: [0.16, 0.13, 0.26],
 		stars: 0.5,
 		night: 0.8,
 	}),
@@ -63,6 +70,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 0.8,
 		atmosphere: [0.6, 0.42, 0.38],
 		trailTint: [1, 0.62, 0.7],
+		cloudLit: [1, 0.74, 0.56],
+		cloudShade: [0.6, 0.5, 0.68],
 		stars: 0,
 		night: 0.2,
 	}),
@@ -79,6 +88,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 1,
 		atmosphere: [0.55, 0.66, 0.8],
 		trailTint: [1, 0.93, 0.9],
+		cloudLit: [1, 0.95, 0.82],
+		cloudShade: [0.7, 0.74, 0.9],
 		stars: 0,
 		night: 0,
 	}),
@@ -95,6 +106,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 1.05,
 		atmosphere: [0.6, 0.72, 0.86],
 		trailTint: [1, 1, 1],
+		cloudLit: [1, 0.95, 0.8],
+		cloudShade: [0.72, 0.75, 0.9],
 		stars: 0,
 		night: 0,
 	}),
@@ -111,6 +124,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 1,
 		atmosphere: [0.6, 0.64, 0.76],
 		trailTint: [1, 0.95, 0.88],
+		cloudLit: [1, 0.92, 0.76],
+		cloudShade: [0.7, 0.71, 0.87],
 		stars: 0,
 		night: 0,
 	}),
@@ -127,6 +142,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 0.8,
 		atmosphere: [0.55, 0.3, 0.25],
 		trailTint: [1, 0.6, 0.35],
+		cloudLit: [1, 0.64, 0.44],
+		cloudShade: [0.55, 0.42, 0.62],
 		stars: 0,
 		night: 0.2,
 	}),
@@ -143,6 +160,8 @@ const DAY_NIGHT_KEYFRAMES = Object.freeze([
 		ambientIntensity: 0.15,
 		atmosphere: [0.349, 0.128, 0.152],
 		trailTint: [0.55, 0.62, 1],
+		cloudLit: [0.42, 0.32, 0.55],
+		cloudShade: [0.14, 0.11, 0.3],
 		stars: 0.6,
 		night: 0.7,
 	}),
@@ -171,6 +190,8 @@ export const DAY_NIGHT_COLOR_FIELDS = Object.freeze([
 	'ambientColor',
 	'atmosphere',
 	'trailTint',
+	'cloudLit',
+	'cloudShade',
 ])
 export const DAY_NIGHT_SCALAR_FIELDS = Object.freeze([
 	'sunIntensity',

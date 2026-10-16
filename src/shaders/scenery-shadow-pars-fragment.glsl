@@ -27,9 +27,8 @@ varying vec3 vShadowPosition;
 
 // PCF samples per cascade come from the material defines
 // SCENERY_SHADOW_TAPS_NEAR and SCENERY_SHADOW_TAPS_FAR
-// (getSceneryShadowTapDefines() in src/shadowPolicy.js), at most 16. Unshadowed
-// materials (SCENERY_NO_SHADOWS) include this chunk without them and get only
-// the declarations above.
+// (getSceneryShadowTapDefines() in src/shadowPolicy.js), at most 16. Without
+// them this chunk declares only the uniforms above.
 #ifdef SCENERY_SHADOW_TAPS_NEAR
 
 

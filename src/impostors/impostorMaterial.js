@@ -35,8 +35,8 @@ export const SCENERY_IMPOSTOR_FAR_FADE = Object.freeze([800, 950])
 // Palette uniforms read by SCENERY_PALETTE shaders
 // (getSceneryPaletteTints() in scenery-instance-pars-vertex.glsl), keyed by
 // uniform name. The defaults (white colors, zero weights) leave every type
-// with its plain tint; src/sceneryImpostors.js and src/clouds.js write the
-// GUI palettes into them in place (setSceneryPaletteUniforms()).
+// with its plain tint; src/sceneryImpostors.js writes the GUI palettes into
+// them in place (setSceneryPaletteUniforms()).
 export function createSceneryPaletteUniforms(typeCount) {
 	return {
 		uSceneryPaletteColors: {
@@ -48,8 +48,8 @@ export function createSceneryPaletteUniforms(typeCount) {
 	}
 }
 
-// Writes a palette layout (getSceneryPaletteLayout() or
-// getCloudPaletteLayout() in src/sceneryPalettePolicy.js) into `palette`
+// Writes a palette layout (getSceneryPaletteLayout() in
+// src/sceneryPalettePolicy.js) into `palette`
 // (createSceneryPaletteUniforms()), live: colors become linear (Color.set()
 // converts the sRGB hex) and are divided by the gray the painted types are
 // baked in; unused entries stay white.
@@ -81,27 +81,13 @@ export function setSceneryPaletteUniforms(palette, layout) {
 // type index. `farFade` is a Vector2 uniform (start, end) of the shrink into
 // the fog. `palette` (createSceneryPaletteUniforms()) holds the palette
 // uniforms of a SCENERY_PALETTE catalog, owned by the caller; without it the
-// material makes neutral ones.
-//
-// With `receiveShadows` (scenery), `uniforms` must also hold the scenery and
-// cloud shadow uniforms (src/sceneryShadows.js, src/cloudShadows.js);
-// `shadowTaps` is the PCF sample count of the scenery shadow lookup. Without
-// it (clouds), lighting has no shadow, `ambientScale` (a float uniform)
-// scales the ambient light, and `translucent` adds the clouds' carried light,
-// whose uniforms `uniforms` must hold (cloud-translucency-pars-fragment.glsl).
+// material makes neutral ones. `uniforms` must also hold the scenery shadow
+// uniforms (src/sceneryShadows.js); `shadowTaps` is the PCF sample count of
+// the scenery shadow lookup.
 export function createImpostorMaterial(
 	atlas,
 	uniforms,
-	{
-		singleFrame = false,
-		variation,
-		shadowTaps = 2,
-		receiveShadows = true,
-		farFade = null,
-		ambientScale = null,
-		palette = null,
-		translucent = false,
-	} = {},
+	{ singleFrame = false, variation, shadowTaps = 2, farFade = null, palette = null } = {},
 ) {
 	const impostorUniforms = {
 		...(palette ?? createSceneryPaletteUniforms(atlas.catalog.typeCount)),
@@ -117,14 +103,7 @@ export function createImpostorMaterial(
 			value: atlas.types.map(({ frameRadius, centerY }) => new Vector2(frameRadius, centerY)),
 		},
 	}
-	if (ambientScale) impostorUniforms.uSceneryAmbientScale = ambientScale
-	const material = buildImpostorMaterial(atlas, uniforms, impostorUniforms, {
-		singleFrame,
-		shadowTaps,
-		receiveShadows,
-		translucent,
-	})
-	return material
+	return buildImpostorMaterial(atlas, uniforms, impostorUniforms, { singleFrame, shadowTaps })
 }
 
 // Debug wireframe overlay of the impostor quads (sceneryWireframe.js), in
@@ -143,12 +122,7 @@ export function createImpostorWireframeMaterial(material, color) {
 	)
 }
 
-function buildImpostorMaterial(
-	atlas,
-	uniforms,
-	impostorUniforms,
-	{ singleFrame, shadowTaps, receiveShadows, translucent = false },
-) {
+function buildImpostorMaterial(atlas, uniforms, impostorUniforms, { singleFrame, shadowTaps }) {
 	const material = new MeshStandardMaterial({
 		roughness: 0.9,
 		metalness: 0,
@@ -162,30 +136,19 @@ function buildImpostorMaterial(
 		...getCatalogDefines(atlas.catalog),
 	}
 	if (singleFrame) material.defines.IMPOSTOR_SINGLE_FRAME = ''
-	// Its defines keep the unshadowed program apart from the shadowed one.
-	const lighting = createSceneryLighting(
-		receiveShadows
-			? {
-					shadows: {
-						taps: [shadowTaps, shadowTaps],
-						position: 'impostorShadowPosition',
-						selfBias: 'vShadowSelfBias',
-					},
-				}
-			: { ambientScale: impostorUniforms.uSceneryAmbientScale, translucent },
-	)
+	const lighting = createSceneryLighting({
+		shadows: {
+			taps: [shadowTaps, shadowTaps],
+			position: 'impostorShadowPosition',
+			selfBias: 'vShadowSelfBias',
+		},
+	})
 	Object.assign(material.defines, lighting.defines)
 
 	// Lets a re-bake swap the atlas without recompiling the material.
 	material.userData.atlas = atlas
 	material.userData.impostorUniforms = impostorUniforms
-	material.userData.impostorOptions = {
-		uniforms,
-		singleFrame,
-		shadowTaps,
-		receiveShadows,
-		translucent,
-	}
+	material.userData.impostorOptions = { uniforms, singleFrame, shadowTaps }
 
 	material.onBeforeCompile = (shader) => {
 		shader.uniforms = {
